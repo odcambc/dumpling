@@ -1,0 +1,21 @@
+configfile: "config/example.yaml"
+
+experiment = config["experiment"]
+
+def get_ref(wildcards):
+    prefix = config["reference"].split(".fasta")[0]
+    return prefix
+
+rule all:
+  input:
+    expand("results/{experiment}/gatk/{sample}.aaCounts", sample=config["samples"], experiment=experiment),
+    expand("stats/fastqc/{sample}_{reads}_fastqc.html", sample=config["samples"], reads=["R1", "R2"]),
+    expand("stats/fastqc/{sample}_{reads}_fastqc.zip", sample=config["samples"], reads=["R1", "R2"])
+
+include: "rules/asm.smk"
+include: "rules/filter.smk"
+include: "rules/map.smk"
+include: "rules/qc.smk"
+include: "rules/ref.smk"
+
+#    "stats/multiqc.html"

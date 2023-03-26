@@ -1,0 +1,22 @@
+data_dir: '/Users/bartleby/Desktop/Sequencing'
+experiment_dir: 'Amplicon'
+experiment: 'test'
+
+samples:
+  - Kir21-baseline_S1_L001
+  - Kir21-S1-EK-014_S4_L001
+
+ref_dir: 'references'
+reference: Kir21_ref.fasta
+reference2: Kir21_ref
+orf: "37-1344"
+
+kmers: 15
+
+sam: 1.3
+
+adapters: "/Users/bartleby/mambaforge/envs/dms_qc/opt/bbmap-39.01-0/resources/adapters.fa"
+
+contaminant_ref: "/Users/bartleby/mambaforge/envs/dms_qc/opt/bbmap-39.01-0/resources/sequencing_artifacts.fa.gz,/Users/bartleby/mambaforge/envs/dms_qc/opt/bbmap-39.01-0/resources/phix174_ill.ref.fa.gz"
+
+mem: 16
