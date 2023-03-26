@@ -8,9 +8,9 @@ def get_ref(wildcards):
 
 rule all:
   input:
-    expand("results/{experiment}/gatk/{sample}.aaCounts", sample=config["samples"], experiment=experiment),
-    expand("stats/fastqc/{sample}_{reads}_fastqc.html", sample=config["samples"], reads=["R1", "R2"]),
-    expand("stats/fastqc/{sample}_{reads}_fastqc.zip", sample=config["samples"], reads=["R1", "R2"])
+    expand("results/{experiment_name}/gatk/{sample_name}.aaCounts", sample_name=config["samples"], experiment_name=config["experiment"]),
+    expand("stats/{experiment_name}/fastqc/{sample_name}_{reads}_fastqc.html", sample_name=config["samples"], reads=["R1", "R2"], experiment_name=config["experiment"]),
+    expand("stats/{experiment_name}/fastqc/{sample_name}_{reads}_fastqc.zip", sample_name=config["samples"], reads=["R1", "R2"], experiment_name=config["experiment"])
 
 include: "rules/asm.smk"
 include: "rules/filter.smk"

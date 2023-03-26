@@ -1,27 +1,27 @@
 rule multiqc_dir:
     input:
-        "stats/fastqc/{sample}_R1_fastqc.html"
+        "stats/{experiment}/fastqc/{sample}_R1_fastqc.html"
     output:
-        "stats/multiqc.html"
+        "stats/{experiment}/multiqc.html"
     params:
         extra=""
     benchmark:
-        "benchmarks/multiqc.benchmark.txt"
+        "benchmarks/{experiment}/multiqc.benchmark.txt"
     log:
-        "logs/multiqc.log"
+        "logs/{experiment}/multiqc.log"
     wrapper:
         "v1.25.0/bio/multiqc"
 
 rule fastqc:
   input:
-    expand("{data_dir}/{experiment_dir}/{{sample}}_001.fastq.gz", data_dir=config["data_dir"], experiment_dir=config["experiment_dir"])
+    expand("{data_dir}/{{sample_name}}_001.fastq.gz", data_dir=config["data_dir"])
   output:
-    html="stats/fastqc/{sample}_fastqc.html",
-    zip="stats/fastqc/{sample}_fastqc.zip"
+    html="stats/{experiment}/fastqc/{sample_name}_fastqc.html",
+    zip="stats/{experiment}/fastqc/{sample_name}_fastqc.zip"
   params: "--quiet"
   benchmark:
-    "benchmarks/{sample}.fastqc.benchmark.txt"
+    "benchmarks/{experiment}/{sample_name}.fastqc.benchmark.txt"
   log:
-    "logs/fastqc/{sample}.log"
+    "logs/{experiment}/fastqc/{sample_name}.log"
   wrapper:
     "v1.5.0/bio/fastqc"

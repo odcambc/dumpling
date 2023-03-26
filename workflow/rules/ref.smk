@@ -6,7 +6,7 @@ rule prepare_dict_GATK:
   log:
     "logs/gatk/{reference}.create_dict.log"
   shell:
-    "gatk CreateSequenceDictionary -R {input}"
+    "gatk CreateSequenceDictionary -R {input} 2> {log}"
 
 rule prepare_index:
   input:
@@ -16,4 +16,4 @@ rule prepare_index:
   log:
     "logs/gatk/{reference}.create_dict.log"
   shell:
-    "samtools faidx {input}"
+    "samtools faidx {input} 2> {log}"

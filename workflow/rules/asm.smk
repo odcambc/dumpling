@@ -2,15 +2,15 @@ rule gatk_ASM:
   input:
     index=expand("{ref_dir}/{ref}.fasta.fai", ref_dir=config["ref_dir"], ref=config["reference2"]),
     ref_dict=expand("{ref_dir}/{ref}.dict", ref_dir=config["ref_dir"], ref=config["reference2"]),
-    sam=expand("results/{experiment}/{{sample_prefix}}.mapped.sam", experiment=config["experiment"])
+    sam="results/{experiment}/{sample_prefix}.mapped.sam"
   output:
-    expand("results/{experiment}/gatk/{{sample_prefix}}.aaCounts", experiment=config["experiment"])
+    "results/{experiment}/gatk/{sample_prefix}.aaCounts"
   params:
     orf=config["orf"],
     kmers=config["kmers"],
     ref=expand("{ref_dir}/{ref}.fasta", ref_dir=config["ref_dir"], ref=config["reference2"]),
-  benchmark: "benchmarks/{sample_prefix}.gatk_asm.benchmark.txt"
-  log: "logs/gatk/{sample_prefix}.gatk_asm.log"
+  benchmark: "benchmarks/{experiment}/{sample_prefix}.gatk_asm.benchmark.txt"
+  log: "logs/{experiment}/{sample_prefix}.gatk_asm.benchmark.txt"
   default_target: True
   threads: 1
   shell:
@@ -18,5 +18,5 @@ rule gatk_ASM:
     "-I {input.sam} "
     "-R {params.ref} "
     "--orf {params.orf} "
-    "-O results/{config[experiment]}/gatk/{wildcards.sample_prefix} 2>{log}"
+    "-O results/{wildcards.experiment}/gatk/{wildcards.sample_prefix} 2>{log}"
     
