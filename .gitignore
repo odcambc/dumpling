@@ -1,2 +1,7 @@
 .DS_Store
-
+results/
+benchmarks/
+logs/
+stats/
+ref/
+.snakemake
