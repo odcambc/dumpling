@@ -1,0 +1,36 @@
+$schema: "https://json-schema.org/draft/2020-12/schema"
+description: DMS experiment definition CSV file
+properties:
+  sample:
+    type: string
+    description: Sample name 
+  condition:
+    type: string
+    description: sample condition that will be compared during differential expression analysis (e.g. a treatment, a tissue time, a disease)
+  replicate:
+    type: integer
+    description: replicate number
+  time:
+    type: number
+    description: timepoint of sample (for timecourse experiments)
+  bin:
+    type: int
+    description: sample bin (for FACS-type experiments)
+  tile:
+    type: integer
+    description: tile number (for tiled amplicon experiments)
+  file:
+    type: string
+    description: sample file name prefix (truncated at lane number)
+
+required:
+  - sample
+  - condition
+  - replicate
+  - file
+
+oneOf:
+  - required:
+      - time
+  - required:
+      - bin

@@ -1,0 +1,54 @@
+$schema: "https://json-schema.org/draft/2020-12/schema"
+description: DMS pipeline configuration file
+properties:
+  data_dir:
+    type: string
+    description: sample name/identifier
+  experiment:
+    type: string
+    description: sample condition that will be compared during differential expression analysis (e.g. a treatment, a tissue time, a disease)
+  experiment_file:
+    type: string
+    description: Location of experiment setup definition file in CSV format
+  samples:
+    type: array
+    description: Array of experiment file names (truncated at lane number)
+  ref_dir:
+    type: string
+    description: directory where reference files are located
+  reference:
+    type: string
+    description: reference file name
+  orf:
+    type: string
+    description: "ORF coordinates in reference file. Format: start-stop"
+  kmers:
+    type: integer
+    default: 15
+    description: kmer length for bbduk
+  sam:
+    type: string
+    default: "1.3"
+    description: cigar string version for bbmap - 1.3 uses M for = or X, and 1.4 uses = or X.
+  adapters:
+    type:
+      - string
+      - array
+    description: adapter file(s) locations for bbduk. Can be single file string or array of files.
+  contaminants:
+    type:
+      - string
+      - array
+    description: contaminant reference file(s) locations for bbduk. Can be single file string or array of files.
+  mem:
+    type: integer
+    default: 16
+    description: memory for bbtools (in Gb)
+
+required:
+  - data_dir
+  - experiment
+  - experiment_file
+  - ref_dir
+  - reference
+  - orf
