@@ -1,22 +1,22 @@
 rule process_counts:
     input:
         expand(
-            "results/{{experiment}}/gatk/{sample_name}.variantCounts",
-            condition_samples=config["condition_samples"],
+            "results/{{experiment}}/gatk/{samples}.variantCounts",
+            samples=samples
         ),
     output:
-        "results/counts/{experiment}/{sample_name}.csv",
+        expand(
+            "results/{{experiment}}/processed_counts/{samples}.tsv",
+            samples=samples
+        )
     params:
         remove_zeros=config["remove_zeros"],
         regenerate_variants=config["regenerate_variants"],
+        samples=samples,
+        gatk_dir="results/{experiment}/gatk/"
     benchmark:
-        "benchmarks/{experiment}/{sample_name}.process_counts.benchmark.txt"
+        "benchmarks/{experiment}/{experiment}.process_counts.benchmark.txt"
     log:
-        "logs/{experiment}/process_counts/{sample_name}.trim.bbduk.log",
+        "logs/{experiment}/scripts/{experiment}.process_counts.log",
     script:
         "scripts/process_counts.py"
-    shell:
-        "python {script} remove_zeros"
-
-
-#    expand("results/{experiment_name}/gatk/{sample_name}.variantCounts", sample_name=config["samples"], experiment_name=config["experiment"]),

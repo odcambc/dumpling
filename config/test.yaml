@@ -1,0 +1,28 @@
+data_dir: '/test/data'
+experiment: 'test_data'
+experiment_file: 'config/test.csv'
+
+ref_dir: 'references'
+reference: EccD_ref.fasta
+orf: "141-1568"
+
+offset: 137
+
+remove_zeros: True
+regenerate_variants: False
+
+variants_file: "designed_variants/eccd_variants.csv"
+
+oligo_file: "oligos/Kir_oligos.csv"
+
+kmers: 15
+
+sam: "1.3"
+
+adapters: "resources/adapters.fa"
+
+contaminants: 
+  - "resources/sequencing_artifacts.fa.gz"
+  - "resources/phix174_ill.ref.fa.gz"
+
+mem: 16

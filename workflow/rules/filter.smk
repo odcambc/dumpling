@@ -4,8 +4,8 @@ rule bbduk_trim_adapters:
     input:
         unpack(get_file_from_sample),
     output:
-        R1_trim=temp("results/{experiment}/{sample_prefix}_R1.trim.fastq.gz"),
-        R2_trim=temp("results/{experiment}/{sample_prefix}_R2.trim.fastq.gz"),
+        R1_trim="results/{experiment}/{sample_prefix}_R1.trim.fastq.gz",
+        R2_trim="results/{experiment}/{sample_prefix}_R2.trim.fastq.gz",
         qhist="stats/{experiment}/{sample_prefix}_trim.qhist",
         bhist="stats/{experiment}/{sample_prefix}_trim.bhist",
         gchist="stats/{experiment}/{sample_prefix}_trim.gchist",
@@ -43,12 +43,12 @@ rule remove_contaminants:
         R1_trim="results/{experiment}/{sample_prefix}_R1.trim.fastq.gz",
         R2_trim="results/{experiment}/{sample_prefix}_R2.trim.fastq.gz",
     output:
-        R1_clean=temp("results/{experiment}/{sample_prefix}_R1.clean.trim.fastq.gz"),
-        R2_clean=temp("results/{experiment}/{sample_prefix}_R2.clean.trim.fastq.gz"),
+        R1_clean="results/{experiment}/{sample_prefix}_R1.clean.trim.fastq.gz",
+        R2_clean="results/{experiment}/{sample_prefix}_R2.clean.trim.fastq.gz",
         stats="stats/{experiment}/{sample_prefix}_trim.stats.txt",
     params:
         prefix=os.environ["CONDA_PREFIX"],
-        contaminants=adapters_ref,
+        contaminants=contaminants_ref,
     benchmark:
         "benchmarks/{experiment}/{sample_prefix}.bbduk_clean.benchmark.txt"
     log:
@@ -74,8 +74,8 @@ rule error_correct_bbmerge:
         R1_clean="results/{experiment}/{sample_prefix}_R1.clean.trim.fastq.gz",
         R2_clean="results/{experiment}/{sample_prefix}_R2.clean.trim.fastq.gz",
     output:
-        R1_ec=temp("results/{experiment}/{sample_prefix}_R1.ec.clean.trim.fastq.gz"),
-        R2_ec=temp("results/{experiment}/{sample_prefix}_R2.ec.clean.trim.fastq.gz"),
+        R1_ec="results/{experiment}/{sample_prefix}_R1.ec.clean.trim.fastq.gz",
+        R2_ec="results/{experiment}/{sample_prefix}_R2.ec.clean.trim.fastq.gz",
         ihist="stats/{experiment}/{sample_prefix}_merge.ihist",
     benchmark:
         "benchmarks/{experiment}/{sample_prefix}.bbmerge.benchmark.txt"

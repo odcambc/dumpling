@@ -2,7 +2,6 @@ import os
 import pandas as pd
 from snakemake.utils import validate
 
-
 def get_file_from_sample(wildcards):
     """Maps from the sequencing output file names to the sample names defined in the experiment CSV.
     This is used in rule bbduk_trim_adapters"""
@@ -30,11 +29,10 @@ def pass_names(names):
         return ",".join(names)
 
 
-configfile: "config/config.yaml"
+configfile: "config/test.yaml"
 
 validate(config, "../schemas/config.schema.yaml")
 
-# experiment_file = config["experiment_file"]
 experiments = pd.read_csv(config["experiment_file"], header=0).set_index(
     "sample", drop=False, verify_integrity=True
 )
@@ -45,39 +43,47 @@ experiment = config["experiment"]
 samples = experiments["sample"]
 files = experiments["file"]
 
+conditions = set(experiments["condition"])
+
+#tiles = set(experiments["tile"])
+
 reference_name = get_ref(config["reference"])
 
 adapters_ref = pass_names(config["adapters"])
 contaminants_ref = pass_names(config["contaminants"])
 
-
 rule all:
     input:
-        expand(
-            "results/{experiment_name}/gatk/{sample_name}.variantCounts",
-            sample_name=samples,
-            experiment_name=config["experiment"],
-        ),
+        expand("results/{experiment_name}/enrich/tsv/{experiment_name}_exp/main_identifiers_scores.tsv",
+            experiment_name=config["experiment"]
+        )
+
+
+
+""" rule all:
+    input:
         expand(
             "stats/{experiment_name}/fastqc/{file_name}_{reads}_fastqc.html",
             file_name=files,
             reads=["R1", "R2"],
-            experiment_name=config["experiment"],
+            experiment_name=config["experiment"]
         ),
         expand(
             "stats/{experiment_name}/fastqc/{file_name}_{reads}_fastqc.zip",
             file_name=files,
             reads=["R1", "R2"],
-            experiment_name=config["experiment"],
+            experiment_name=config["experiment"]
         )
-
+ """
 
 include: "rules/asm.smk"
+include: "rules/enrich.smk"
 include: "rules/filter.smk"
 include: "rules/map.smk"
-# include: "rules/process.smk"
+include: "rules/process.smk"
 include: "rules/qc.smk"
 include: "rules/ref.smk"
+#include: "rules/rosace.smk"
 
 #
 #        expand(
