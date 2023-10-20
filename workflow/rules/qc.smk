@@ -1,5 +1,5 @@
 def return_directories(wildcards):
-    """This function takes a list of files and returns the unique directories the are in."""
+    """This function returns the directories required to run multiqc."""
     directories = [
         "stats/" + wildcards.experiment_name + "/fastqc/",
         "results/" + wildcards.experiment_name + "/gatk/",

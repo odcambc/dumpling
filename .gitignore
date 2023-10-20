@@ -4,5 +4,9 @@ benchmarks/
 logs/
 stats/
 ref/
+results/
+test/
+ref/
+designed_variants/
 .snakemake
 .vscode/
