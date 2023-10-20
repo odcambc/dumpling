@@ -67,10 +67,10 @@ rule all:
 
 
 # Include rules from other files
-#include: "rules/asm.smk"
+include: "rules/asm.smk"
 include: "rules/enrich.smk"
-#include: "rules/filter.smk"
-#include: "rules/map.smk"
-#include: "rules/process.smk"
+include: "rules/filter.smk"
+include: "rules/map.smk"
+include: "rules/process.smk"
 include: "rules/qc.smk"
-#include: "rules/ref.smk"
+include: "rules/ref.smk"
