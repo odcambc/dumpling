@@ -17,7 +17,6 @@ rule gatk_ASM:
         "results/{experiment}/gatk/{sample_prefix}.variantCounts",
     params:
         orf=config["orf"],
-        kmers=config["kmers"],
         ref=expand(
             "{ref_dir}/{ref_name}.fasta",
             ref_dir=config["ref_dir"],

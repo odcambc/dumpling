@@ -2,6 +2,11 @@ import os
 import pandas as pd
 from snakemake.utils import validate
 
+
+# Set your specific experimental configuration here
+configfile: "config/test.yaml"
+
+
 def get_file_from_sample(wildcards):
     """Maps from the sequencing output file names to the sample names defined in the experiment CSV.
     This is used in rule bbduk_trim_adapters"""
@@ -29,64 +34,43 @@ def pass_names(names):
         return ",".join(names)
 
 
-configfile: "config/test.yaml"
-
+# Validate config and experiment files
 validate(config, "../schemas/config.schema.yaml")
 
 experiments = pd.read_csv(config["experiment_file"], header=0).set_index(
     "sample", drop=False, verify_integrity=True
 )
+
 validate(experiments, "../schemas/experiments.schema.yaml")
 
+# Set variables from config and experiment files
 experiment = config["experiment"]
-
 samples = experiments["sample"]
 files = experiments["file"]
-
 conditions = set(experiments["condition"])
-
-#tiles = set(experiments["tile"])
-
 reference_name = get_ref(config["reference"])
-
 adapters_ref = pass_names(config["adapters"])
 contaminants_ref = pass_names(config["contaminants"])
 
+
+# Pseudo-rule for running analysis
 rule all:
     input:
-        expand("results/{experiment_name}/enrich/tsv/{experiment_name}_exp/main_identifiers_scores.tsv",
-            experiment_name=config["experiment"]
-        )
-
-
-
-""" rule all:
-    input:
         expand(
-            "stats/{experiment_name}/fastqc/{file_name}_{reads}_fastqc.html",
-            file_name=files,
-            reads=["R1", "R2"],
-            experiment_name=config["experiment"]
+            "results/{experiment_name}/enrich/tsv/{experiment_name}_exp/main_identifiers_scores.tsv",
+            experiment_name=config["experiment"],
         ),
         expand(
-            "stats/{experiment_name}/fastqc/{file_name}_{reads}_fastqc.zip",
-            file_name=files,
-            reads=["R1", "R2"],
-            experiment_name=config["experiment"]
-        )
- """
+            "stats/{experiment_name}/{experiment_name}_multiqc.html",
+            experiment_name=config["experiment"],
+        ),
 
-include: "rules/asm.smk"
+
+# Include rules from other files
+#include: "rules/asm.smk"
 include: "rules/enrich.smk"
-include: "rules/filter.smk"
-include: "rules/map.smk"
-include: "rules/process.smk"
+#include: "rules/filter.smk"
+#include: "rules/map.smk"
+#include: "rules/process.smk"
 include: "rules/qc.smk"
-include: "rules/ref.smk"
-#include: "rules/rosace.smk"
-
-#
-#        expand(
-#            "stats/{experiment_name}/multiqc.html",
-#            experiment_name=config["experiment"]
-#        )
+#include: "rules/ref.smk"

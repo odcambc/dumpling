@@ -3,7 +3,7 @@ rule map_to_reference_bbmap:
     input:
         "ref/genome/1/chr1.chrom.gz",
         R1_ec="results/{experiment}/{sample_prefix}_R1.ec.clean.trim.fastq.gz",
-        R2_ec="results/{experiment}/{sample_prefix}_R2.ec.clean.trim.fastq.gz"
+        R2_ec="results/{experiment}/{sample_prefix}_R2.ec.clean.trim.fastq.gz",
     output:
         mapped="results/{experiment}/{sample_prefix}.mapped.sam",
         covstats="stats/{experiment}/{sample_prefix}_map.covstats",

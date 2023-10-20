@@ -82,8 +82,6 @@ def process_variants_file(gatk_list, designed_variants_df):
     # input: variants_df fields:
     #           int count - number of observations of variant
     #           int pos - position of variant (in codons)
-    #           int chunk_pos - position of variant modulo "chunk"
-    #           int chunk - chunk number of variant
     #           str mutation_type - mutation class: S = synonymous
     #                                      M = substitution
     #                                      I = insertion

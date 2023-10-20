@@ -1,28 +1,106 @@
-data_dir: '/test/data'
+# Configuration for DMS analysis
+# This file is validated against the schema in "schemas/config.schema.yaml"
+
+# This is the name of the experiment. This is used to name the output files and 
+# results directories, so it must be unique.
 experiment: 'test_data'
-experiment_file: 'config/test.csv'
 
+# -----------------------------------------------------------------------------
+# Path definitions:
+# These paths are relative to the base snakemake invocation directory,
+# typically the root of the git repository. 
+# data_dir: Directory containing the raw sequencing data. Note: _all_ reads
+#           are expected in this directory, not as subfolders!
+# ref_dir: Directory containing the reference fasta files.
+# -----------------------------------------------------------------------------
+
+data_dir: 'test/data'
 ref_dir: 'references'
+
+# -----------------------------------------------------------------------------
+# File definitions:
+# These files are relative to the base snakemake invocation directory, as well.
+# experiment_file: CSV file containing the experiment metadata for describing
+#                  the experiment structure and the mapping to each file.
+#                  This file must contain the following columns:
+#                     sample: Unique sample name
+#                     condition: Condition name
+#                     replicate: Replicate number
+#                     time: Time point (or bin for FACS data)
+#                     tile: Tile number (for tiled sequencing)
+#                     file: File name prefix (e.g, without "_R1_001.fastq.gz" and
+#                           "_R2_001.fastq.gz" for paired-end reads from standard
+#                           Illumina sequencing)
+#                   This file is validated against the schema in "schemas/experiments.schema.yaml"
+#
+# reference: Reference fasta file name. This must be a nucleotide fasta file!
+#
+# variants_file: CSV file containing the variants to be analyzed. This file must contain the following columns:
+#                     count: Number of reads with this variant (initialized to 0)
+#                     pos: Amino acid position of the residue in the reference sequence
+#                     mutation_type: Type of mutation (e.g. "S" for synonymous, "M" for missense substitution,
+#                                    "D" for deletion, "I" for insertion, "X" for nonsense)
+#                     name: Name of the variant (e.g. "A123T")
+#                     codon: Codon of the specific variant (empty for deletions)
+#                     mutation: Mutation subtype of the variant (identical to mutation_type for substitutions,
+#                                including length for indels: e.g. "D_3" for a 3 amino acid deletion, "I_1" for
+#                                a 1 amino acid insertion)
+#                     length: Total length of codons changed in variant
+#                     hgvs: HGVS notation of the protein-level variant ('p.(V134_S136del)' for a 
+#                           deletion of the three codons from position 134 to 136, or 
+#                           'p.(I11_V12insG)' for an insertion of a Gly after Ile 11)
+#
+# OPTIONAL:
+# oligo_file:  CSV file containing the oligos used for generating the library, as in DIMPLE. This may be used
+#             to generate the variants_file if it does not already exist.
+# -----------------------------------------------------------------------------
+
+experiment_file: 'config/test.csv'
 reference: EccD_ref.fasta
+variants_file: "config/designed_variants/eccd_variants.csv"
+oligo_file: "config/oligos/Kir_oligos.csv"
+
+# -----------------------------------------------------------------------------
+# Analysis parameters:
+#
+# orf: The coordinate range of the ORF within the reference file.
+#
+# remove_zeros: Remove variants with zero counts from the output files.
+#
+# regenerate_variants: Regenerate the variants file from the oligo file. This is
+#                      only necessary if the variants file is not already present.
+#
+# -----------------------------------------------------------------------------
 orf: "141-1568"
-
-offset: 137
-
 remove_zeros: True
 regenerate_variants: False
 
-variants_file: "designed_variants/eccd_variants.csv"
-
-oligo_file: "oligos/Kir_oligos.csv"
+# -----------------------------------------------------------------------------
+# Other parameters:
+#
+# kmers: The kmer length to use for BBMap jobs.
+#
+# sam: The SAM format version to use for BBMap jobs. This should be "1.3" for most cases.
+#
+# mem: Memory to allocate for BBMap jobs with Java (in GB)
+# -----------------------------------------------------------------------------
 
 kmers: 15
-
 sam: "1.3"
+mem: 16
 
+# -----------------------------------------------------------------------------
+# Other resources:
+# These are files included in the repository that are installed by BBMap for
+# adapter trimming and contaminant removal. Additional filtering can be performed by addiing
+# to this set. These paths are relative to the base snakemake invocation directory, as well.
+#
+# adapters: Adapter sequence fasta file. Used for adapter trimming. with BBDuk.
+#
+# contaminants: Common contaminant sequence fasta files. Default files include PhiX and a
+#               set of common sequencing artifacts. Used for contaminant removal with BBDuk.
+# -----------------------------------------------------------------------------
 adapters: "resources/adapters.fa"
-
 contaminants: 
   - "resources/sequencing_artifacts.fa.gz"
   - "resources/phix174_ill.ref.fa.gz"
-
-mem: 16

@@ -75,8 +75,9 @@ def process_experiment(
         ref_sequence = ref_list[0].seq
 
     if regenerate_variants:
+        offset = int(snakemake.config["orf"].split('-')[0]) - 4
         variant_list = process_oligo_list.designed_variants(
-            snakemake.config["oligo_file"], str(ref_sequence), snakemake.config["offset"]
+            snakemake.config["oligo_file"], str(ref_sequence), offset
         )
         process_oligo_list.write_designed_csv(
             snakemake.config["variants_file"], designed_variant_header, variant_list

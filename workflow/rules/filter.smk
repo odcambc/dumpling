@@ -13,8 +13,7 @@ rule bbduk_trim_adapters:
         lhist="stats/{experiment}/{sample_prefix}_trim.lhist",
         stats="stats/{experiment}/{sample_prefix}_trim.stats.txt",
     params:
-        adapters=adapters_ref,
-        kmers=config["kmers"],
+        adapters=adapters_ref
     benchmark:
         "benchmarks/{experiment}/{sample_prefix}.bbduk_trim.benchmark.txt"
     log:
