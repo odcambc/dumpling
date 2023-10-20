@@ -54,6 +54,20 @@ The following are the dependencies required to run the pipeline:
 
 ## Configuration
 
+### Configuration files
+The details of an experiment need to be specified in a configuration file which defines parameters and an associated experiment file which details
+the experimental setup.
+
+The configuration file is a YAML file: full details are included in the example file `config/test_config.yaml` and in the schema file `schemas/config.schema.yaml`.
+
+The experiment file is a CSV file which relates experimental conditions, replicates, and timepoints to sequencing files: full details are included in the config file and in the schema file `schemas/experiments.schema.yaml`.
+
+Additionally, a reference fasta file is required for mapping. This should be placed in the `references` directory, and the path to the file should be specified in the config file.
+
+This pipeline also employs a processing step to standardize the variant
+nomenclature as well as remove any variants that are not designed or are likely errors. This requires a csv file containing the set of designed variants, including their specific codon changes. This should be placed in the `config/designed_variants` directory, and the path to the file should be specified in the config file. An example file is included in `config/designed_variants/test_variants.csv`. This pipeline also includes a faculty
+to generate the variants csv from a set of oligos used to generate the library: this can be enabled by including the path to the oligo csv file in the config file, and setting `regenerate_variants` to `True` in the config.
+
 ### Working directory structure
 
 The pipeline has the following directory structure:
@@ -87,9 +101,6 @@ The pipeline has the following directory structure:
 │   └── ...
 
 ```
-
-### Configuration files
-
 ## Usage
 
 ### Running the pipeline
