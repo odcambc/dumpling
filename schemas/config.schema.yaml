@@ -44,6 +44,18 @@ properties:
     type: integer
     default: 16
     description: memory for bbtools (in Gb)
+  remove_zeros:
+    type: boolean
+    default: false
+    description: Flag for whether to remove unobserved and zero-count variants before processing with Enrich.
+  regenerate_variants: 
+    type: boolean
+    default: false
+    description: Flag for whether to regenerate the designed variants file from an oligo list.
+  noprocess: 
+    type: boolean
+    default: false
+    description: Flag for whether called variants are filtered or not.
 
 required:
   - data_dir
