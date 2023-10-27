@@ -26,7 +26,6 @@ rule gatk_ASM:
         "benchmarks/{experiment}/{sample_prefix}.gatk_asm.benchmark.txt"
     log:
         "logs/{experiment}/gatk/{sample_prefix}.gatk_asm.log",
-    default_target: True
     threads: 1
     shell:
         "gatk AnalyzeSaturationMutagenesis "

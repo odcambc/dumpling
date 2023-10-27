@@ -8,8 +8,6 @@ import process_oligo_list
 import process_variants
 from Bio import SeqIO
 
-# TODO: Expand indels to allow for greater than 3x!
-
 order: list[str] = [
     "A",
     "C",
@@ -61,6 +59,14 @@ log_file = snakemake.log[0]
 output_dir = "results/" + experiment_name + "/processed_counts/"
 regenerate_variants = snakemake.params["regenerate_variants"]
 remove_zeros = snakemake.params["remove_zeros"]
+
+# Set up logging
+if log_file:
+    logging.basicConfig(filename=log_file, filemode="w", level=logging.DEBUG)
+else:
+    logging.basicConfig(level=logging.DEBUG)
+
+logging.debug("Loading experiment file: %s", snakemake.config["experiment_file"])
 
 
 def process_experiment(
@@ -141,13 +147,7 @@ def process_experiment(
 
         return
 
-if log_file:
-    logging.basicConfig(filename=log_file, filemode="w", level=logging.DEBUG)
-else:
-    logging.basicConfig(level=logging.DEBUG)
-
-logging.debug("Loading experiment file: %s", snakemake.config["experiment_file"])
-
+# Process the experiments according to their relationships
 with open(snakemake.config["experiment_file"]) as f:
     experiments = pd.read_csv(f, header=0).set_index(
         "sample", drop=False, verify_integrity=True

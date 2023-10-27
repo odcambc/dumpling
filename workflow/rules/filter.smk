@@ -13,7 +13,7 @@ rule bbduk_trim_adapters:
         lhist="stats/{experiment}/{sample_prefix}_trim.lhist",
         stats="stats/{experiment}/{sample_prefix}_trim.stats.txt",
     params:
-        adapters=adapters_ref
+        adapters=adapters_ref,
     benchmark:
         "benchmarks/{experiment}/{sample_prefix}.bbduk_trim.benchmark.txt"
     log:
@@ -46,7 +46,6 @@ rule remove_contaminants:
         R2_clean="results/{experiment}/{sample_prefix}_R2.clean.trim.fastq.gz",
         stats="stats/{experiment}/{sample_prefix}_trim.stats.txt",
     params:
-        prefix=os.environ["CONDA_PREFIX"],
         contaminants=contaminants_ref,
     benchmark:
         "benchmarks/{experiment}/{sample_prefix}.bbduk_clean.benchmark.txt"

@@ -1,5 +1,6 @@
 import csv
 import pathlib
+import logging
 
 import pandas as pd
 import regex
@@ -52,6 +53,9 @@ def read_gatk_csv(file):
     # GATK output unfortunately may not be full-width, which will confuse pandas during
     # reading in. We'll read each line and make sure it's full-length before passing it
     # to pandas.
+
+    logging.info("Loading GATK output file: %s", file)
+
     gatk_list = []
 
     p = pathlib.Path(file)
@@ -68,12 +72,166 @@ def read_gatk_csv(file):
     return gatk_list
 
 
+# Process variant types
+# The following functions process specific types of variants obtained from
+# GATK ASM. Each accepts input a line from ASM output and parses it, and returns
+# a dict containing variant info:
+#           int count - number of observations of variant
+#           int pos - position of variant (in codons)
+#           str mutation_type - mutation class: S = synonymous
+#                                      M = substitution
+#                                      I = insertion
+#                                      D = deletion
+#           str name - mutation name, in 1 letter amino acids
+#           str codon - for substitutions, the designed codon. For insertions, the added codons.
+#                       empty for others
+#           str mutation - for substitutions, the variant residue. for
+#                           indels, the specific variant, in the form (I/D)_(1/2/N),
+#                           as appropriate
+#           int length - length of change, in codons
+#           int rejected - whether or not the variant should be rejected
+
+
+def process_insertion(line):
+    # This contains the logic for parsing insertion variants of arbitrary length.
+    # We define the position of an insertion as the position of the first new codon
+    # in the new frame.
+
+    variant_dict = {}
+
+    count = int(line[0])
+    length = int(line[5])
+    mutation_type = "I"
+    variant = line[8]
+    mutation = "I_" + str(length)
+    codon = line[6]
+    pos = int(codon.split(":")[0])
+    rejected = 0
+
+    codons = line[6]
+
+    codon = ""
+
+    if length > 1:
+        for c in codons.split(", "):
+            codon = codon + c.split(">")[1]
+    else:
+        codon = codon + codons.split(">")[1]
+
+    variant_dict["counts"] = count
+    variant_dict["pos"] = pos
+    variant_dict["mutation_type"] = mutation_type
+    variant_dict["name"] = variant
+    variant_dict["codon"] = codon
+    variant_dict["mutation"] = mutation
+    variant_dict["length"] = length
+    variant_dict["rejected"] = rejected
+
+    return variant_dict
+
+
+def process_deletion(line):
+    # This contains the logic for parsing deletion variants of arbitrary length.
+    # We define the position of deletion as the position of the first deleted codon.
+
+    variant_dict = {}
+    codon = line[6]
+    length_codon = int(line[5])
+    variant = line[8]
+    rejected = 0
+
+    if "_" in variant:
+        start_codon = int(variant.split("_")[0][1:])
+        end_codon = int(variant.split("_")[1][1:-3])
+
+        # It may be the case that deletions are coupled with synonymous variants.
+        # Reject these.
+        if length_codon != (end_codon - start_codon + 1):
+            rejected = 1
+    elif length_codon > 1:
+        rejected = 1
+
+    variant_dict["counts"] = int(line[0])
+    variant_dict["pos"] = int(codon.split(":")[0])
+    variant_dict["mutation_type"] = "D"
+    variant_dict["name"] = variant
+    variant_dict["codon"] = ""
+    variant_dict["mutation"] = "D_" + str(length_codon)
+    variant_dict["length"] = length_codon
+    variant_dict["rejected"] = rejected
+
+    return variant_dict
+
+
+def process_insdel(line, variants_df):
+    # This contains the logic for parsing insdel variants and checking for an edge
+    # case where in-frame deletions are being called as insdels.
+    # Deletions of the form XYZA->X--- (just deletion) may be called as
+    # XYZA->---X (deletion + mutation)
+    # Note: bbmap defaults to left alignment, as is standard for NGS reads.
+    # This means we only need to consider incorrectly left-aligned cases.
+
+    # The logic here requires passing the variants_df as well, in order to
+    # search for the proper canonical name. It also requires returning an additional
+    # "rejected" value in the dict.
+
+    variant_dict = {}
+    codon = line[6]
+    length_codon = int(line[5])
+    variant = line[8]
+    count = int(line[0])
+    rejected = 1
+    mutation_type = "Z"
+    mutation = "Z"
+
+    insdel_re = regex.search(
+        r"([a-zA-Z])([0-9]+)_([a-zA-Z])([0-9]+)insdel([a-zA-Z]+)", variant
+    )
+
+    length = int(insdel_re.group(4)) - int(insdel_re.group(2))
+    insdel_length = len(insdel_re.group(5))
+
+    if (
+        insdel_re.group(1) == insdel_re.group(5)
+        or insdel_re.group(3) == insdel_re.group(5)
+        or insdel_re.group(1) == insdel_re.group(3)
+    ):
+        if length - insdel_length < 5:
+            rejected = 0
+            pos = int(insdel_re.group(2)) + insdel_length
+            length = length
+            mutation_type = "D"
+            mutation = "D_" + str(length)
+
+            # Find the correct canonical name. Need to look through the
+            # designed variants df to do so, unfortunately.
+
+            try:
+                name = variants_df[
+                    (variants_df["pos"] == pos) & (variants_df["mutation"] == variant)
+                ]["name"].array[0]
+
+            except:
+                rejected = 1
+
+    variant_dict["counts"] = count
+    variant_dict["pos"] = int(codon.split(":")[0])
+    variant_dict["mutation_type"] = mutation_type
+    variant_dict["name"] = variant
+    variant_dict["codon"] = ""
+    variant_dict["mutation"] = mutation
+    variant_dict["length"] = length
+    variant_dict["rejected"] = rejected
+
+    return variant_dict
+
+
 def process_variants_file(gatk_list, designed_variants_df):
     #   -Reject any variants with multiple substitutions
     #   -Reject any frameshifting mutations
     #   (designed mutations are singles, interpreting multi-codon indels as singles)
-    #   -Accept G, GS, and GSG insertions
-    #   -Accept 1,2,3x deletions
+    #   -Accept arbitrary in-frame insertions
+    #   -Accept arbitrary in-frame deletions
     #   -Further process "insdel" calls
     # For each one, we will add the observed counts
     # to the appropriate
@@ -118,14 +276,13 @@ def process_variants_file(gatk_list, designed_variants_df):
         # codon/AA fields are empty
 
         if length_NT == 0:
-            pass
-
-        # Consider how many discontiguous non-synonymous mutations are found. If more
-        # than 1, then this is nota designed variant. If none are found, this is a
-        # synonymous variant.
-
+            continue
         if AA == "":
             continue
+
+        # Consider how many discontiguous non-synonymous mutations are found. If more
+        # than 1, then this is not a designed variant. If none are found, this is a
+        # synonymous variant.
 
         if mutation == "":
             # synonymous check
@@ -140,39 +297,34 @@ def process_variants_file(gatk_list, designed_variants_df):
 
         if len(mutation.split(";")) == 1:
             # Nonsyn check. Classify mutations here.
+            # Note: checks for single position variants.
 
             # Is the variant a deletion?
             if mutation[-3:] == "del":
-                if length_codon <= 3:
-                    count = counts
-                    pos = int(codon.split(":")[0])
-                    length = length_codon
-                    mutation_type = "D"
-                    variant = "D_" + str(length)
-                    name = mutation
-                    rejected = 0
+                deletion_dict = process_deletion(line)
+                count = deletion_dict["counts"]
+                pos = deletion_dict["pos"]
+                length = deletion_dict["length"]
+                mutation_type = deletion_dict["mutation_type"]
+                variant = deletion_dict["mutation"]
+                name = deletion_dict["name"]
+                rejected = 0
 
             # Is the variant an insertion?
-            # TODO: this doesn't need to check for AA[0] being "I", first.
-            # But this should work for now.
-            AAs = AA.split(",")
-            for m in AAs:
-                if m.strip()[0] == "I":
-                    # Check for designed variants
-                    if mutation[-4:] == "insG":
-                        length = 1
-                    if mutation[-5:] == "insGS":
-                        length = 2
-                    if mutation[-6:] == "insGSG":
-                        length = 3
 
-                    if length > 0:
-                        rejected = 0
-                        count = counts
-                        pos = int(codon.split(":")[0])
-                        mutation_type = "I"
-                        variant = "I_" + str(length)
-                        name = mutation
+            ins_re = regex.search(
+                r"([a-zA-Z])([0-9]+)_([a-zA-Z])([0-9]+)ins([A-Z]+)", mutation
+            )
+
+            if ins_re:
+                insertion_dict = process_insertion(line)
+                count = insertion_dict["counts"]
+                pos = insertion_dict["pos"]
+                length = insertion_dict["length"]
+                mutation_type = insertion_dict["mutation_type"]
+                variant = insertion_dict["mutation"]
+                name = insertion_dict["name"]
+                rejected = 0
 
             # Is the variant a substitution?
 
@@ -214,51 +366,19 @@ def process_variants_file(gatk_list, designed_variants_df):
                     count = 0
                     rejected = 1
 
-            # Is variant mapping having a hard time with insdel?
-            # This accounts for the case where deletion of the
-            # form XYZA->X--- (just deletion) is being called as
-            # XYZA->---X (deletion + mutation)
-            # Note: bbmap defaults to left alignment, as is standard for NGS reads.
-            # This means we only need to consider incorrectly left-aligned cases.
-
-            # TODO: consider case with insdelZZ or insdelZZZ
-
             insdel_re = regex.search(
                 r"([a-zA-Z])([0-9]+)_([a-zA-Z])([0-9]+)insdel([a-zA-Z]+)", mutation
             )
 
             if insdel_re:
-                count = 0
-
-                length = int(insdel_re.group(4)) - int(insdel_re.group(2))
-                insdel_length = len(insdel_re.group(5))
-
-                if (
-                    insdel_re.group(1) == insdel_re.group(5)
-                    or insdel_re.group(3) == insdel_re.group(5)
-                    or insdel_re.group(1) == insdel_re.group(3)
-                ):
-                    if length - insdel_length < 5:
-                        rejected = 0
-                        count = counts
-                        # pos = int(codon.split(":")[0]) + 1
-                        pos = int(insdel_re.group(2)) + insdel_length
-                        length = length
-                        mutation_type = "D"
-                        variant = "D_" + str(length)
-                        name = mutation
-
-                        # Find the correct canonical name
-
-                        try:
-                            name = variants_df[
-                                (variants_df["pos"] == pos)
-                                & (variants_df["mutation"] == variant)
-                            ]["name"].array[0]
-
-                        except:
-                            rejected = 1
-                            # print("Name error:", name)
+                insdel_dict = process_insdel(line, variants_df)
+                count = insdel_dict["counts"]
+                pos = insdel_dict["pos"]
+                length = insdel_dict["length"]
+                mutation_type = insdel_dict["mutation_type"]
+                variant = insdel_dict["mutation"]
+                name = insdel_dict["name"]
+                rejected = insdel_dict["rejected"]
 
             # Add counts to the variant df
 
@@ -297,7 +417,8 @@ def remove_zeros_enrich(enrich_file_list):
     # Warning: this function operates IN-PLACE!
 
     df_list = [
-        pd.read_csv(f, sep="\t", names=["hgvs", f], header=0).set_index("hgvs") for f in enrich_file_list
+        pd.read_csv(f, sep="\t", names=["hgvs", f], header=0).set_index("hgvs")
+        for f in enrich_file_list
     ]
 
     combined_enrich_df = pd.concat(df_list, join="outer", axis=1)

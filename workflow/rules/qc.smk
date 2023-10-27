@@ -32,5 +32,8 @@ rule fastqc:
         "benchmarks/{experiment}/{sample_read}.fastqc.benchmark.txt"
     log:
         "logs/{experiment}/fastqc/{sample_read}.log",
+    threads: 8
+    resources:
+        mem_mb = 2048
     wrapper:
         "v2.6.0/bio/fastqc"
