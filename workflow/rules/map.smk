@@ -1,11 +1,10 @@
 rule map_to_reference_bbmap:
     """Map reads to reference sequence using BBMap. covhist output is currently disabled as it causes MultiQC bloat."""
     input:
-        "ref/genome/1/chr1.chrom.gz",
         R1_ec="results/{experiment}/{sample_prefix}_R1.ec.clean.trim.fastq.gz",
         R2_ec="results/{experiment}/{sample_prefix}_R2.ec.clean.trim.fastq.gz",
     output:
-        mapped="results/{experiment}/{sample_prefix}.mapped.sam",
+        mapped=temp("results/{experiment}/{sample_prefix}.mapped.sam"),
         covstats="stats/{experiment}/{sample_prefix}_map.covstats",
         basecov="stats/{experiment}/{sample_prefix}_map.basecov",
         bincov="stats/{experiment}/{sample_prefix}_map.bincov",
@@ -58,4 +57,4 @@ rule sort_index_samtools:
     params:
         extra="-O bam --write-index -o {output.bam}",
     wrapper:
-        "v2.2.1/bio/samtools/sort"
+        "v2.8.0/bio/samtools/sort"

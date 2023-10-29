@@ -15,7 +15,7 @@ rule multiqc_dir:
     log:
         "logs/{experiment_name}/multiqc.log"
     wrapper:
-        "v2.6.0/bio/multiqc"
+        "v2.8.0/bio/multiqc"
 
 
 rule fastqc:
@@ -34,6 +34,6 @@ rule fastqc:
         "logs/{experiment}/fastqc/{sample_read}.log",
     threads: 8
     resources:
-        mem_mb = 2048
+        mem_mb = config["mem_fastqc"]
     wrapper:
-        "v2.6.0/bio/fastqc"
+        "v2.8.0/bio/fastqc"

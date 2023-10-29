@@ -70,10 +70,13 @@ oligo_file: "config/oligos/Kir_oligos.csv"
 # regenerate_variants: Regenerate the variants file from the oligo file. This is
 #                      only necessary if the variants file is not already present.
 #
+# noprocess: Set to True to skip variant filtering based on designed variants.
+#
 # -----------------------------------------------------------------------------
 orf: "141-1568"
-remove_zeros: True
-regenerate_variants: False
+remove_zeros: false
+regenerate_variants: false
+noprocess: false
 
 # -----------------------------------------------------------------------------
 # Other parameters:

@@ -3,7 +3,7 @@ description: DMS pipeline configuration file
 properties:
   data_dir:
     type: string
-    description: sample name/identifier
+    description: directory containing reads
   experiment:
     type: string
     description: sample condition that will be compared during differential expression analysis (e.g. a treatment, a tissue time, a disease)
@@ -44,6 +44,10 @@ properties:
     type: integer
     default: 16
     description: memory for bbtools (in Gb)
+  mem_fastqc:
+    type: integer
+    default: 1024
+    description: memory for bbtools (in Mb)
   remove_zeros:
     type: boolean
     default: false
