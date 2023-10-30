@@ -1,6 +1,7 @@
 rule map_to_reference_bbmap:
     """Map reads to reference sequence using BBMap. covhist output is currently disabled as it causes MultiQC bloat."""
     input:
+        "ref/genome/1/chr1.chrom.gz",
         R1_ec="results/{experiment}/{sample_prefix}_R1.ec.clean.trim.fastq.gz",
         R2_ec="results/{experiment}/{sample_prefix}_R2.ec.clean.trim.fastq.gz",
     output:
@@ -34,7 +35,6 @@ rule map_to_reference_bbmap:
         "k={params.kmers} "
         "t={threads} "
         "nzo=true "
-        "nodisk=true "
         "covstats={output.covstats} "
         "basecov={output.basecov} "
         "bincov={output.bincov} "
