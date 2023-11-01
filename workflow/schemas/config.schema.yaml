@@ -26,6 +26,10 @@ properties:
     type: integer
     default: 15
     description: kmer length for bbduk
+  min_q:
+    type: integer
+    default: 30
+    description: minimum Q score for bases to be analyzed by GATK
   sam:
     type: string
     default: "1.3"

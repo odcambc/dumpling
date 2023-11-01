@@ -17,6 +17,7 @@ rule gatk_ASM:
         "results/{experiment}/gatk/{sample_prefix}.variantCounts",
     params:
         orf=config["orf"],
+        min_q=config["min_q"],
         ref=expand(
             "{ref_dir}/{ref_name}.fasta",
             ref_dir=config["ref_dir"],
@@ -33,4 +34,5 @@ rule gatk_ASM:
         "-R {params.ref} "
         "--orf {params.orf} "
         "--sequence-dictionary {input.ref_dict} "
+        "--min-q {params.min_q} "
         "-O results/{wildcards.experiment}/gatk/{wildcards.sample_prefix} 2>{log}"
