@@ -24,61 +24,60 @@ def designed_variants(oligo_csv, ref, offset):
 
         for line in lines:
             # Match substitutions
-            variant = regex.search(
+            variant_sub = regex.search(
                 r".*_DMS-[0-9]+_([a-zA-Z]+)([0-9]+)([a-zA-Z]+)", line[0]
             )
-            if variant:
+            if variant_sub:
                 # Is this a synonymous mutation?
-                if variant.group(1) == variant.group(3):
+                if variant_sub.group(1) == variant_sub.group(3):
                     mutation_type = "S"
                 else:
                     mutation_type = "M"
 
-                codon = int(variant.groups(2)[1])
+                codon_n = int(variant_sub.groups(2)[1])
 
-                pre_codon = ref[offset + 3 * codon - 9 : offset + 3 * codon]
+                pre_codon = ref[offset + (3 * codon_n) - 15 : offset + (3 * codon_n)]
+                post_codon = ref[offset + (3 * codon_n) + 3 : offset + (3 * codon_n) + 18]
 
-                # Check and make sure it only splits once!
-                # Add better failure handling
-                # TODO: split is case-sensitive. We don't want that.
-
-                ref_split = re.split(pre_codon, line[1], flags=re.IGNORECASE)
-                if len(ref_split) == 2:
-                    codon = ref_split[1][0:3]
-                elif len(ref_split) == 1:
-                    ref_split = ref_split = re.split(
-                        pre_codon[2:], line[1], flags=re.IGNORECASE
-                    )
-                    try:
-                        codon = ref_split[1][0:3]
-                    except IndexError:
+                pre_split = re.split(pre_codon, line[1], flags=re.IGNORECASE)
+                if len(pre_split) == 2:
+                    codon = pre_split[1][0:3]
+                else:
+                    post_split = re.split(post_codon, line[1], flags=re.IGNORECASE)
+                    if len(post_split) == 2:
+                        codon = post_split[0][-3:]
+                    else:
                         print(
-                            "Error: ",
+                            "Error: incorrect matches",
                             pre_codon,
-                            codon,
-                            ref_split,
-                            variant,
+                            codon_n,
+                            pre_split,
+                            post_split,
+                            variant_sub,
                             mutation_type,
                         )
 
                 name = (
-                    seq1(variant.group(1)) + variant.group(2) + seq1(variant.group(3))
+                    seq1(variant_sub.group(1)) + variant_sub.group(2) + seq1(variant_sub.group(3))
                 )
-                pos = int(variant.group(2))
-                mutant = seq1(variant.group(3))
+                pos = int(variant_sub.group(2))
+                mutant = seq1(variant_sub.group(3))
                 length = 1
 
             # Deletions
             # The position of the deletion is set to be the *first* codon that is
             # deleted. Ex: F89_G91del would be a 3-codon deletion at position 89.
 
-            variant = regex.search(r".*_delete-[0-9]+_([0-9]+)-([0-9]+)", line[0])
-            if variant:
+            variant_del = regex.search(r".*_delete-[0-9]+_([0-9]+)-([0-9]+)", line[0])
+
+            if variant_del:
                 mutation_type = "D"
-                pos = int(variant.group(2))
-                length = int(int(variant.group(1)) / 3)
+                pos = int(variant_del.group(2))
+                length = int(int(variant_del.group(1)))
+
                 start_codon = ref[offset + (3 * pos) : offset + 3 * (pos + 1)]
                 start = Seq(start_codon).translate()
+
                 if length == 1:
                     name = start + str(pos) + "del"
                 else:
@@ -94,11 +93,11 @@ def designed_variants(oligo_csv, ref, offset):
             # The position of the insertion is defined as the position of the
             # first *inserted* residue. Ex: F47_V48insG is assigned position 48.
 
-            variant = regex.search(r".*_insert-[0-9]+_([a-zA-Z]+)-([0-9]+)", line[0])
-            if variant:
+            variant_ins = regex.search(r".*_insert-[0-9]+_([a-zA-Z]+)-([0-9]+)", line[0])
+            if variant_ins:
                 mutation_type = "I"
-                pos = int(variant.group(2))
-                length = int(len(variant.group(1)) / 3)
+                pos = int(variant_ins.group(2))
+                length = int(len(variant_ins.group(1)) / 3)
                 start_codon = ref[offset + (3 * pos) : offset + 3 * (pos + 1)]
                 start = Seq(start_codon).translate()
                 end_codon = ref[offset + 3 * (pos + 1) : offset + 3 * (pos + 2)]
