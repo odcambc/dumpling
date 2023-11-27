@@ -12,6 +12,7 @@ def name_to_hgvs(name):
     # insdel case
     return "p.(" + name + ")"
 
+# TODO: add check if ref sequence is out of range.
 
 def designed_variants(oligo_csv, ref, offset):
     variant_list = []
@@ -34,12 +35,16 @@ def designed_variants(oligo_csv, ref, offset):
                 else:
                     mutation_type = "M"
 
+                # The codon is assigned from processing the oligo itself.
+                
+
                 codon_n = int(variant_sub.groups(2)[1])
 
                 pre_codon = ref[offset + (3 * codon_n) - 15 : offset + (3 * codon_n)]
                 post_codon = ref[offset + (3 * codon_n) + 3 : offset + (3 * codon_n) + 18]
 
                 pre_split = re.split(pre_codon, line[1], flags=re.IGNORECASE)
+
                 if len(pre_split) == 2:
                     codon = pre_split[1][0:3]
                 else:
@@ -49,10 +54,7 @@ def designed_variants(oligo_csv, ref, offset):
                     else:
                         print(
                             "Error: incorrect matches",
-                            pre_codon,
                             codon_n,
-                            pre_split,
-                            post_split,
                             variant_sub,
                             mutation_type,
                         )
@@ -102,14 +104,19 @@ def designed_variants(oligo_csv, ref, offset):
                 start = Seq(start_codon).translate()
                 end_codon = ref[offset + 3 * (pos + 1) : offset + 3 * (pos + 2)]
                 end = Seq(end_codon).translate()
-                if length == 1:
-                    name = start + str(pos) + "_" + end + str(pos + 1) + "insG"
-                elif length == 2:
-                    name = start + str(pos) + "_" + end + str(pos + 1) + "insGS"
-                elif length == 3:
-                    name = start + str(pos) + "_" + end + str(pos + 1) + "insGSG"
-                codon = ""
+
+                codon = variant_ins.group(1)
+
+                aa_string = ""
+
+                for i in range(0, length):
+                    aa_string = aa_string + str(Seq(codon[(3*i):(3*i)+3]).translate())
+                
+                name = start + str(pos) + "_" + end + str(pos + 1) + "ins" + aa_string
+                
                 mutant = "I_" + str(length)
+
+
 
             variant_list = variant_list + [
                 [

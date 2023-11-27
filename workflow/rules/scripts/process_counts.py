@@ -8,6 +8,8 @@ import process_oligo_list
 import process_variants
 from Bio import SeqIO
 
+# TODO: read stats file and print
+
 order: list[str] = [
     "A",
     "C",
@@ -103,7 +105,7 @@ def process_experiment(
         csv_file = process_variants.read_gatk_csv(
             os.path.join(snakemake.params["gatk_dir"], experiment + ".variantCounts")
         )
-        df, other = process_variants.process_variants_file(csv_file, designed_df)
+        df, other, rejected_stats, accepted_stats = process_variants.process_variants_file(csv_file, designed_df)
 
         # Write an Enrich2-readable output
         enrich_file = os.path.join(output_dir, experiment + ".tsv")
@@ -125,6 +127,14 @@ def process_experiment(
         with p.open("w") as f:
             csvwriter = csv.writer(f)
             csvwriter.writerows(other)
+        
+        # Write the rejected stats file
+        stats_file = os.path.join("stats", experiment_name, "processing", experiment + "_rejected_processing.tsv")
+        process_variants.write_stats_file(stats_file, rejected_stats)
+
+        # Write the accepted stats file
+        stats_file = os.path.join("stats", experiment_name, "processing", experiment + "_accepted_processing.tsv")
+        process_variants.write_stats_file(stats_file, accepted_stats)
 
     # Remove any variants with no observations before processing with Enrich2.
 
@@ -154,7 +164,11 @@ with open(snakemake.config["experiment_file"]) as f:
     )
 
 for condition in experiments["condition"].unique():
-    for replicate in experiments["replicate"].unique():
+    logging.debug("Condition: %s", condition)
+    replicate_list = experiments.loc[
+            (experiments["condition"] == condition)]["replicate"]
+    for replicate in replicate_list.unique():
+        logging.debug("Replicate: %s", replicate)
         experiment_list = experiments.loc[
             (experiments["condition"] == condition)
             & (experiments["replicate"] == replicate)

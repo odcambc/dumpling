@@ -5,6 +5,8 @@ import logging
 import pandas as pd
 import regex
 
+# TODO: create stats file and return
+
 aa_3to1_dict = {
     "Ala": "A",
     "Arg": "R",
@@ -104,11 +106,9 @@ def process_insertion(line):
     mutation_type = "I"
     variant = line[8]
     mutation = "I_" + str(length)
-    codon = line[6]
-    pos = int(codon.split(":")[0])
-    rejected = 0
-
     codons = line[6]
+    pos = int(codons.split(":")[0])
+    rejected = 0
 
     codon = ""
 
@@ -252,6 +252,31 @@ def process_variants_file(gatk_list, designed_variants_df):
     #           int length - length of change, in codons
     #           str hgvs - hgvs string of mutation
 
+    # output: variants_df with fields as above, with counts added to each variant
+    #         rejected_list - list of rejected variants. Contents of each line are 
+    #                         the gatk output lines.
+    #         counts_stats - dict of counts statistics
+
+    # Keep track of counts processed and rejected for statistics
+
+    rejected_stats = {}
+    accepted_stats = {}
+
+    rejected_stats['outside_orf_counts'] = 0
+    rejected_stats['fs_counts'] = 0
+    rejected_stats['wrong_codon_counts'] = 0
+    rejected_stats['wrong_variant_counts'] = 0
+    rejected_stats['insdel_variant_counts'] = 0
+    rejected_stats['multi_variant_counts'] = 0
+
+    accepted_stats['accepted_syn_counts'] = 0
+    accepted_stats['accepted_sub_counts'] = 0
+    accepted_stats['accepted_stop_counts'] = 0
+    accepted_stats['accepted_ins_counts'] = 0
+    accepted_stats['accepted_del_counts'] = 0
+    accepted_stats['accepted_insdel_counts'] = 0
+    
+
     rejected_list = []
     variants_df = designed_variants_df.copy(deep=True)
 
@@ -276,8 +301,19 @@ def process_variants_file(gatk_list, designed_variants_df):
         # codon/AA fields are empty
 
         if length_NT == 0:
+            rejected_list = rejected_list + [line]
+            rejected_stats['outside_orf_counts'] = rejected_stats['outside_orf_counts'] + counts
             continue
         if AA == "":
+            rejected_list = rejected_list + [line]
+            rejected_stats['outside_orf_counts'] = rejected_stats['outside_orf_counts'] + counts
+            continue
+
+        # If a variant includes a frame shift, do not keep it.
+
+        if "FS" in AA:
+            rejected_stats['fs_counts'] = rejected_stats['fs_counts'] + counts
+            rejected_list = rejected_list + [line]
             continue
 
         # Consider how many discontiguous non-synonymous mutations are found. If more
@@ -294,6 +330,7 @@ def process_variants_file(gatk_list, designed_variants_df):
                 variant = AA[-1]
                 name = variant + str(pos) + variant
                 rejected = 0
+                accepted_stats['accepted_syn_counts'] = accepted_stats['accepted_syn_counts'] + counts
 
         if len(mutation.split(";")) == 1:
             # Nonsyn check. Classify mutations here.
@@ -309,6 +346,7 @@ def process_variants_file(gatk_list, designed_variants_df):
                 variant = deletion_dict["mutation"]
                 name = deletion_dict["name"]
                 rejected = 0
+                accepted_stats['accepted_del_counts'] = accepted_stats['accepted_del_counts'] + counts
 
             # Is the variant an insertion?
 
@@ -325,6 +363,7 @@ def process_variants_file(gatk_list, designed_variants_df):
                 variant = insertion_dict["mutation"]
                 name = insertion_dict["name"]
                 rejected = 0
+                accepted_stats['accepted_ins_counts'] = accepted_stats['accepted_ins_counts'] + counts
 
             # Is the variant a substitution?
 
@@ -337,7 +376,8 @@ def process_variants_file(gatk_list, designed_variants_df):
                     variant = AA[-1]
                     name = mutation
                     rejected = 0
-
+                    accepted_stats['accepted_sub_counts'] = accepted_stats['accepted_sub_counts'] + counts
+                    
             # Is the variant a stop?
 
             if AA[0] == "N":
@@ -349,8 +389,9 @@ def process_variants_file(gatk_list, designed_variants_df):
                     variant = AA[-1]
                     name = mutation
                     rejected = 0
+                    accepted_stats['accepted_stop_counts'] = accepted_stats['accepted_stop_counts'] + counts
 
-            # # Check if the nonsynonymous mutation is a designed one before adding.
+            # # Check if the mutation is a designed one before adding.
 
             if mutation_type == "M" or mutation_type == "S":
                 try:
@@ -360,11 +401,23 @@ def process_variants_file(gatk_list, designed_variants_df):
                     ]["codon"].array[0]
                     # If this codon wasn't one we designed, don't add it (that is, add 0)
                     if designed_codon != codon[-3:]:
-                        count = 0
+                        rejected_stats['wrong_codon_counts'] = rejected_stats['wrong_codon_counts'] + counts
                         rejected = 1
+                        count = 0
+                        # If this codon was one we designed, but the mutation type is wrong, remove counts from stats
+                        if mutation_type == "M":
+                            accepted_stats['accepted_sub_counts'] = accepted_stats['accepted_sub_counts'] - counts
+                        else:
+                            accepted_stats['accepted_syn_counts'] = accepted_stats['accepted_syn_counts'] - counts
                 except IndexError:
+                    rejected_stats['wrong_variant_counts'] = rejected_stats['wrong_variant_counts'] + counts
                     count = 0
                     rejected = 1
+                    if mutation_type == "M":
+                        accepted_stats['accepted_sub_counts'] = accepted_stats['accepted_sub_counts'] - counts
+                    else:
+                        accepted_stats['accepted_syn_counts'] = accepted_stats['accepted_syn_counts'] - counts
+
 
             insdel_re = regex.search(
                 r"([a-zA-Z])([0-9]+)_([a-zA-Z])([0-9]+)insdel([a-zA-Z]+)", mutation
@@ -380,21 +433,34 @@ def process_variants_file(gatk_list, designed_variants_df):
                 name = insdel_dict["name"]
                 rejected = insdel_dict["rejected"]
 
-            # Add counts to the variant df
+                if rejected == 1:
+                    rejected_stats['insdel_variant_counts'] = rejected_stats['insdel_variant_counts'] + counts
+                else:
+                    accepted_stats['accepted_insdel_counts'] = accepted_stats['accepted_insdel_counts'] + counts
+
+            # Add counts to the variant df, if they are not flagged for rejection
+            # No need to add counts here, since they should already by added for rejected ones.
+
+            if rejected:
+                rejected_list = rejected_list + [line]
+                continue
 
             try:
                 variants_df.loc[variants_df.name == name, "count"] += int(count)
             except:
-                rejected = 1
+                if not rejected:
+                    rejected = 1
+                    rejected_stats['wrong_variant_counts'] = rejected_stats['wrong_variant_counts'] + int(count)
+                else:
+                    pass
 
-            if rejected:
-                rejected_list = rejected_list + [line]
 
         # If a multiple-change variant
         else:
             rejected_list = rejected_list + [line]
+            rejected_stats['multi_variant_counts'] = rejected_stats['multi_variant_counts'] + counts
 
-    return variants_df, rejected_list
+    return variants_df, rejected_list, rejected_stats, accepted_stats
 
 
 def write_enrich_df(file, variant_df):
@@ -406,6 +472,16 @@ def write_enrich_df(file, variant_df):
     with p.open("w+") as f:
         variant_df.to_csv(f, columns=["hgvs", "count"], index=False, sep="\t")
         f.write("_wt\t" + str(wt_summed))
+
+    return
+
+def write_stats_file(file, stats_dict):
+    p = pathlib.Path(file)
+    p.parent.mkdir(parents=True, exist_ok=True)
+
+    with p.open("w+") as f:
+        for key, value in stats_dict.items():
+            f.write(key + "\t" + str(value) + "\n")
 
     return
 

@@ -1,0 +1,73 @@
+extra_fn_clean_exts:
+  - "_trim"
+  - "_map"
+  - "_merge"
+  - "_accepted_processing.tsv"
+  - "_rejected_processing.tsv"
+
+custom_data:
+  variant_processing_accepted:
+    file_format: "tsv"
+    section_name: "Variant processing (accepted variants)"
+    description: "This section contains statistics about whether called variants were retained for analysis or not. By default,
+     variants are filtered out if they are not in the designed variants csv."
+    plot_type: "bargraph"
+    pconfig:
+      id: "variant_processing"
+      title: "Variant processing (accepted)"
+      xlab: "Counts"
+    categories:
+      accepted_syn_counts:
+        name: "Synonymous"
+        color: "#CC79A7"
+      accepted_sub_counts:
+        name: "Missense"
+        color: "#009E73"
+      accepted_stop_counts:
+        name: "Nonsense"
+        color: "#90ed7d"
+      accepted_ins_counts:
+        name: "Insertions"
+        color: "#56B4E9"
+      accepted_del_counts:
+        name: "Deletions"
+        color: "#D55E00"
+      accepted_insdel_counts:
+        name: "Insdel"
+        color: "#F0E442"
+
+  variant_processing_rejected:
+    file_format: "tsv"
+    section_name: "Variant processing (rejected variants)"
+    description: "This section contains statistics about whether called variants were retained for analysis or not. By default,
+     variants are filtered out if they are not in the designed variants csv."
+    plot_type: "bargraph"
+    pconfig:
+      id: "variant_processing"
+      title: "Variant processing (rejected)"
+      xlab: "Counts"
+    categories: 
+      outside_orf_counts: 
+        name: "Outside ORF"
+        color: "#009E73"
+      fs_counts: 
+        name: "Frameshifts"
+        color: "#CC79A7"
+      wrong_codon_counts: 
+        name: "Incorrect codons"
+        color: "#E69F00"
+      wrong_variant_counts: 
+        name: "Non-designed variants"
+        color: "#F0E442"
+      insdel_variant_counts: 
+        name: "Insdels"
+        color: "#0072B2"
+      multi_variant_counts: 
+        name: "Multiple changes"
+        color: "#999999"
+
+sp:
+  variant_processing_accepted:
+    fn: "*_accepted_processing.tsv"
+  variant_processing_rejected:
+    fn: "*_rejected_processing.tsv"
