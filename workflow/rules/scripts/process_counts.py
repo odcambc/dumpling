@@ -105,7 +105,7 @@ def process_experiment(
         csv_file = process_variants.read_gatk_csv(
             os.path.join(snakemake.params["gatk_dir"], experiment + ".variantCounts")
         )
-        df, other, rejected_stats, accepted_stats = process_variants.process_variants_file(csv_file, designed_df)
+        df, other, rejected_stats, accepted_stats, total_stats = process_variants.process_variants_file(csv_file, designed_df)
 
         # Write an Enrich2-readable output
         enrich_file = os.path.join(output_dir, experiment + ".tsv")
@@ -135,6 +135,10 @@ def process_experiment(
         # Write the accepted stats file
         stats_file = os.path.join("stats", experiment_name, "processing", experiment + "_accepted_processing.tsv")
         process_variants.write_stats_file(stats_file, accepted_stats)
+
+        # Write the total stats file
+        stats_file = os.path.join("stats", experiment_name, "processing", experiment + "_total_processing.tsv")
+        process_variants.write_stats_file(stats_file, total_stats)
 
     # Remove any variants with no observations before processing with Enrich2.
 
