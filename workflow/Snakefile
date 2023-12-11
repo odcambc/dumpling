@@ -2,8 +2,10 @@ import os
 import pandas as pd
 from snakemake.utils import validate
 
+
 # Set your specific experimental configuration here
-configfile: "config/test.yaml"
+configfile: "config/vatd.yaml"
+
 
 # Include rules from other files
 include: "rules/common.smk"
@@ -12,18 +14,25 @@ include: "rules/enrich.smk"
 include: "rules/filter.smk"
 include: "rules/map.smk"
 include: "rules/process.smk"
+include: "rules/baseline_qc.smk"
 include: "rules/qc.smk"
 include: "rules/ref.smk"
+include: "rules/rosace.smk"
 
 
 # Pseudo-rule for running analysis
 rule all:
     input:
         expand(
-            "results/{experiment_name}/enrich/tsv/{experiment_name}_exp/main_identifiers_scores.tsv",
+            "results/{experiment_name}/rosace/{conditions}_scores.tsv",
             experiment_name=config["experiment"],
+            conditions=conditions,
         ),
         expand(
             "stats/{experiment_name}/{experiment_name}_multiqc.html",
+            experiment_name=config["experiment"],
+        ),
+        expand(
+            "stats/{experiment_name}/{experiment_name}_baseline_multiqc.html",
             experiment_name=config["experiment"],
         ),

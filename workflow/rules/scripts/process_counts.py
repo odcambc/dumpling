@@ -115,7 +115,7 @@ def process_experiment(
         processed_file = os.path.join(output_dir, "counts", experiment + ".csv")
         p = pathlib.Path(processed_file)
         p.parent.mkdir(parents=True, exist_ok=True)
-        df.to_csv(processed_file)
+        df.to_csv(processed_file, index=False)
 
         # Write the rejected variants as well
         rejected_file = os.path.join(

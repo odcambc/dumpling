@@ -22,7 +22,7 @@ rule prepare_index:
     log:
         "logs/gatk/{reference}.create_index.log",
     wrapper:
-        "v2.8.0/bio/samtools/faidx"
+        "v3.0.0/bio/samtools/faidx"
 
 
 rule prepare_bbmap_index:

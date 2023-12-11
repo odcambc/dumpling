@@ -35,5 +35,4 @@ rule gatk_ASM:
         "--orf {params.orf} "
         "--sequence-dictionary {input.ref_dict} "
         "--min-q {params.min_q} "
-        "--dont-ignore-disjoint-pairs "
         "-O results/{wildcards.experiment}/gatk/{wildcards.sample_prefix} 2>{log}"
