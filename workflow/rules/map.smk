@@ -57,4 +57,4 @@ rule sort_index_samtools:
     params:
         extra="-O bam --write-index -o {output.bam}",
     wrapper:
-        "v3.0.0/bio/samtools/sort"
+        "v3.1.0/bio/samtools/sort"
