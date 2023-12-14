@@ -163,7 +163,7 @@ def process_experiment(
 
 # Process the experiments according to their relationships
 with open(snakemake.config["experiment_file"]) as f:
-    experiments = pd.read_csv(f, header=0).set_index(
+    experiments = pd.read_csv(f, header=0).dropna(how = 'all').set_index(
         "sample", drop=False, verify_integrity=True
     )
 

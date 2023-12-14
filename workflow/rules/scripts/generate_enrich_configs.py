@@ -20,7 +20,7 @@ baseline_condition = snakemake.config["baseline_condition"]
 
 output_directory = "results" + "/" + experiment_name + "/enrich/"
 
-experiments = pd.read_csv(snakemake.config["experiment_file"], header=0).set_index(
+experiments = pd.read_csv(snakemake.config["experiment_file"], header=0).dropna(how = 'all').set_index(
     "sample", drop=False, verify_integrity=True
 )
 

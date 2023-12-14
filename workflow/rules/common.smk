@@ -77,7 +77,7 @@ def get_input(wildcards):
 # Validate config and experiment files
 validate(config, "../schemas/config.schema.yaml")
 
-experiments = pd.read_csv(config["experiment_file"], header=0).set_index(
+experiments = pd.read_csv(config["experiment_file"], header=0).dropna(how = 'all').set_index(
     "sample", drop=False, verify_integrity=True
 )
 

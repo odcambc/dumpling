@@ -29,7 +29,7 @@ logging.debug("Writing to file: %s", output_file)
 
 baseline_condition = snakemake.config["baseline_condition"]
 
-experiments = pd.read_csv(snakemake.config["experiment_file"], header=0).set_index(
+experiments = pd.read_csv(snakemake.config["experiment_file"], header=0).dropna(how = 'all').set_index(
     "sample", drop=False, verify_integrity=True
 )
 
