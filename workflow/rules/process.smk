@@ -5,6 +5,10 @@ rule process_counts:
         expand("results/{{experiment}}/gatk/{samples}.variantCounts", samples=samples),
     output:
         expand("results/{{experiment}}/processed_counts/{samples}.tsv", samples=samples),
+        expand(
+            "stats/{{experiment}}/processing/{samples}_total_processing.tsv",
+            samples=samples,
+        ),
     params:
         remove_zeros=config["remove_zeros"],
         regenerate_variants=config["regenerate_variants"],

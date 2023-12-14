@@ -24,6 +24,56 @@ def pass_names(names):
     else:
         return ",".join(names)
 
+def get_baseline_samples(experiments, samples):
+    """Returns a list of baseline sample and files"""
+    baseline_samples = []
+    baseline_files = []
+    for sample in samples:
+        if experiments.loc[sample, "condition"] == config["baseline_condition"]:
+            baseline_samples.append(sample)
+            baseline_files.append(experiments.loc[sample, "file"])
+    return baseline_samples, baseline_files
+
+def get_experiment_samples(experiments, samples):
+    """Returns a list of experiment (i.e., non-baseline) sample and files"""
+    experiment_samples = []
+    experiment_files = []
+    for sample in samples:
+        if experiments.loc[sample, "condition"] != config["baseline_condition"]:
+            experiment_samples.append(sample)
+            experiment_files.append(experiments.loc[sample, "file"])
+    return experiment_samples, experiment_files
+
+def get_input(wildcards):
+    """Generate the input files for the dummy rule all.
+    This is necessary to allow optional pipeline outputs."""
+
+    input_list = []
+
+    if experiment_samples:
+        input_list.extend(
+            expand(
+                "results/{experiment_name}/rosace/{conditions}_scores.tsv",
+                experiment_name=config["experiment"],
+                conditions=conditions,
+            )
+        )
+        input_list.extend(
+            expand(
+                "stats/{experiment_name}/{experiment_name}_multiqc.html",
+                experiment_name=config["experiment"],
+            )
+        )
+    if config["baseline_condition"]:
+        input_list.extend(
+            expand(
+                "stats/{experiment_name}/{experiment_name}_baseline_multiqc.html",
+                experiment_name=config["experiment"],
+            )
+        )
+
+    return input_list
+
 # Validate config and experiment files
 validate(config, "../schemas/config.schema.yaml")
 
@@ -36,6 +86,8 @@ validate(experiments, "../schemas/experiments.schema.yaml")
 # Set variables from config and experiment files
 experiment = config["experiment"]
 samples = experiments["sample"]
+baseline_samples, baseline_files = get_baseline_samples(experiments, samples)
+experiment_samples, experiment_files = get_experiment_samples(experiments, samples)
 files = experiments["file"]
 conditions = set(experiments["condition"])
 reference_name = get_ref(config["reference"])

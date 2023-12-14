@@ -24,10 +24,7 @@ rule run_enrich:
     log:
         "logs/{experiment_name}/enrich/{experiment_name}.enrich.log"
     conda:
-        "../envs/enrich.yaml"
+        "../envs/enrich2.yaml"
     shell:
         "enrich_cmd --log {log} --no-plots --recalculate "
         "{input.config} WLS full"
-
-
-        

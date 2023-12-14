@@ -44,7 +44,7 @@ rule remove_contaminants:
     output:
         R1_clean=temp("results/{experiment}/{sample_prefix}_R1.clean.trim.fastq.gz"),
         R2_clean=temp("results/{experiment}/{sample_prefix}_R2.clean.trim.fastq.gz"),
-        stats="stats/{experiment}/{sample_prefix}_trim.stats.txt",
+        stats="stats/{experiment}/{sample_prefix}_trim_contam.stats.txt",
     params:
         contaminants=contaminants_ref,
     benchmark:

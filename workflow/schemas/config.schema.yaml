@@ -64,6 +64,10 @@ properties:
     type: boolean
     default: false
     description: Flag for whether called variants are filtered or not.
+  baseline_condition:
+    type: string
+    default: ""
+    description: Name of condition containing baseline samples. Scores will not be generated for this condition.
 
 required:
   - data_dir

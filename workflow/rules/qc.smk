@@ -3,25 +3,29 @@ rule multiqc_dir:
   """
     input:
         expand(
-            "stats/{{experiment_name}}/{sample_prefix}_map.covstats",
+            "stats/{{experiment}}/{sample_prefix}_map.covstats",
             sample_prefix=samples,
         ),
-        expand("stats/{{experiment_name}}/fastqc/{file}_R1_001_fastqc.html", file=files),
-        expand("stats/{{experiment_name}}/fastqc/{file}_R2_001_fastqc.html", file=files),
+        expand("stats/{{experiment}}/fastqc/{file}_R1_001_fastqc.html", file=files),
+        expand("stats/{{experiment}}/fastqc/{file}_R2_001_fastqc.html", file=files),
         expand(
-            "results/{{experiment_name}}/gatk/{sample_prefix}.variantCounts",
+            "results/{{experiment}}/gatk/{sample_prefix}.variantCounts",
+            sample_prefix=samples,
+        ),
+        expand(
+            "stats/{{experiment}}/processing/{sample_prefix}_total_processing.tsv",
             sample_prefix=samples,
         ),
     output:
-        "stats/{experiment_name}/{experiment_name}_multiqc.html",
+        "stats/{experiment}/{experiment}_multiqc.html",
     params:
         extra="-c config/multiqc_config.yaml",
     benchmark:
-        "benchmarks/{experiment_name}/multiqc.benchmark.txt"
+        "benchmarks/{experiment}/multiqc.benchmark.txt"
     log:
-        "logs/{experiment_name}/multiqc.log",
+        "logs/{experiment}/multiqc.log",
     wrapper:
-        "v3.0.0/bio/multiqc"
+        "v3.1.0/bio/multiqc"
 
 rule fastqc:
     """Initial QC: run FastQC on all input reads."""
@@ -40,4 +44,4 @@ rule fastqc:
     resources:
         mem_mb=config["mem_fastqc"],
     wrapper:
-        "v3.0.0/bio/fastqc"
+        "v3.1.0/bio/fastqc"

@@ -6,27 +6,6 @@ extra_fn_clean_exts:
   - "_rejected_processing.tsv"
   - "_total_processing.tsv"
 
-  variant_processing_total:
-    file_format: "tsv"
-    section_name: "Variant processing stats"
-    description: "This section contains statistics about whether called variants were retained for analysis or not. By default,
-     variants are filtered out if they are not in the designed variants csv."
-    plot_type: "bargraph"
-    pconfig:
-      id: "variant_processing"
-      title: "Variant processing (total)"
-      xlab: "Counts"
-    categories: 
-      total_counts: 
-        name: "Total processed counts"
-        color: "#009E73"
-      total_accepted_counts: 
-        name: "Accepted counts"
-        color: "#CC79A7"
-      total_rejected_counts: 
-        name: "Filtered counts"
-        color: "#E69F00"
-
 custom_data:
   variant_processing_accepted:
     file_format: "tsv"
@@ -87,6 +66,27 @@ custom_data:
       multi_variant_counts: 
         name: "Multiple changes"
         color: "#999999"
+        
+  variant_processing_total:
+    file_format: "tsv"
+    section_name: "Variant processing stats"
+    description: "This section contains statistics about whether called variants were retained for analysis or not. By default,
+     variants are filtered out if they are not in the designed variants csv."
+    plot_type: "bargraph"
+    pconfig:
+      id: "variant_processing"
+      title: "Variant processing (total)"
+      xlab: "Counts"
+    categories: 
+      total_counts: 
+        name: "Total processed counts"
+        color: "#009E73"
+      total_accepted_counts: 
+        name: "Accepted counts"
+        color: "#CC79A7"
+      total_rejected_counts: 
+        name: "Filtered counts"
+        color: "#E69F00"
 
 
 sp:

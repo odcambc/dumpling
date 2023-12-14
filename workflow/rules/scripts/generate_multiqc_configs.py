@@ -26,17 +26,17 @@ experiments = pd.read_csv(snakemake.config["experiment_file"], header=0).set_ind
 
 enrich2_config = ["{", '\t"conditions": [']
 
-conditions = experiments["condition"].unique().tolist()
+conditions = experiments["condition"].unique()
+replicates = experiments["replicate"].unique()
 
 # Do not generate scores for the baseline condition, if it exists.
 if baseline_condition:
     try:
-        conditions.remove(baseline_condition)
+        conditions = conditions.remove(baseline_condition)
     except ValueError:
         logging.warning("Baseline condition %s not found in experiment file.", baseline_condition)
 
 for condition in conditions:
-    # TODO: Last iteration over a loop should close without a comma.
     # open condition
 
     # open condition
@@ -66,7 +66,7 @@ for condition in conditions:
                 (experiments["condition"] == condition)
                 & (experiments["replicate"] == replicate)
                 & (experiments["time"] == time)
-            ]["sample"].iloc[0]
+            ]["sample"][0]
 
             # open file definition
             name = "{}_rep{}_T{}".format(condition, str(replicate), str(time))

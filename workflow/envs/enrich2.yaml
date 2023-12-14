@@ -6,3 +6,6 @@ dependencies:
   - pytables
   - statsmodels
   - matplotlib
+  - pip
+  - pip:
+    - git+https://github.com/FowlerLab/Enrich2@v1.3.1
