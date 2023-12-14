@@ -54,7 +54,6 @@ ref_dir: 'references'
 # oligo_file:  CSV file containing the oligos used for generating the library, as in DIMPLE. This may be used
 #             to generate the variants_file if it does not already exist.
 # -----------------------------------------------------------------------------
-
 experiment_file: 'config/test.csv'
 reference: EccD_ref.fasta
 variants_file: "config/designed_variants/eccd_variants.csv"
@@ -77,6 +76,8 @@ orf: "141-1568"
 remove_zeros: false
 regenerate_variants: false
 noprocess: false
+
+baseline_condition: baseline
 
 # -----------------------------------------------------------------------------
 # Other parameters:

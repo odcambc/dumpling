@@ -4,7 +4,7 @@ from snakemake.utils import validate
 
 
 # Set your specific experimental configuration here
-configfile: "config/vatd.yaml"
+configfile: "config/test.yaml"
 
 
 # Include rules from other files
@@ -19,20 +19,7 @@ include: "rules/qc.smk"
 include: "rules/ref.smk"
 include: "rules/rosace.smk"
 
-
 # Pseudo-rule for running analysis
 rule all:
     input:
-        expand(
-            "results/{experiment_name}/rosace/{conditions}_scores.tsv",
-            experiment_name=config["experiment"],
-            conditions=conditions,
-        ),
-        expand(
-            "stats/{experiment_name}/{experiment_name}_multiqc.html",
-            experiment_name=config["experiment"],
-        ),
-        expand(
-            "stats/{experiment_name}/{experiment_name}_baseline_multiqc.html",
-            experiment_name=config["experiment"],
-        ),
+        get_input

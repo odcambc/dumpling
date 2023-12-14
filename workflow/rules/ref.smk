@@ -39,7 +39,7 @@ rule prepare_bbmap_index:
     log:
         expand(
             "logs/{experiment}/bbmap/{reference}.bbmap_index.log",
-            experiment=config["reference"],
+            experiment=experiment,
             reference=config["reference"],
         ),
     shell:

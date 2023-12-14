@@ -31,7 +31,7 @@ conditions = experiments["condition"].unique().tolist()
 # Do not generate scores for the baseline condition, if it exists.
 if baseline_condition:
     try:
-        conditions = conditions.remove([baseline_condition])
+        conditions.remove(baseline_condition)
     except ValueError:
         logging.warning("Baseline condition %s not found in experiment file.", baseline_condition)
 
