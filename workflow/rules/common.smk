@@ -24,6 +24,7 @@ def pass_names(names):
     else:
         return ",".join(names)
 
+
 def get_baseline_samples(experiments, samples):
     """Returns a list of baseline sample and files"""
     baseline_samples = []
@@ -34,6 +35,7 @@ def get_baseline_samples(experiments, samples):
             baseline_files.append(experiments.loc[sample, "file"])
     return baseline_samples, baseline_files
 
+
 def get_experiment_samples(experiments, samples):
     """Returns a list of experiment (i.e., non-baseline) sample and files"""
     experiment_samples = []
@@ -43,6 +45,7 @@ def get_experiment_samples(experiments, samples):
             experiment_samples.append(sample)
             experiment_files.append(experiments.loc[sample, "file"])
     return experiment_samples, experiment_files
+
 
 def get_input(wildcards):
     """Generate the input files for the dummy rule all.
@@ -74,11 +77,14 @@ def get_input(wildcards):
 
     return input_list
 
+
 # Validate config and experiment files
 validate(config, "../schemas/config.schema.yaml")
 
-experiments = pd.read_csv(config["experiment_file"], header=0).dropna(how = 'all').set_index(
-    "sample", drop=False, verify_integrity=True
+experiments = (
+    pd.read_csv(config["experiment_file"], header=0)
+    .dropna(how="all")
+    .set_index("sample", drop=False, verify_integrity=True)
 )
 
 validate(experiments, "../schemas/experiments.schema.yaml")
@@ -93,3 +99,9 @@ conditions = set(experiments["condition"])
 reference_name = get_ref(config["reference"])
 adapters_ref = pass_names(config["adapters"])
 contaminants_ref = pass_names(config["contaminants"])
+
+tiles = experiments["tile"].unique()
+if len(tiles) > 1:
+    config["tiled"] = True
+else:
+    config["tiled"] = False

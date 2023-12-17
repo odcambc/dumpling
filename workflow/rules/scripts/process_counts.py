@@ -56,7 +56,6 @@ designed_variant_header: list[str] = [
 
 experiment_name = snakemake.config["experiment"]
 
-
 log_file = snakemake.log[0]
 output_dir = "results/" + experiment_name + "/processed_counts/"
 regenerate_variants = snakemake.params["regenerate_variants"]
@@ -169,19 +168,28 @@ with open(snakemake.config["experiment_file"]) as f:
 
 for condition in experiments["condition"].unique():
     logging.debug("Condition: %s", condition)
-    replicate_list = experiments.loc[
-            (experiments["condition"] == condition)]["replicate"]
-    for replicate in replicate_list.unique():
-        logging.debug("Replicate: %s", replicate)
-        experiment_list = experiments.loc[
-            (experiments["condition"] == condition)
-            & (experiments["replicate"] == replicate)
-        ]["sample"].tolist()
-        file_list = experiments.loc[
-            (experiments["condition"] == condition)
-            & (experiments["replicate"] == replicate)
-        ]["file"].tolist()
+    tile_list = experiments.loc[
+        (experiments["condition"] == condition)]["tile"]
+    for tile in tile_list.unique():
+        logging.debug("Tile: %s", tile)
+        replicate_list = experiments.loc[
+                (experiments["condition"] == condition)
+                & (experiments["tile"] == tile)]["replicate"]
+        for replicate in replicate_list.unique():
+            logging.debug("Replicate: %s", replicate)
+            experiment_list = experiments.loc[
+                (experiments["condition"] == condition)
+                & (experiments["replicate"] == replicate)
+                & (experiments["tile"] == tile)
+            ]["sample"].tolist()
+            file_list = experiments.loc[
+                (experiments["condition"] == condition)
+                & (experiments["replicate"] == replicate)
+                & (experiments["tile"] == tile)
+            ]["file"].tolist()
+            logging.debug("Samples: ")
+            logging.debug(experiment_list)
 
-        process_experiment(
-            experiment_list, snakemake.params["regenerate_variants"], snakemake.params["remove_zeros"]
-        )
+            process_experiment(
+                experiment_list, snakemake.params["regenerate_variants"], snakemake.params["remove_zeros"]
+            )
