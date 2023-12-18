@@ -1,15 +1,14 @@
 import pandas as pd
 import logging
-
-import yaml
-
+import snakemake
 
 # The hierarchy of the enrich2 config file elements is as follows:
 # experiment
-#   conditions 
+#   conditions
 #    tiles (if applicable: implemented as individual conditions)
 #     replicates
 #      timepoints/bins (individual samples)
+
 
 def tiled_config(conditions, experiments, tsv_path, output_directory):
     """Generate the Enrich2 config file for tiled experiments."""
@@ -19,17 +18,19 @@ def tiled_config(conditions, experiments, tsv_path, output_directory):
         tiles = experiments.loc[(experiments["condition"] == condition)][
             "tile"
         ].unique()
+
         for tile in tiles:
             # open condition
             enrich2_config.extend(["\t{"])
             # condition name
-            enrich2_config.extend(['\t\t"name": "' + condition + '_tile' + str(tile) + '",'])
+            enrich2_config.extend(
+                ['\t\t"name": "' + condition + "_tile" + str(tile) + '",']
+            )
             # start selections (a.k.a. set of replicates)
             enrich2_config.extend(['\t\t"selections": ['])
 
             replicates = experiments.loc[
-                (experiments["condition"] == condition)
-                & (experiments["tile"] == tile)
+                (experiments["condition"] == condition) & (experiments["tile"] == tile)
             ]["replicate"].unique()
 
             for replicate in replicates:
@@ -44,9 +45,7 @@ def tiled_config(conditions, experiments, tsv_path, output_directory):
                 # start libraries
                 enrich2_config.extend(['\t\t\t"libraries": ['])
                 for time in timepoints:
-
                     sample_name = experiments.loc[
-                        
                         (experiments["condition"] == condition)
                         & (experiments["replicate"] == replicate)
                         & (experiments["time"] == time)
@@ -54,14 +53,19 @@ def tiled_config(conditions, experiments, tsv_path, output_directory):
                     ]["sample"].iloc[0]
 
                     # open file definition
-                    name = "{}_rep{}_T{}_tile{}".format(condition, str(replicate), str(time), str(tile))
+                    name = "{}_rep{}_T{}_tile{}".format(
+                        condition, str(replicate), str(time), str(tile)
+                    )
 
                     enrich2_config.extend(["\t\t\t\t{"])
 
                     # close file definition
                     enrich2_config.extend(
                         [
-                            '\t\t\t\t\t"counts file": "' + tsv_path + sample_name + '.tsv",',
+                            '\t\t\t\t\t"counts file": "'
+                            + tsv_path
+                            + sample_name
+                            + '.tsv",',
                             '\t\t\t\t\t"identifiers": {},',
                             '\t\t\t\t\t"name": "' + name + '",',
                             '\t\t\t\t\t"report filtered reads": false,',
@@ -76,7 +80,15 @@ def tiled_config(conditions, experiments, tsv_path, output_directory):
                 # closes and completes library definition
                 enrich2_config.extend(["\t\t\t],"])
                 enrich2_config.extend(
-                    ['\t\t\t"name": "' + condition + "_R" + str(replicate) + "_tile" + str(tile) +'"']
+                    [
+                        '\t\t\t"name": "'
+                        + condition
+                        + "_R"
+                        + str(replicate)
+                        + "_tile"
+                        + str(tile)
+                        + '"'
+                    ]
                 )
                 if replicate == replicates[-1]:
                     enrich2_config.extend(["\t\t}"])
@@ -86,8 +98,9 @@ def tiled_config(conditions, experiments, tsv_path, output_directory):
                 # closes replicate
             enrich2_config.extend(["\t\t]"])
 
-            # closes condition
-            if condition == conditions[-1]:
+            # closes condition. Checks for this being the last
+            # condition in the file, as well.
+            if condition == conditions[-1] and tile == tiles[-1]:
                 enrich2_config.extend(["\t}"])
             else:
                 enrich2_config.extend(["\t},"])
@@ -99,6 +112,7 @@ def tiled_config(conditions, experiments, tsv_path, output_directory):
 
     return enrich2_config
 
+
 def untiled_config(conditions, experiments, tsv_path, output_directory):
     """Generate the Enrich2 config file for untiled experiments."""
     enrich2_config = ["{", '\t"conditions": [']
@@ -106,7 +120,7 @@ def untiled_config(conditions, experiments, tsv_path, output_directory):
     for condition in conditions:
         # open condition
         enrich2_config.extend(["\t{"])
-        # condition name            
+        # condition name
         enrich2_config.extend(['\t\t"name": "' + condition + '",'])
         # start selections (a.k.a. set of replicates)
         enrich2_config.extend(['\t\t"selections": ['])
@@ -126,7 +140,6 @@ def untiled_config(conditions, experiments, tsv_path, output_directory):
             # start libraries
             enrich2_config.extend(['\t\t\t"libraries": ['])
             for time in timepoints:
-
                 sample_name = experiments.loc[
                     (experiments["condition"] == condition)
                     & (experiments["replicate"] == replicate)
@@ -141,7 +154,10 @@ def untiled_config(conditions, experiments, tsv_path, output_directory):
                 # close file definition
                 enrich2_config.extend(
                     [
-                        '\t\t\t\t\t"counts file": "' + tsv_path + sample_name + '.tsv",',
+                        '\t\t\t\t\t"counts file": "'
+                        + tsv_path
+                        + sample_name
+                        + '.tsv",',
                         '\t\t\t\t\t"identifiers": {},',
                         '\t\t\t\t\t"name": "' + name + '",',
                         '\t\t\t\t\t"report filtered reads": false,',
@@ -196,8 +212,10 @@ baseline_condition = snakemake.config["baseline_condition"]
 
 output_directory = "results" + "/" + experiment_name + "/enrich/"
 
-experiments = pd.read_csv(snakemake.config["experiment_file"], header=0).dropna(how = 'all').set_index(
-    "sample", drop=False, verify_integrity=True
+experiments = (
+    pd.read_csv(snakemake.config["experiment_file"], header=0)
+    .dropna(how="all")
+    .set_index("sample", drop=False, verify_integrity=True)
 )
 
 conditions = experiments["condition"].unique().tolist()
@@ -207,14 +225,16 @@ if baseline_condition:
     try:
         conditions.remove(baseline_condition)
     except ValueError:
-        logging.warning("Baseline condition %s not found in experiment file.", baseline_condition)
+        logging.warning(
+            "Baseline condition %s not found in experiment file.", baseline_condition
+        )
 
 # Generate the Enrich2 config file
 if snakemake.config["tiled"]:
-    enrich2_config = tiled_config(conditions, experiments, tsv_path, output_directory)
+    enrich2_config_lines = tiled_config(conditions, experiments, tsv_path, output_directory)
 else:
-    enrich2_config = untiled_config(conditions, experiments, tsv_path, output_directory)
+    enrich2_config_lines = untiled_config(conditions, experiments, tsv_path, output_directory)
 
 with open(output_file, "w+") as f:
-    for line in enrich2_config:
+    for line in enrich2_config_lines:
         f.write(line + "\n")
