@@ -20,8 +20,10 @@ baseline_condition = snakemake.config["baseline_condition"]
 
 output_directory = "results" + "/" + experiment_name + "/enrich/"
 
-experiments = pd.read_csv(snakemake.config["experiment_file"], header=0).dropna(how = 'all').set_index(
-    "sample", drop=False, verify_integrity=True
+experiments = (
+    pd.read_csv(snakemake.config["experiment_file"], header=0)
+    .dropna(how="all")
+    .set_index("sample", drop=False, verify_integrity=True)
 )
 
 enrich2_config = ["{", '\t"conditions": [']
@@ -34,7 +36,9 @@ if baseline_condition:
     try:
         conditions = conditions.remove(baseline_condition)
     except ValueError:
-        logging.warning("Baseline condition %s not found in experiment file.", baseline_condition)
+        logging.warning(
+            "Baseline condition %s not found in experiment file.", baseline_condition
+        )
 
 for condition in conditions:
     # open condition
@@ -61,7 +65,6 @@ for condition in conditions:
         # start libraries
         enrich2_config.extend(['\t\t\t"libraries": ['])
         for time in timepoints:
-
             sample_name = experiments.loc[
                 (experiments["condition"] == condition)
                 & (experiments["replicate"] == replicate)

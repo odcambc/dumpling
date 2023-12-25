@@ -8,8 +8,6 @@ import process_oligo_list
 import process_variants
 from Bio import SeqIO
 
-# TODO: read stats file and print
-
 order: list[str] = [
     "A",
     "C",

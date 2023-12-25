@@ -16,7 +16,7 @@ conda activate dumpling
 Edit the configuration files in the `config` directory as needed. Then run the pipeline with:
 
 ```bash
-snakemake -s workflow/Snakefile --use-conda --cores 8
+snakemake -s workflow/Snakefile --software-deployment-method conda --cores 8
 ```
 
 ## Installation
@@ -108,10 +108,10 @@ The pipeline has the following directory structure:
 Once the dependencies have been installed (whether via conda or otherwise) the pipeline can be run with the following command:
 
 ```bash
-snakemake -s workflow/Snakefile --use-conda --cores 8
+snakemake -s workflow/Snakefile --software-deployment-method conda --cores 8
 ```
 
-The maximum number of cores can be specified with the `--cores` flag. The `--use-conda` flag tells snakemake to use conda to create the environment specified within each rule.
+The maximum number of cores can be specified with the `--cores` flag. The `--software-deployment-method conda` flag tells snakemake to use conda to create the environment specified within each rule.
 
 ### Evaluating statistics
 
