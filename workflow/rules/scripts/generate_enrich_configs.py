@@ -1,6 +1,5 @@
 import pandas as pd
 import logging
-import snakemake
 
 # The hierarchy of the enrich2 config file elements is as follows:
 # experiment
@@ -8,6 +7,84 @@ import snakemake
 #    tiles (if applicable: implemented as individual conditions)
 #     replicates
 #      timepoints/bins (individual samples)
+
+
+def remove_truncated_replicates(experiments):
+    """Remove replicates with fewer than two timepoints/bins.
+
+    Accepts as input a dataframe of experiment metadata.
+    Returns a dataframe of experiment metadata with all replicates
+    with two or fewer timepoints removed."""
+
+    for condition in conditions:
+        tiles = experiments.loc[(experiments["condition"] == condition)][
+            "tile"
+        ].unique()
+
+        for tile in tiles:
+            replicates = experiments.loc[
+                (experiments["condition"] == condition) & (experiments["tile"] == tile)
+            ]["replicate"].unique()
+
+            for replicate in replicates:
+                timepoints = experiments.loc[
+                    (experiments["condition"] == condition)
+                    & (experiments["replicate"] == replicate)
+                    & (experiments["tile"] == tile)
+                ]["time"].unique()
+
+                if len(timepoints) <= 2:
+                    experiments = experiments.loc[
+                        (experiments["condition"] != condition)
+                        | (experiments["replicate"] != replicate)
+                        | (experiments["tile"] != tile)
+                    ]
+                    logging.warning(
+                        "Replicate %s in condition %s has fewer than two timepoints. Removing from analysis.",
+                        replicate,
+                        condition,
+                    )
+
+    return experiments
+
+
+def remove_missing_t0(experiments):
+    """Remove replicates without a T0 sample.
+
+    Accepts as input a dataframe of experiment metadata.
+    Returns a dataframe of experiment metadata with all replicates
+    without a T0 sample removed."""
+
+    for condition in conditions:
+        tiles = experiments.loc[(experiments["condition"] == condition)][
+            "tile"
+        ].unique()
+
+        for tile in tiles:
+            replicates = experiments.loc[
+                (experiments["condition"] == condition) & (experiments["tile"] == tile)
+            ]["replicate"].unique()
+
+            for replicate in replicates:
+                timepoints = experiments.loc[
+                    (experiments["condition"] == condition)
+                    & (experiments["replicate"] == replicate)
+                    & (experiments["tile"] == tile)
+                ]["time"].unique()
+
+                if 0 not in timepoints:
+                    experiments = experiments.loc[
+                        (experiments["condition"] != condition)
+                        | (experiments["replicate"] != replicate)
+                        | (experiments["tile"] != tile)
+                    ]
+                    logging.warning(
+                        "Replicate %s in condition %s has no T0 sample. Removing from analysis.",
+                        replicate,
+                        condition,
+                    )
+
+    return experiments
 
 
 def tiled_config(conditions, experiments, tsv_path, output_directory):
@@ -229,11 +306,18 @@ if baseline_condition:
             "Baseline condition %s not found in experiment file.", baseline_condition
         )
 
+# Remove truncated replicates (those with fewer than two timepoints) and those without a T0 sample.
+filtered_experiments = remove_truncated_replicates(remove_missing_t0(experiments))
+
 # Generate the Enrich2 config file
 if snakemake.config["tiled"]:
-    enrich2_config_lines = tiled_config(conditions, experiments, tsv_path, output_directory)
+    enrich2_config_lines = tiled_config(
+        conditions, filtered_experiments, tsv_path, output_directory
+    )
 else:
-    enrich2_config_lines = untiled_config(conditions, experiments, tsv_path, output_directory)
+    enrich2_config_lines = untiled_config(
+        conditions, filtered_experiments, tsv_path, output_directory
+    )
 
 with open(output_file, "w+") as f:
     for line in enrich2_config_lines:

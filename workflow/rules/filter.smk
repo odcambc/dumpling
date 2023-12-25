@@ -34,7 +34,6 @@ rule bbduk_trim_adapters:
         "t={threads} "
         "gcbins=auto 2> {log}"
 
-
 rule remove_contaminants:
     """Remove typical contaminants with BBDuk.
     The contaminants files used, by default, are included with BBTools, and consist of PhiX and some (possibly JGI-specific) other sequencing artifacts."""
