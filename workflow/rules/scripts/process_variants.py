@@ -540,36 +540,3 @@ def write_stats_file(file, stats_dict):
             f.write(key + "\t" + str(value) + "\n")
 
     return
-
-
-def remove_zeros_enrich(enrich_file_list):
-    # Input is a list of files containing Enrich2 formatted tsvs.
-    # This function combines them all into a single df, then removes the variants
-    # that are missing across all experiments, and rewrites the tsvs.
-    # Warning: this function operates IN-PLACE!
-
-    df_list = [
-        pd.read_csv(f, sep="\t", names=["hgvs", f], header=0).set_index("hgvs")
-        for f in enrich_file_list
-    ]
-
-    combined_enrich_df = pd.concat(df_list, join="outer", axis=1)
-
-    unobserved_variants = combined_enrich_df[
-        (combined_enrich_df == 0).all(axis=1)
-    ].index.to_list()
-
-    combined_enrich_df = combined_enrich_df[(combined_enrich_df != 0).any(axis=1)]
-
-    # write out each file again
-
-    for enrich_file in enrich_file_list:
-        p = pathlib.Path(enrich_file)
-        p.parent.mkdir(parents=True, exist_ok=True)
-
-        with p.open("w+") as f:
-            combined_enrich_df.to_csv(
-                f, columns=[enrich_file], header=["count"], index=True, sep="\t"
-            )
-
-    return unobserved_variants

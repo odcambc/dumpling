@@ -88,7 +88,6 @@ custom_data:
         name: "Filtered counts"
         color: "#E69F00"
 
-
 sp:
   variant_processing_total:
     fn: "*_total_processing.tsv"

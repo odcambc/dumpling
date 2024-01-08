@@ -52,6 +52,10 @@ properties:
     type: integer
     default: 1024
     description: memory for bbtools (in Mb)
+  enrich2:
+    type: boolean
+    default: false
+    description: Flag for whether to run Enrich2 in addition to Rosace.
   remove_zeros:
     type: boolean
     default: false

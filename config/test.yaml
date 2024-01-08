@@ -64,16 +64,22 @@ oligo_file: "config/oligos/Kir_oligos.csv"
 #
 # orf: The coordinate range of the ORF within the reference file.
 #
-# remove_zeros: Remove variants with zero counts from the output files.
-#
 # regenerate_variants: Regenerate the variants file from the oligo file. This is
 #                      only necessary if the variants file is not already present.
 #
+# #### Enrich2-specific parameters ####
+# enrich2: Set to true to run Enrich2 in addition to Rosace.
 # noprocess: Set to True to skip variant filtering based on designed variants.
 #
+# remove_zeros: Remove variants with zero counts from the output files.
+#
+# baseline_condition: The condition name in the experiment file to use as a baseline
+#                      or non-treated condition. This is useful for calculating the 
+#                      quality of input libraries.
 # -----------------------------------------------------------------------------
 orf: "141-1568"
-remove_zeros: false
+enrich2: true
+remove_zeros: true
 regenerate_variants: false
 noprocess: false
 

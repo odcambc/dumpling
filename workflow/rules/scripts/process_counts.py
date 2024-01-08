@@ -57,7 +57,6 @@ experiment_name = snakemake.config["experiment"]
 log_file = snakemake.log[0]
 output_dir = "results/" + experiment_name + "/processed_counts/"
 regenerate_variants = snakemake.params["regenerate_variants"]
-remove_zeros = snakemake.params["remove_zeros"]
 
 # Set up logging
 if log_file:
@@ -69,7 +68,7 @@ logging.debug("Loading experiment file: %s", snakemake.config["experiment_file"]
 
 
 def process_experiment(
-    experiment_list, regenerate_variants=False, remove_zeros=False
+    experiment_list, regenerate_variants=False
 ):
     """Process the experiment."""
 
@@ -137,27 +136,6 @@ def process_experiment(
         stats_file = os.path.join("stats", experiment_name, "processing", experiment + "_total_processing.tsv")
         process_variants.write_stats_file(stats_file, total_stats)
 
-    # Remove any variants with no observations before processing with Enrich2.
-
-    if remove_zeros:
-        enrich_file_list = [
-            output_dir + s + ".tsv"
-            for s in experiment_list
-        ]
-        zeros = process_variants.remove_zeros_enrich(enrich_file_list)
-
-        unobserved_file = (
-            output_dir + "/rejected/" + experiment_name + "_unobserved_variants.csv"
-        )
-        p = pathlib.Path(unobserved_file)
-        p.parent.mkdir(parents=True, exist_ok=True)
-
-        with p.open("w+") as f:
-            for variant in zeros:
-                f.write("%s\n" % variant)
-
-        return
-
 # Process the experiments according to their relationships
 with open(snakemake.config["experiment_file"]) as f:
     experiments = pd.read_csv(f, header=0).dropna(how = 'all').set_index(
@@ -189,5 +167,5 @@ for condition in experiments["condition"].unique():
             logging.debug(experiment_list)
 
             process_experiment(
-                experiment_list, snakemake.params["regenerate_variants"], snakemake.params["remove_zeros"]
+                experiment_list, snakemake.params["regenerate_variants"]
             )
