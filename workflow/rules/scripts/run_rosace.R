@@ -1,23 +1,5 @@
 #!/usr/bin/env Rscript
 
-renv::activate()
-
-library("readr")
-library("dplyr")
-library("cmdstanr")
-library("rosace")
-
-
-
-# Install cmdstan
-install_cmdstan(overwrite = FALSE)
-
-# This metadata is provided by snakemake invocation.
-
-experiment_name <- snakemake@config[["experiment"]]
-experiment_file <- snakemake@config[["experiment_file"]]
-baseline_condition <- snakemake@config[["baseline_condition"]]
-
 # Set up logging
 # Output will be redicted to the log file
 log_file <- snakemake@log[[1]]
@@ -27,6 +9,86 @@ con <- file(log_file, open = "wt")
 
 sink(con, append = FALSE, split = FALSE, type = "message")
 sink(con, append = FALSE, split = FALSE, type = "output")
+
+
+renv::activate()
+
+library("readr")
+library("dplyr")
+library("cmdstanr")
+library("rosace")
+
+# This metadata is provided by the snakemake invocation.
+
+experiment_name <- snakemake@config[["experiment"]]
+experiment_file <- snakemake@config[["experiment_file"]]
+baseline_condition <- snakemake@config[["baseline_condition"]]
+
+cores <- snakemake@threads
+
+# Parses an HGVS string minus surrounding "p()",
+# outputs a vector with variant info
+
+parse_stripped_hgvs <- function(hgvs_string) {
+  variant = ""
+  pos = -1
+  len = -1
+  mutation_type = ""
+  WT = substr(hgvs_string, 1, 1)
+  
+  # WT case, as in enrich2 format
+  if (str_detect(hgvs_string, "_wt")) {
+    variant = "Z"
+    pos = -1
+    len = -1
+    mutation_type = "X"
+  }
+  
+  # M/S/N
+  if (str_detect(hgvs_string, "[A-Z][0-9]+[A-Z]+")) {
+    len = 1 
+    match = str_match(hgvs_string, "([A-Z])([0-9]+)([A-Z]+)")
+    pos = match[3]
+    if (match[2] == match[4]) {
+      mutation_type = "synonymous"
+      variant = match[4]
+    } else if (match[4] == 'X') {
+      mutation_type = "nonsense"
+      variant = match[4]
+    } else {
+      mutation_type = "missense"
+      variant = match[4]
+    }
+  }
+  
+  # D
+  if (str_detect(hgvs_string, ".*del")) {
+    mutation_type = "deletion"
+    if (str_detect(hgvs_string, "[A-Z][0-9]+_[A-Z][0-9]+del")) {
+      # D_2, D_3
+      match = str_match(hgvs_string, "[A-Z]([0-9]+)_[A-Z]([0-9]+)del")
+      pos = match[2]
+      len = strtoi(match[3]) - strtoi(match[2]) + 1
+      variant = paste("D_", as.character(len), sep="")
+    } else {
+      # D_1
+      len = 1
+      match = str_match(hgvs_string, "([A-Z])([0-9]+)del")
+      pos = match[3]
+      variant = "D_1"
+    }
+  }
+  
+  # I
+  if (str_detect(hgvs_string, ".*ins.*")) {
+    mutation_type = "insertion"
+    match = str_match(hgvs_string, "[A-Z]([0-9]+)_[A-Z][0-9]+ins([A-Z]+)")
+    len = nchar(match[3])
+    pos = match[2]
+    variant = paste("I_", as.character(len), sep="")
+  }
+  return(c(variant, pos, len, mutation_type, WT))
+}
 
 # Read in the experiment definition
 experiment_definition <- read_csv(experiment_file)
@@ -135,46 +197,27 @@ for (expt_condition in conditions[conditions != baseline_condition]) {
   }
 }
 
-
-
 # The specific variant information now needs to be parsed
-colnames(rosace@var.data)
-rosace@var.data <- rosace@var.data %>%
-  mutate(
-    tmp = substr(variants, 4, nchar(variants) - 1),
-    position = as.numeric(gsub("[[:alpha:]]", "", tmp)),
-    wildtype = substr(tmp, 1, 1),
-    tmp = substr(tmp, 2, nchar(tmp)),
-    mutation = gsub("[[:digit:]]", "", tmp)
-  ) %>%
-  dplyr::select(-tmp)
-
-func_map <- function(wt, mut) {
-  if (nchar(wt) == 0) {
-    return("NA")
-  }
-
-  if (wt == mut) {
-    return("synonymous")
-  } else if (mut == "del") {
-    return("deletion")
-  } else {
-    return("missense")
-  }
-}
 
 rosace@var.data <- rosace@var.data %>%
   rowwise() %>%
-  mutate(type = func_map(wildtype, mutation)) %>%
-  ungroup()
+  mutate(
+    tmp_n = substr(variants, 4, nchar(variants) - 1),
+    tmp = list(parse_stripped_hgvs(tmp_n)),
+    position = as.numeric(tmp[2]),
+    wildtype = tmp[5],
+    mutation = tmp[1],
+    type = tmp[4]
+  ) %>%
+  dplyr::select(-tmp, -tpm_n)
 
 # Finally, run rosace on each condition and write the output to a csv.
-
 
 for (expt_condition in conditions[conditions != baseline_condition]) {
   rosace <- RunRosace(
     object = rosace,
     name = expt_condition,
+    mc.cores = cores,
     type = "AssaySet",
     savedir = rosace_dir,
     pos.col = "position",
@@ -182,7 +225,6 @@ for (expt_condition in conditions[conditions != baseline_condition]) {
     ctrl.name = "synonymous",
     install = FALSE
   )
-
 
   scores.data <- OutputScore(
     rosace,

@@ -1,10 +1,5 @@
 # GATK-based Snakemake pipeline for deep mutational scanning experiments
 
-/# TODO: Add badges for license, build status, etc.
-/# TODO: Add tests
-/# TODO: Add an output of the exact input files used for each run
-/# TODO: Add an output of the exact software environment used for each run
-
 This repository contains the Snakemake-based workflow for implementing
 deep mutational scanning experiments used in the [Fraser](https://fraserlab.com/)
 and [Coyote-Maestas](https://www.wcoyotelab.com/) labs.
@@ -66,7 +61,14 @@ Rosace uses [CmdStanR](https://mc-stan.org/cmdstanr/) and R to infer scores.
 
 Dumpling uses [renv](https://rstudio.github.io/renv/index.html) to handle R dependencies.
 This pipeline also includes a minimal faculty to install Rosace automatically, but issues are
-possible. We recommend installing Rosace manually before running the pipeline, or at least 
+possible. This can be invoked by calling the `install_rosace` rule:
+
+```snakemake --cores 8 install_rosace```
+
+This tries to install renv, restore the renv environment, and install Rosace and CmdStanR. If this fails,
+please try installing Rosace manually.
+
+We recommend installing Rosace manually before running the pipeline, or at least 
 verifying that the install script works. More details about manually installing Rosace are
 available in the vignettes of the package and at the repository linked above.
 
@@ -96,6 +98,7 @@ The following are the dependencies required to run the pipeline:
 * [FastQC](https://www.bioinformatics.babraham.ac.uk/projects/fastqc/)
 * [MultiQC](http://multiqc.info/)
 * [Enrich2](https://enrich2.readthedocs.io/en/latest/)
+* [Rosace](https://github.com/pimentellab/rosace)
 
 ## Configuration
 
