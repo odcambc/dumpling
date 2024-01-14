@@ -14,6 +14,7 @@ sink(con, append = FALSE, split = FALSE, type = "output")
 renv::activate()
 
 library("readr")
+library("stringr")
 library("dplyr")
 library("cmdstanr")
 library("rosace")
@@ -24,68 +25,66 @@ experiment_name <- snakemake@config[["experiment"]]
 experiment_file <- snakemake@config[["experiment_file"]]
 baseline_condition <- snakemake@config[["baseline_condition"]]
 
-cores <- snakemake@threads
-
 # Parses an HGVS string minus surrounding "p()",
 # outputs a vector with variant info
 
 parse_stripped_hgvs <- function(hgvs_string) {
-  variant = ""
-  pos = -1
-  len = -1
-  mutation_type = ""
-  WT = substr(hgvs_string, 1, 1)
-  
+  variant <- ""
+  pos <- -1
+  len <- -1
+  mutation_type <- ""
+  WT <- substr(hgvs_string, 1, 1)
+
   # WT case, as in enrich2 format
   if (str_detect(hgvs_string, "_wt")) {
-    variant = "Z"
-    pos = -1
-    len = -1
-    mutation_type = "X"
+    variant <- "Z"
+    pos <- -1
+    len <- -1
+    mutation_type <- "X"
   }
-  
+
   # M/S/N
   if (str_detect(hgvs_string, "[A-Z][0-9]+[A-Z]+")) {
-    len = 1 
-    match = str_match(hgvs_string, "([A-Z])([0-9]+)([A-Z]+)")
-    pos = match[3]
+    len <- 1
+    match <- str_match(hgvs_string, "([A-Z])([0-9]+)([A-Z]+)")
+    pos <- match[3]
     if (match[2] == match[4]) {
-      mutation_type = "synonymous"
-      variant = match[4]
-    } else if (match[4] == 'X') {
-      mutation_type = "nonsense"
-      variant = match[4]
+      mutation_type <- "synonymous"
+      variant <- match[4]
+    } else if (match[4] == "X") {
+      mutation_type <- "nonsense"
+      variant <- match[4]
     } else {
-      mutation_type = "missense"
-      variant = match[4]
+      mutation_type <- "missense"
+      variant <- match[4]
     }
   }
-  
+
   # D
   if (str_detect(hgvs_string, ".*del")) {
-    mutation_type = "deletion"
+    mutation_type <- "deletion"
     if (str_detect(hgvs_string, "[A-Z][0-9]+_[A-Z][0-9]+del")) {
       # D_2, D_3
-      match = str_match(hgvs_string, "[A-Z]([0-9]+)_[A-Z]([0-9]+)del")
-      pos = match[2]
-      len = strtoi(match[3]) - strtoi(match[2]) + 1
-      variant = paste("D_", as.character(len), sep="")
+      match <- str_match(hgvs_string, "[A-Z]([0-9]+)_[A-Z]([0-9]+)del")
+      pos <- match[2]
+      len <- strtoi(match[3]) - strtoi(match[2]) + 1
+      variant <- paste("D_", as.character(len), sep = "")
     } else {
       # D_1
-      len = 1
-      match = str_match(hgvs_string, "([A-Z])([0-9]+)del")
-      pos = match[3]
-      variant = "D_1"
+      len <- 1
+      match <- str_match(hgvs_string, "([A-Z])([0-9]+)del")
+      pos <- match[3]
+      variant <- "D_1"
     }
   }
-  
+
   # I
   if (str_detect(hgvs_string, ".*ins.*")) {
-    mutation_type = "insertion"
-    match = str_match(hgvs_string, "[A-Z]([0-9]+)_[A-Z][0-9]+ins([A-Z]+)")
-    len = nchar(match[3])
-    pos = match[2]
-    variant = paste("I_", as.character(len), sep="")
+    mutation_type <- "insertion"
+    match <- str_match(hgvs_string, "[A-Z]([0-9]+)_[A-Z][0-9]+ins([A-Z]+)")
+    len <- nchar(match[3])
+    pos <- match[2]
+    variant <- paste("I_", as.character(len), sep = "")
   }
   return(c(variant, pos, len, mutation_type, WT))
 }
@@ -217,7 +216,6 @@ for (expt_condition in conditions[conditions != baseline_condition]) {
   rosace <- RunRosace(
     object = rosace,
     name = expt_condition,
-    mc.cores = cores,
     type = "AssaySet",
     savedir = rosace_dir,
     pos.col = "position",
