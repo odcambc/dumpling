@@ -10,7 +10,6 @@ rule process_counts:
             samples=samples,
         ),
     params:
-        remove_zeros=config["remove_zeros"],
         regenerate_variants=config["regenerate_variants"],
         samples=samples,
         gatk_dir="results/{experiment}/gatk/",
@@ -20,3 +19,22 @@ rule process_counts:
         "logs/{experiment}/scripts/{experiment}.process_counts.log",
     script:
         "scripts/process_counts.py"
+
+rule remove_zeros:
+    """Runs script to remove unobserved variants from count files. This is only run
+    if the remove_zeros parameter is set to True in the config file. This is used to 
+    handle some undesired behavior in Enrich2, and is not necessary for Rosace."""
+
+    input:
+        expand("results/{{experiment}}/processed_counts/{samples}.tsv", samples=samples),
+    output:
+        expand("results/{{experiment}}/processed_counts/removed_zeros/{samples}.tsv", samples=samples),
+    params:
+        regenerate_variants=config["regenerate_variants"],
+        samples=samples,
+    benchmark:
+        "benchmarks/{experiment}/{experiment}.remove_zeros.benchmark.txt"
+    log:
+        "logs/{experiment}/scripts/{experiment}.remove_zeros.log",
+    script:
+        "scripts/remove_zeros.py"

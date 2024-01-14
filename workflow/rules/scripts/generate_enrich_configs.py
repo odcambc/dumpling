@@ -283,7 +283,11 @@ else:
     logging.basicConfig(level=logging.DEBUG)
 
 experiment_name = snakemake.config["experiment"]
-tsv_path = "results" + "/" + experiment_name + "/processed_counts/"
+
+if snakemake.params["remove_zeros"]:
+    tsv_path = "results" + "/" + experiment_name + "/processed_counts/removed_zeros/"
+else:
+    tsv_path = "results" + "/" + experiment_name + "/processed_counts/"
 
 baseline_condition = snakemake.config["baseline_condition"]
 
