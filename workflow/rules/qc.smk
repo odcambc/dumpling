@@ -1,5 +1,7 @@
 rule multiqc_dir:
     """Final QC: aggregate FastQC and intermediate log files into a final report with MultiQC.
+
+    This is a non-wrapper version.
   """
     input:
         expand(
@@ -24,11 +26,21 @@ rule multiqc_dir:
         "benchmarks/{experiment}/multiqc.benchmark.txt"
     log:
         "logs/{experiment}/multiqc.log",
-    wrapper:
-        "v3.1.0/bio/multiqc"
+    shell:
+        """
+        multiqc \
+            --outdir stats/{wildcards.experiment} \
+            --filename {wildcards.experiment}_multiqc.html \
+            --title {wildcards.experiment} \
+            -c config/multiqc_config.yaml \
+            --verbose \
+            {input} 2> {log}
+        """
 
 rule fastqc:
-    """Initial QC: run FastQC on all input reads."""
+    """Initial QC: run FastQC on all input reads.
+    
+    Non-wrapper version."""
     input:
         expand("{data_dir}/{{sample_read}}.fastq.gz", data_dir=config["data_dir"]),
     output:
@@ -43,5 +55,12 @@ rule fastqc:
     threads: 8
     resources:
         mem_mb=config["mem_fastqc"],
-    wrapper:
-        "v3.1.0/bio/fastqc"
+    shell:
+        """
+        fastqc \
+            --outdir stats/{wildcards.experiment}/fastqc \
+            --threads {threads} \
+            {params} \
+            {input} \
+            2> {log}
+        """

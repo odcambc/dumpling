@@ -12,18 +12,18 @@ rule prepare_dict_GATK:
     shell:
         "gatk CreateSequenceDictionary -R {input} 2> {log}"
 
-
 rule prepare_index:
-    """Index the reference sequence using samtools. Necessary for GATK."""
+    """Index the reference sequence using samtools. Necessary for GATK.
+    
+    This is a non-wrapper version of the rule to allow local installs of samtools."""
     input:
         expand("{ref_dir}/{{reference}}.fasta", ref_dir=config["ref_dir"]),
     output:
         expand("{ref_dir}/{{reference}}.fasta.fai", ref_dir=config["ref_dir"]),
     log:
         "logs/gatk/{reference}.create_index.log",
-    wrapper:
-        "v3.1.0/bio/samtools/faidx"
-
+    shell:
+        "samtools faidx {input} 2> {log}"
 
 rule prepare_bbmap_index:
     """Generate the index for mapping with bbmap. This must be run once before mapping."""

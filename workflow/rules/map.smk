@@ -45,7 +45,9 @@ rule map_to_reference_bbmap:
 
 
 rule sort_index_samtools:
-    """Sort and index mapped reads using samtools."""
+    """Sort and index mapped reads using samtools.
+    
+    This is a non-wrapper version of the rule to allow local installs of samtools."""
     input:
         "results/{experiment}/{sample_prefix}.mapped.sam",
     output:
@@ -55,6 +57,11 @@ rule sort_index_samtools:
     log:
         "logs/{experiment}/samtools/{sample_prefix}.samtools.log",
     params:
-        extra="-O bam --write-index -o {output.bam}",
-    wrapper:
-        "v3.1.0/bio/samtools/sort"
+        extra="-O bam --write-index",
+    shell:
+        "samtools sort "
+        "{params.extra} "
+        "-@ {threads} "
+        "-o {output.bam} "
+        "{input} "
+        "2> {log}"
