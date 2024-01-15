@@ -6,7 +6,7 @@ rule run_rosace:
         ),
     output:
         expand(
-            "results/{{experiment_name}}/rosace/{conditions}_scores.tsv",
+            "results/{{experiment_name}}/rosace/scores_{conditions}.tsv",
             conditions=experimental_conditions,
         ),
     benchmark:
