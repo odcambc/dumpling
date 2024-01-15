@@ -19,7 +19,7 @@ rule run_rosace:
 
 rule install_rosace:
     output:
-        "renv/activate.R"
+        directory("renv/library/")
     benchmark:
         "benchmarks/install_rosace.benchmark.txt"
     log:
