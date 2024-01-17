@@ -75,12 +75,13 @@ def get_input(wildcards):
                 conditions=experimental_conditions,
             )
         )
-        input_list.extend(
-            expand(
-                "stats/{experiment_name}/{experiment_name}_multiqc.html",
-                experiment_name=config["experiment"],
+        if config["run_qc"]:
+            input_list.extend(
+                expand(
+                    "stats/{experiment_name}/{experiment_name}_multiqc.html",
+                    experiment_name=config["experiment"],
+                )
             )
-        )
         if config["enrich2"]:
             input_list.extend(
                 expand(
@@ -88,8 +89,7 @@ def get_input(wildcards):
                     experiment_name=config["experiment"],
                 )
             )
-
-    if config["baseline_condition"]:
+    if config["baseline_condition"] and config["run_qc"]:
         input_list.extend(
             expand(
                 "stats/{experiment_name}/{experiment_name}_baseline_multiqc.html",

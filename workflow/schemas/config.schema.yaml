@@ -68,6 +68,10 @@ properties:
     type: boolean
     default: false
     description: Flag for whether called variants are filtered or not.
+  run_qc: 
+    type: boolean
+    default: true
+    description: Flag for whether QC should be performed.
   baseline_condition:
     type: string
     default: ""

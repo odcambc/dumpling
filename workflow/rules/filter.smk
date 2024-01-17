@@ -21,7 +21,7 @@ rule bbduk_trim_adapters:
     threads: 16
     shell:
         "bbduk.sh in1={input.R1} in2={input.R2} "
-        "ref={params.adapters} ktrim=r k=23 mink=10 hdist=1 ftr=149 tpe tbo "
+        "ref={params.adapters} ktrim=r k=23 mink=10 hdist=1 tpe tbo "
         "out1={output.R1_trim} "
         "out2={output.R2_trim} "
         "bhist={output.bhist} "
