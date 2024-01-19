@@ -9,7 +9,7 @@ B_R1_T2,cond_B,1,2,1,6_S6_L001
 B_R1_T3,cond_B,1,3,1,7_S7_L001
 A_R2_T0,cond_A,2,0,1,1_S1_L001
 A_R2_T1,cond_A,2,1,1,2_S2_L001
-A_R2_T2,cond_A,2,2,1,3_S3_L001
+A_R2_T2,cond_A,2,2,1,2_S2_L001
 baseline_1,baseline,1,0,1,1_S1_L001
 baseline_2,baseline,2,0,1,2_S2_L001
 baseline_3,baseline,3,0,1,3_S3_L001

@@ -56,8 +56,8 @@ ref_dir: 'references'
 # -----------------------------------------------------------------------------
 experiment_file: 'config/test.csv'
 reference: EccD_ref.fasta
-variants_file: "config/designed_variants/eccd_variants.csv"
-oligo_file: "config/oligos/Kir_oligos.csv"
+variants_file: "config/designed_variants/test_variants.csv"
+oligo_file: "config/oligos/test_oligos.csv"
 
 # -----------------------------------------------------------------------------
 # Analysis parameters:
@@ -70,6 +70,7 @@ oligo_file: "config/oligos/Kir_oligos.csv"
 # #### Enrich2-specific parameters ####
 # enrich2: Set to true to run Enrich2 in addition to Rosace.
 # noprocess: Set to True to skip variant filtering based on designed variants.
+# run_qc: Set to False to skip QC steps (fastqc and multiqc)
 #
 # remove_zeros: Remove variants with zero counts from the output files.
 #
@@ -82,7 +83,7 @@ enrich2: true
 remove_zeros: true
 regenerate_variants: false
 noprocess: false
-
+run_qc: true
 baseline_condition: baseline
 
 # -----------------------------------------------------------------------------

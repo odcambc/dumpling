@@ -6,7 +6,6 @@ stats/
 ref/
 results/
 test/
-config/designed_variants/
 .snakemake
 .vscode/
 *.pyc

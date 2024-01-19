@@ -40,13 +40,15 @@ with a variety of experimental designs. Please note several current [limitations
 
 ```bash
 git clone https://github.com/odcambc/dumpling
-conda create --name dumpling --file spec-file.txt
-conda activate dumpling
+cd dumpling
+conda env create -f dumpling_env.yaml
+conda activate dumpling_env
 ```
-Edit the configuration files in the `config` directory as needed. Then run the pipeline with:
+If the environment installed and activated properly,
+edit the configuration files in the `config` directory as needed. Then run the pipeline with:
 
 ```bash
-snakemake -s workflow/Snakefile --software-deployment-method conda --cores 8
+snakemake -s workflow/Snakefile --software-deployment-method conda --cores 16
 ```
 
 ## Installation
@@ -78,13 +80,13 @@ available in the vignettes of the package and at the repository linked above.
 The simplest way to handle dependencies is with [Conda](https://conda.io/docs/) and the provided environment file.
 
 ```bash
-conda create --name dumpling --file spec-file.txt
+conda env create -f dumpling_env.yaml
 ```
 
 This will create a new environment named `dumpling` with all the dependencies installed. Then simply activate the environment and you're ready to go.
 
 ```bash
-conda activate dumpling
+conda activate dumpling_env
 ```
 
 #### Manually
@@ -110,7 +112,7 @@ The configuration file is a YAML file: full details are included in the example 
 `config/test_config.yaml` and in the schema file `schemas/config.schema.yaml`.
 
 The experiment file is a CSV file that relates experimental conditions,
-replicates, and timepoints to sequencing files: full details are included
+replicates, and time points to sequencing files: full details are included
 in the config file and in the schema file `schemas/experiments.schema.yaml`.
 
 Additionally, a reference fasta file is required for mapping. This should be

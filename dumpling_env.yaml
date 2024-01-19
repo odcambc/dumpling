@@ -1,0 +1,18 @@
+name: dumpling_env
+channels:
+  - conda-forge
+  - bioconda
+  - nodefaults
+dependencies:
+  - r-base
+  - python
+  - snakemake>=8.0
+  - pandas
+  - biopython
+  - fastqc
+  - samtools
+  - bbmap
+  - gatk4
+  - pip
+  - pip:
+      - multiqc>=1.19
