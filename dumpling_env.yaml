@@ -12,7 +12,7 @@ dependencies:
   - fastqc
   - samtools
   - bbmap
-  - gatk4
+  - gatk4>=4.5.0.0
   - pip
   - pip:
       - multiqc>=1.19
