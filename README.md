@@ -41,16 +41,23 @@ with a variety of experimental designs. Please note several current [limitations
 ```bash
 git clone https://github.com/odcambc/dumpling
 cd dumpling
-conda env create -f dumpling_env.yaml
+conda env create --file dumpling_env.yaml
 conda activate dumpling_env
 ```
+
+Note that, on ARM-based Macs, the conda environment may fail to install due to required packages not being available for that platform.
+Assuming that [Rosetta](https://support.apple.com/en-us/102527) is installed, the environment can be installed using emulation with the following command:
+
+```bash
+CONDA_SUBDIR=osx-64 conda env create --file dumpling_env.yaml
+```
+
 If the environment installed and activated properly,
 edit the configuration files in the `config` directory as needed. Then run the pipeline with:
 
 ```bash
 snakemake -s workflow/Snakefile --software-deployment-method conda --cores 16
 ```
-
 ## Installation
 
 ### Install via GitHub
@@ -80,7 +87,7 @@ available in the vignettes of the package and at the repository linked above.
 The simplest way to handle dependencies is with [Conda](https://conda.io/docs/) and the provided environment file.
 
 ```bash
-conda env create -f dumpling_env.yaml
+conda env create --file dumpling_env.yaml
 ```
 
 This will create a new environment named `dumpling` with all the dependencies installed. Then simply activate the environment and you're ready to go.
