@@ -230,11 +230,13 @@ its functionality. However, there are currently several known limitations.
 * The pipeline is currently designed for single-site variants (including varying-length indels, however). It largely does not support combinatorial variants.
 * The designed variant generation step is currently optimized for DIMPLE libraries. Other protocols may require the user to generate the designed variants CSV themself.
 * Rosace is designed for growth-based experiments. It is not optimized for FACS-seq experiments.
+* This pipeline may not work properly if the data is in a cloud server (i.e., a Box drive) or other non-standard file system.
 
 ## Citations
 This workflow is described in the following publication:
 
-* [Rao et al., 2023](https://www.biorxiv.org/content/10.1101/2023.10.24.562292v1)
+* Preprint: [Rao et al., 2023](https://www.biorxiv.org/content/10.1101/2023.10.24.562292v1)
+* Published: [Rao et al., 2024](https://doi.org/10.1186/s13059-024-03279-7)
 
 ## License
 
