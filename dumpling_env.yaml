@@ -13,6 +13,8 @@ dependencies:
   - samtools
   - bbmap
   - gatk4>=4.5.0.0
+  - regex
   - pip
   - pip:
       - multiqc>=1.19
+      - regex
