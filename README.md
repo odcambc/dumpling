@@ -52,6 +52,8 @@ Assuming that [Rosetta](https://support.apple.com/en-us/102527) is installed, th
 CONDA_SUBDIR=osx-64 conda env create --file dumpling_env.yaml
 ```
 
+You will also need to set the "samtools_local" variable in the config yaml to "true" to tell the pipeline to use this local version.
+
 If the environment installed and activated properly,
 edit the configuration files in the `config` directory as needed. Then run the pipeline with:
 
