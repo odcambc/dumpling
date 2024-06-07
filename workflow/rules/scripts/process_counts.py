@@ -52,11 +52,8 @@ designed_variant_header: list[str] = [
     "hgvs",
 ]
 
-experiment_name = snakemake.config["experiment"]
-
 log_file = snakemake.log[0]
-output_dir = "results/" + experiment_name + "/processed_counts/"
-regenerate_variants = snakemake.params["regenerate_variants"]
+output_dir = "results/" + snakemake.config["experiment"] + "/processed_counts/"
 
 # Set up logging
 if log_file:
@@ -138,7 +135,7 @@ def process_experiment(
 
 # Process the experiments according to their relationships
 with open(snakemake.config["experiment_file"]) as f:
-    experiments = pd.read_csv(f, header=0).dropna(how = 'all').set_index(
+    experiments = pd.read_csv(f, header=0).dropna(how='all').set_index(
         "sample", drop=False, verify_integrity=True
     )
 
@@ -153,7 +150,7 @@ for condition in experiments["condition"].unique():
                 & (experiments["tile"] == tile)]["replicate"]
         for replicate in replicate_list.unique():
             logging.debug("Replicate: %s", replicate)
-            experiment_list = experiments.loc[
+            experiment_name_list = experiments.loc[
                 (experiments["condition"] == condition)
                 & (experiments["replicate"] == replicate)
                 & (experiments["tile"] == tile)
@@ -164,8 +161,8 @@ for condition in experiments["condition"].unique():
                 & (experiments["tile"] == tile)
             ]["file"].tolist()
             logging.debug("Samples: ")
-            logging.debug(experiment_list)
+            logging.debug(experiment_name_list)
 
             process_experiment(
-                experiment_list, snakemake.params["regenerate_variants"]
+                experiment_name_list, snakemake.params["regenerate_variants"]
             )
