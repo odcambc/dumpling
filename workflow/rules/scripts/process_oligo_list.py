@@ -6,6 +6,7 @@ import regex
 from Bio.Seq import Seq
 from Bio.SeqUtils import seq1
 
+PRE_SPAN = 15 # Number of bases in window to map
 
 def name_to_hgvs(name):
     # syn case
@@ -40,8 +41,8 @@ def designed_variants(oligo_csv, ref, offset):
 
                 codon_n = int(variant_sub.groups(2)[1])
 
-                pre_start = max(0, offset + (3 * codon_n) - pre_span)
-                post_end = min(offset + (3 * codon_n) + post_span, len(ref))
+                pre_start = max(0, offset + (3 * codon_n) - PRE_SPAN)
+                post_end = min(offset + (3 * codon_n) + PRE_SPAN, len(ref))
 
                 pre_codon = ref[pre_start : offset + (3 * codon_n)]
                 post_codon = ref[offset + (3 * codon_n) + 3 : post_end]
@@ -120,19 +121,21 @@ def designed_variants(oligo_csv, ref, offset):
                 mutant = "I_" + str(length)
 
 
-
-            variant_list = variant_list + [
-                [
-                    0,
-                    pos,
-                    mutation_type,
-                    name,
-                    codon,
-                    mutant,
-                    length,
-                    name_to_hgvs(name),
+            try:
+                variant_list = variant_list + [
+                    [
+                        0,
+                        pos,
+                        mutation_type,
+                        name,
+                        codon,
+                        mutant,
+                        length,
+                        name_to_hgvs(name),
+                    ]
                 ]
-            ]
+            except UnboundLocalError:
+                print("Error: no match found for", line[0])
 
     return variant_list
 

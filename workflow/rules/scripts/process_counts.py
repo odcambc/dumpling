@@ -122,15 +122,15 @@ def process_experiment(
             csvwriter.writerows(other)
         
         # Write the rejected stats file
-        stats_file = os.path.join("stats", experiment_name, "processing", experiment + "_rejected_processing.tsv")
+        stats_file = os.path.join("stats", snakemake.config["experiment"], "processing", experiment + "_rejected_processing.tsv")
         process_variants.write_stats_file(stats_file, rejected_stats)
 
         # Write the accepted stats file
-        stats_file = os.path.join("stats", experiment_name, "processing", experiment + "_accepted_processing.tsv")
+        stats_file = os.path.join("stats", snakemake.config["experiment"], "processing", experiment + "_accepted_processing.tsv")
         process_variants.write_stats_file(stats_file, accepted_stats)
 
         # Write the total stats file
-        stats_file = os.path.join("stats", experiment_name, "processing", experiment + "_total_processing.tsv")
+        stats_file = os.path.join("stats", snakemake.config["experiment"], "processing", experiment + "_total_processing.tsv")
         process_variants.write_stats_file(stats_file, total_stats)
 
 # Process the experiments according to their relationships

@@ -34,6 +34,10 @@ properties:
     type: string
     default: "1.3"
     description: cigar string version for bbmap - 1.3 uses M for = or X, and 1.4 uses = or X.
+  samtools_local:
+    type: boolean
+    default: false
+    description: Flag for whether to use local samtools or wrapper version.
   adapters:
     type:
       - string

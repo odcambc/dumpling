@@ -122,6 +122,7 @@ experimental_conditions = conditions - set([config["baseline_condition"]])
 reference_name = get_ref(config["reference"])
 adapters_ref = pass_names(config["adapters"])
 contaminants_ref = pass_names(config["contaminants"])
+samtools_local = config["samtools_local"]
 
 tiles = experiments["tile"].unique()
 if len(tiles) > 1:
