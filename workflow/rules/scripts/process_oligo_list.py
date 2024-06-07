@@ -40,8 +40,11 @@ def designed_variants(oligo_csv, ref, offset):
 
                 codon_n = int(variant_sub.groups(2)[1])
 
-                pre_codon = ref[offset + (3 * codon_n) - 15 : offset + (3 * codon_n)]
-                post_codon = ref[offset + (3 * codon_n) + 3 : offset + (3 * codon_n) + 18]
+                pre_start = max(0, offset + (3 * codon_n) - pre_span)
+                post_end = min(offset + (3 * codon_n) + post_span, len(ref))
+
+                pre_codon = ref[pre_start : offset + (3 * codon_n)]
+                post_codon = ref[offset + (3 * codon_n) + 3 : post_end]
 
                 pre_split = re.split(pre_codon, line[1], flags=re.IGNORECASE)
 
