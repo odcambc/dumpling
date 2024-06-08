@@ -8,4 +8,4 @@ dependencies:
   - pandas
   - pip
   - pip:
-    - multiqc-dumpling
+    - multiqc-dumpling>=0.2.2
