@@ -73,13 +73,20 @@ def designed_variants(oligo_csv, ref, offset):
             # Deletions
             # The position of the deletion is set to be the *first* codon that is
             # deleted. Ex: F89_G91del would be a 3-codon deletion at position 89.
+            # This assumes the length is given in *nucleotides*, not codons.
 
             variant_del = regex.search(r".*_delete-[0-9]+_([0-9]+)-([0-9]+)", line[0])
 
             if variant_del:
                 mutation_type = "D"
                 pos = int(variant_del.group(2))
-                length = int(int(variant_del.group(1)))
+                # check if length is divisible by 3
+                # if not, print warning and set length to 0
+                if int(variant_del.group(1)) % 3 != 0:
+                    print("Warning: Deletion length is not divisible by 3")
+                    length = 0
+                else:
+                    length = int(int(variant_del.group(1)) / 3)
 
                 start_codon = ref[offset + (3 * pos) : offset + 3 * (pos + 1)]
                 start = Seq(start_codon).translate()
