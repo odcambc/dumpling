@@ -63,6 +63,7 @@ else:
 
 logging.debug("Loading experiment file: %s", snakemake.config["experiment_file"])
 
+max_deletion_length = snakemake.config["max_deletion_length"]
 
 def process_experiment(
     experiment_list, regenerate_variants=False
@@ -75,8 +76,13 @@ def process_experiment(
         ref_list = list(SeqIO.parse(f, "fasta"))
         ref_sequence = ref_list[0].seq
 
+    orf_start = int(snakemake.config["orf"].split('-')[0])
+    orf_end = int(snakemake.config["orf"].split('-')[1])
+
+    ref_AA_sequence = ref_sequence[orf_start-1:orf_end].translate()
+
     if regenerate_variants:
-        offset = int(snakemake.config["orf"].split('-')[0]) - 4
+        offset = orf_start - 4
         variant_list = process_oligo_list.designed_variants(
             snakemake.config["oligo_file"], str(ref_sequence), offset
         )
@@ -98,7 +104,7 @@ def process_experiment(
         csv_file = process_variants.read_gatk_csv(
             os.path.join(snakemake.params["gatk_dir"], experiment + ".variantCounts")
         )
-        df, other, rejected_stats, accepted_stats, total_stats = process_variants.process_variants_file(csv_file, designed_df)
+        df, other, rejected_stats, accepted_stats, total_stats = process_variants.process_variants_file(csv_file, designed_df, ref_AA_sequence, max_deletion_length)
 
         # Write an Enrich2-readable output
         enrich_file = os.path.join(output_dir, experiment + ".tsv")

@@ -44,7 +44,6 @@ variantCounts_colnames = [
     "mutations",
 ]
 
-
 def name_to_hgvs(name):
     # syn case
     # insdel case
@@ -55,7 +54,6 @@ def read_gatk_csv(file):
     # GATK output unfortunately may not be full-width, which will confuse pandas during
     # reading in. We'll read each line and make sure it's full-length before passing it
     # to pandas.
-
     logging.info("Loading GATK output file: %s", file)
 
     gatk_list = []
@@ -163,7 +161,7 @@ def process_deletion(line):
     return variant_dict
 
 
-def process_insdel(line, variants_df):
+def process_insdel(line, variant_names_array, ref_AA_sequence, max_deletion_length):
     # This contains the logic for parsing insdel variants and checking for an edge
     # case where in-frame deletions are being called as insdels.
     # Deletions of the form XYZA->X--- (just deletion) may be called as
@@ -171,7 +169,7 @@ def process_insdel(line, variants_df):
     # Note: bbmap defaults to left alignment, as is standard for NGS reads.
     # This means we only need to consider incorrectly left-aligned cases.
 
-    # The logic here requires passing the variants_df as well, in order to
+    # The logic here requires passing an array of the designed variant names to
     # search for the proper canonical name. It also requires returning an additional
     # "rejected" value in the dict.
 
@@ -183,50 +181,92 @@ def process_insdel(line, variants_df):
     rejected = 1
     mutation_type = "Z"
     mutation = "Z"
+    pos = -1
+    name = ""
+
+    # Matches things like G37_I38insdelG or H296_V297insdelGS
+    # Groups are: (1) start AA, (2) start pos
+    # (3) end AA, (4) end pos, (5) inserted AAs
+    # length is end pos - start pos (length of "deleted" region)
+    # insdel_length is number of "inserted" AAs
 
     insdel_re = regex.search(
         r"([a-zA-Z])([0-9]+)_([a-zA-Z])([0-9]+)insdel([a-zA-Z]+)", variant
     )
 
-    length = int(insdel_re.group(4)) - int(insdel_re.group(2))
-    insdel_length = len(insdel_re.group(5))
+    start_aa = insdel_re.group(1)
+    end_aa = insdel_re.group(3)
+    start_pos = int(insdel_re.group(2))
+    end_pos = int(insdel_re.group(4))
+    insdel_aas = insdel_re.group(5)
+
+    deletion_length = end_pos - start_pos + 1  # Total number of AAs deleted
+    insertion_length = len(insdel_aas)  # Total number of AAs inserted
+
+    insdel_length = (
+        deletion_length - insertion_length
+    )  # Effective number of deleted AAs
 
     if (
-        insdel_re.group(1) == insdel_re.group(5)
-        or insdel_re.group(3) == insdel_re.group(5)
-        or insdel_re.group(1) == insdel_re.group(3)
+        start_aa == insdel_aas  # start and inserted AA are the same
+        or end_aa == insdel_aas  # end and inserted AA are the same
+        or start_aa == end_aa  # start and end AA are the same
     ):
-        if length - insdel_length < 5:
+        if (
+            insdel_length <= max_deletion_length
+        ):  # the deletion should be an expected length
             rejected = 0
-            pos = int(insdel_re.group(2)) + insdel_length
-            length = length
+            pos = start_pos + insertion_length  # position of first changed AA
             mutation_type = "D"
-            mutation = "D_" + str(length)
+            mutation = "D_" + str(insertion_length)
 
-            # Find the correct canonical name. Need to look through the
-            # designed variants df to do so, unfortunately.
+            if insdel_length == 1:
+                name = end_aa + str(pos) + "del"
+            elif insdel_length > 1:
+                name = (
+                    ref_AA_sequence[pos - 1]
+                    + str(pos)
+                    + "_"
+                    + ref_AA_sequence[pos + insdel_length - 2]
+                    + str(pos + insdel_length - 1)
+                    + "del"
+                )
+            else:
+                name = ""
+                logging.warning(
+                    "Error in insdel length calculation: insdel_length %i",
+                    insdel_length,
+                )
+                rejected = 1
 
-            try:
-                name = variants_df[
-                    (variants_df["pos"] == pos) & (variants_df["mutation"] == variant)
-                ]["name"].array[0]
-
-            except:
+            if name in variant_names_array:
+                rejected = 0
+            else:
                 rejected = 1
 
     variant_dict["counts"] = count
     variant_dict["pos"] = int(codon.split(":")[0])
     variant_dict["mutation_type"] = mutation_type
-    variant_dict["name"] = variant
+    variant_dict["name"] = name
     variant_dict["codon"] = ""
     variant_dict["mutation"] = mutation
-    variant_dict["length"] = length
+    variant_dict["length"] = insdel_length
     variant_dict["rejected"] = rejected
+
+    if rejected == 1:
+        logging.info(
+            "Rejected insdel with del len %s, ins len %s, and insdel len %s at pos %s with variant %s.",
+            deletion_length,
+            insertion_length,
+            insdel_length,
+            pos,
+            variant,
+        )
 
     return variant_dict
 
 
-def process_variants_file(gatk_list, designed_variants_df):
+def process_variants_file(gatk_list, designed_variants_df, ref_AA_sequence, max_deletion_length):
     #   -Reject any variants with multiple substitutions
     #   -Reject any frameshifting mutations
     #   (designed mutations are singles, interpreting multi-codon indels as singles)
@@ -237,20 +277,28 @@ def process_variants_file(gatk_list, designed_variants_df):
     # to the appropriate
     # For synonymous variants, the "length_codon" is 0
 
-    # input: variants_df fields:
-    #           int count - number of observations of variant
-    #           int pos - position of variant (in codons)
-    #           str mutation_type - mutation class: S = synonymous
-    #                                      M = substitution
-    #                                      I = insertion
-    #                                      D = deletion
-    #           str name - mutation name, in 1 letter amino acids
-    #           str codon - for substitutions, the designed codon. empty for others
-    #           str mutation - for substitutions, the variant residue. for
-    #                           indels, the specific variant, in the form (I/D)_(1/2/3),
-    #                           as appropriate
-    #           int length - length of change, in codons
-    #           str hgvs - hgvs string of mutation
+    # input:
+    #          gatk_list: the gatk file, as a list of lists (one line per element)
+    #
+    #           designed_variants_df: the expected variants dataframe
+    #               fields:
+    #                 int count - number of observations of variant
+    #                   int pos - position of variant (in codons)
+    #                   str mutation_type - mutation class: S = synonymous
+    #                                                       M = substitution
+    #                                                       I = insertion
+    #                                                       D = deletion
+    #                 str name - mutation name, in 1 letter amino acids
+    #                 str codon - for substitutions, the designed codon. empty for others
+    #                 str mutation - for substitutions, the variant residue. for
+    #                                indels, the specific variant, in the form (I/D)_(1/2/3),
+    #                                as appropriate
+    #                 int length - length of change, in codons
+    #                 str hgvs - hgvs string of mutation
+    #
+    #           ref_sequence: the reference amino acid sequence, as a string
+    #
+    #           max_deletion_length: the maximum length of a deletion to be considered
 
     # output: variants_df with fields as above, with counts added to each variant
     #         rejected_list - list of rejected variants. Contents of each line are
@@ -283,6 +331,8 @@ def process_variants_file(gatk_list, designed_variants_df):
 
     rejected_list = []
     variants_df = designed_variants_df.copy(deep=True)
+
+    variant_names_array = sorted(variants_df["name"].array)
 
     for line in gatk_list:
         counts = int(line[0])
@@ -455,7 +505,7 @@ def process_variants_file(gatk_list, designed_variants_df):
             )
 
             if insdel_re:
-                insdel_dict = process_insdel(line, variants_df)
+                insdel_dict = process_insdel(line, variant_names_array, ref_AA_sequence, max_deletion_length)
                 count = insdel_dict["counts"]
                 pos = insdel_dict["pos"]
                 length = insdel_dict["length"]

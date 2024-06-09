@@ -35,7 +35,7 @@ rule multiqc_baseline:
 rule generate_baseline_configs:
     """Rule for generating a multiQC config file for baseline QC."""
     output:
-        "config/{experiment}_multiqc_baseline_config.yaml",
+        temp("config/{experiment}_multiqc_baseline_config.yaml"),
     log:
         "logs/{experiment}/multiqc_baseline_config.log",
     script:
@@ -58,7 +58,7 @@ rule generate_baseline_file_list:
             sample_prefix=baseline_samples,
         ),
     output:
-        "stats/{experiment}/baseline_file_list.txt",
+        temp("stats/{experiment}/baseline_file_list.txt"),
     log:
         "logs/{experiment}/multiqc_baseline_file_list.log",
     script:

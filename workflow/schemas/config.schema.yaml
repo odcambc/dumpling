@@ -80,6 +80,10 @@ properties:
     type: string
     default: ""
     description: Name of condition containing baseline samples. Scores will not be generated for this condition.
+  max_deletion_length:
+    type: integer
+    default: 3
+    description: Maximum length (in codons) of designed deletion in library.
 
 required:
   - data_dir

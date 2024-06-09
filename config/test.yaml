@@ -77,6 +77,9 @@ oligo_file: "config/oligos/test_oligos.csv"
 # baseline_condition: The condition name in the experiment file to use as a baseline
 #                      or non-treated condition. This is useful for calculating the 
 #                      quality of input libraries.
+#
+# max_deletion_length: The maximum length (in codons) of a designed deletion in the library.
+#                      Defaults to 3.
 # -----------------------------------------------------------------------------
 orf: "141-1568"
 enrich2: true
@@ -85,6 +88,7 @@ regenerate_variants: false
 noprocess: false
 run_qc: true
 baseline_condition: baseline
+max_deletion_length: 3
 
 # -----------------------------------------------------------------------------
 # Other parameters:
