@@ -98,7 +98,7 @@ max_deletion_length: 3
 #
 # sam: The SAM format version to use for BBMap jobs. This should be "1.3" for most cases.
 #
-# mem: Memory to allocate for BBMap jobs with Java (in GB)
+# mem: Memory to allocate for BBTools jobs with Java (mapping, trimming, merging) (in GB)
 #
 # min_q: Used in GATK: the minimum quality score for bases to be analyzed. 
 #

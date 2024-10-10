@@ -46,20 +46,22 @@ def get_experiment_samples(experiments, samples):
             experiment_files.append(experiments.loc[sample, "file"])
     return experiment_samples, experiment_files
 
+
 def get_enrich2_input(wildcards):
     """Depending on whether or not filtering of zero counts is enabled,
     use the appropriate set of input counts for enrich2."""
-    
+
     if remove_zeros:
         return expand(
             "results/{{experiment_name}}/processed_counts/removed_zeros/{samples}.tsv",
-            samples=samples
+            samples=samples,
         )
     else:
         return expand(
             "results/{{experiment_name}}/processed_counts/{samples}.tsv",
-            samples=samples
+            samples=samples,
         )
+
 
 def get_input(wildcards):
     """Generate the input files for the dummy rule all.

@@ -6,14 +6,17 @@ import regex
 from Bio.Seq import Seq
 from Bio.SeqUtils import seq1
 
-PRE_SPAN = 15 # Number of bases in window to map
+PRE_SPAN = 15  # Number of bases in window to map
+
 
 def name_to_hgvs(name):
     # syn case
     # insdel case
     return "p.(" + name + ")"
 
+
 # TODO: add check if ref sequence is out of range.
+
 
 def designed_variants(oligo_csv, ref, offset):
     variant_list = []
@@ -37,7 +40,6 @@ def designed_variants(oligo_csv, ref, offset):
                     mutation_type = "M"
 
                 # The codon is assigned from processing the oligo itself.
-                
 
                 codon_n = int(variant_sub.groups(2)[1])
 
@@ -57,14 +59,15 @@ def designed_variants(oligo_csv, ref, offset):
                         codon = post_split[0][-3:]
                     else:
                         print(
-                            "Error: incorrect matches",
-                            codon_n,
-                            variant_sub,
-                            mutation_type,
+                            "Warning: could not find codon for",
+                            line[0],
+                            "Double check offset value and reference sequence.",
                         )
 
                 name = (
-                    seq1(variant_sub.group(1)) + variant_sub.group(2) + seq1(variant_sub.group(3))
+                    seq1(variant_sub.group(1))
+                    + variant_sub.group(2)
+                    + seq1(variant_sub.group(3))
                 )
                 pos = int(variant_sub.group(2))
                 mutant = seq1(variant_sub.group(3))
@@ -106,7 +109,9 @@ def designed_variants(oligo_csv, ref, offset):
             # The position of the insertion is defined as the position of the
             # first *inserted* residue. Ex: F47_V48insG is assigned position 48.
 
-            variant_ins = regex.search(r".*_insert-[0-9]+_([a-zA-Z]+)-([0-9]+)", line[0])
+            variant_ins = regex.search(
+                r".*_insert-[0-9]+_([a-zA-Z]+)-([0-9]+)", line[0]
+            )
             if variant_ins:
                 mutation_type = "I"
                 pos = int(variant_ins.group(2))
@@ -121,12 +126,13 @@ def designed_variants(oligo_csv, ref, offset):
                 aa_string = ""
 
                 for i in range(0, length):
-                    aa_string = aa_string + str(Seq(codon[(3*i):(3*i)+3]).translate())
-                
-                name = start + str(pos) + "_" + end + str(pos + 1) + "ins" + aa_string
-                
-                mutant = "I_" + str(length)
+                    aa_string = aa_string + str(
+                        Seq(codon[(3 * i) : (3 * i) + 3]).translate()
+                    )
 
+                name = start + str(pos) + "_" + end + str(pos + 1) + "ins" + aa_string
+
+                mutant = "I_" + str(length)
 
             try:
                 variant_list = variant_list + [

@@ -14,13 +14,16 @@ rule bbduk_trim_adapters:
         stats="stats/{experiment}/{sample_prefix}_trim.stats.txt",
     params:
         adapters=adapters_ref,
+        mem=config["mem"],
     benchmark:
         "benchmarks/{experiment}/{sample_prefix}.bbduk_trim.benchmark.txt"
     log:
         "logs/{experiment}/bbduk/{sample_prefix}.trim.bbduk.log",
     threads: 16
     shell:
-        "bbduk.sh in1={input.R1} in2={input.R2} "
+        "bbduk.sh "
+        "-Xmx{params.mem}g "
+        "in1={input.R1} in2={input.R2} "
         "ref={params.adapters} ktrim=r k=23 mink=10 hdist=1 tpe tbo "
         "out1={output.R1_trim} "
         "out2={output.R2_trim} "
@@ -34,6 +37,7 @@ rule bbduk_trim_adapters:
         "t={threads} "
         "gcbins=auto 2> {log}"
 
+
 rule remove_contaminants:
     """Remove typical contaminants with BBDuk.
     The contaminants files used, by default, are included with BBTools, and consist of PhiX and some (possibly JGI-specific) other sequencing artifacts."""
@@ -46,6 +50,7 @@ rule remove_contaminants:
         stats="stats/{experiment}/{sample_prefix}_trim_contam.stats.txt",
     params:
         contaminants=contaminants_ref,
+        mem=config["mem"],
     benchmark:
         "benchmarks/{experiment}/{sample_prefix}.bbduk_clean.benchmark.txt"
     log:
@@ -53,6 +58,7 @@ rule remove_contaminants:
     threads: 16
     shell:
         "bbduk.sh "
+        "-Xmx{params.mem}g "
         "in={input.R1_trim} "
         "in2={input.R2_trim} "
         "out={output.R1_clean} "
@@ -74,6 +80,8 @@ rule error_correct_bbmerge:
         R1_ec=temp("results/{experiment}/{sample_prefix}_R1.ec.clean.trim.fastq.gz"),
         R2_ec=temp("results/{experiment}/{sample_prefix}_R2.ec.clean.trim.fastq.gz"),
         ihist="stats/{experiment}/{sample_prefix}_merge.ihist",
+    params:
+        mem=config["mem"],
     benchmark:
         "benchmarks/{experiment}/{sample_prefix}.bbmerge.benchmark.txt"
     log:
@@ -81,6 +89,7 @@ rule error_correct_bbmerge:
     threads: 16
     shell:
         "bbmerge.sh "
+        "-Xmx{params.mem}g "
         "in={input.R1_clean} "
         "in2={input.R2_clean} "
         "out={output.R1_ec} "

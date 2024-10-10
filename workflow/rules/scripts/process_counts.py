@@ -65,21 +65,22 @@ logging.debug("Loading experiment file: %s", snakemake.config["experiment_file"]
 
 max_deletion_length = snakemake.config["max_deletion_length"]
 
-def process_experiment(
-    experiment_list, regenerate_variants=False
-):
+
+def process_experiment(experiment_list, regenerate_variants=False):
     """Process the experiment."""
 
     logging.debug("Processing files: %s", experiment_list)
 
-    with open(os.path.join(snakemake.config["ref_dir"], snakemake.config["reference"]), "r") as f:
+    with open(
+        os.path.join(snakemake.config["ref_dir"], snakemake.config["reference"]), "r"
+    ) as f:
         ref_list = list(SeqIO.parse(f, "fasta"))
         ref_sequence = ref_list[0].seq
 
-    orf_start = int(snakemake.config["orf"].split('-')[0])
-    orf_end = int(snakemake.config["orf"].split('-')[1])
+    orf_start = int(snakemake.config["orf"].split("-")[0])
+    orf_end = int(snakemake.config["orf"].split("-")[1])
 
-    ref_AA_sequence = ref_sequence[orf_start-1:orf_end].translate()
+    ref_AA_sequence = ref_sequence[orf_start - 1 : orf_end].translate()
 
     if regenerate_variants:
         offset = orf_start - 4
@@ -104,7 +105,11 @@ def process_experiment(
         csv_file = process_variants.read_gatk_csv(
             os.path.join(snakemake.params["gatk_dir"], experiment + ".variantCounts")
         )
-        df, other, rejected_stats, accepted_stats, total_stats = process_variants.process_variants_file(csv_file, designed_df, ref_AA_sequence, max_deletion_length)
+        df, other, rejected_stats, accepted_stats, total_stats = (
+            process_variants.process_variants_file(
+                csv_file, designed_df, ref_AA_sequence, max_deletion_length
+            )
+        )
 
         # Write an Enrich2-readable output
         enrich_file = os.path.join(output_dir, experiment + ".tsv")
@@ -126,34 +131,51 @@ def process_experiment(
         with p.open("w") as f:
             csvwriter = csv.writer(f)
             csvwriter.writerows(other)
-        
+
         # Write the rejected stats file
-        stats_file = os.path.join("stats", snakemake.config["experiment"], "processing", experiment + "_rejected_processing.tsv")
+        stats_file = os.path.join(
+            "stats",
+            snakemake.config["experiment"],
+            "processing",
+            experiment + "_rejected_processing.tsv",
+        )
         process_variants.write_stats_file(stats_file, rejected_stats)
 
         # Write the accepted stats file
-        stats_file = os.path.join("stats", snakemake.config["experiment"], "processing", experiment + "_accepted_processing.tsv")
+        stats_file = os.path.join(
+            "stats",
+            snakemake.config["experiment"],
+            "processing",
+            experiment + "_accepted_processing.tsv",
+        )
         process_variants.write_stats_file(stats_file, accepted_stats)
 
         # Write the total stats file
-        stats_file = os.path.join("stats", snakemake.config["experiment"], "processing", experiment + "_total_processing.tsv")
+        stats_file = os.path.join(
+            "stats",
+            snakemake.config["experiment"],
+            "processing",
+            experiment + "_total_processing.tsv",
+        )
         process_variants.write_stats_file(stats_file, total_stats)
+
 
 # Process the experiments according to their relationships
 with open(snakemake.config["experiment_file"]) as f:
-    experiments = pd.read_csv(f, header=0).dropna(how='all').set_index(
-        "sample", drop=False, verify_integrity=True
+    experiments = (
+        pd.read_csv(f, header=0)
+        .dropna(how="all")
+        .set_index("sample", drop=False, verify_integrity=True)
     )
 
 for condition in experiments["condition"].unique():
     logging.debug("Condition: %s", condition)
-    tile_list = experiments.loc[
-        (experiments["condition"] == condition)]["tile"]
+    tile_list = experiments.loc[(experiments["condition"] == condition)]["tile"]
     for tile in tile_list.unique():
         logging.debug("Tile: %s", tile)
         replicate_list = experiments.loc[
-                (experiments["condition"] == condition)
-                & (experiments["tile"] == tile)]["replicate"]
+            (experiments["condition"] == condition) & (experiments["tile"] == tile)
+        ]["replicate"]
         for replicate in replicate_list.unique():
             logging.debug("Replicate: %s", replicate)
             experiment_name_list = experiments.loc[
