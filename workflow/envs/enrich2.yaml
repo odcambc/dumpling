@@ -1,11 +1,15 @@
+channels:
+  - conda-forge
+  - bioconda
+  - nodefaults
 dependencies:
-  - python=2.7
+  - python
   - numpy
   - scipy
-  - pandas=0.19
+  - pandas
   - pytables
   - statsmodels
   - matplotlib
   - pip
   - pip:
-    - git+https://github.com/FowlerLab/Enrich2@v1.3.1
+    - git+http://github.com/odcambc/Enrich3.git
