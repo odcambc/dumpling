@@ -9,3 +9,7 @@ test/
 .snakemake
 .vscode/
 *.pyc
+
+example/
+.mypt_cache/
+*.fasta.fai

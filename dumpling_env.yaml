@@ -5,6 +5,7 @@ channels:
   - nodefaults
 dependencies:
   - r-base
+  - r-nloptr
   - python
   - snakemake>=8.0
   - pandas
