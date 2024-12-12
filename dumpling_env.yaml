@@ -6,6 +6,7 @@ channels:
 dependencies:
   - r-base
   - r-nloptr
+  - libxml2
   - python
   - snakemake>=8.0
   - pandas
