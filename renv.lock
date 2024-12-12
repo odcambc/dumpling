@@ -3,28 +3,8 @@
     "Version": "4.4.2",
     "Repositories": [
       {
-        "Name": "BioCsoft",
-        "URL": "https://bioconductor.org/packages/3.20/bioc"
-      },
-      {
-        "Name": "BioCann",
-        "URL": "https://bioconductor.org/packages/3.20/data/annotation"
-      },
-      {
-        "Name": "BioCexp",
-        "URL": "https://bioconductor.org/packages/3.20/data/experiment"
-      },
-      {
-        "Name": "BioCworkflows",
-        "URL": "https://bioconductor.org/packages/3.20/workflows"
-      },
-      {
-        "Name": "BioCbooks",
-        "URL": "https://bioconductor.org/packages/3.20/books"
-      },
-      {
         "Name": "CRAN",
-        "URL": "https://packagemanager.posit.co/cran/latest"
+        "URL": "https://repo.miserver.it.umich.edu/cran"
       }
     ]
   },
@@ -253,7 +233,7 @@
       "Package": "bit",
       "Version": "4.5.0.1",
       "Source": "Repository",
-      "Repository": "RSPM",
+      "Repository": "CRAN",
       "Requirements": [
         "R"
       ],
@@ -263,7 +243,7 @@
       "Package": "bit64",
       "Version": "4.5.2",
       "Source": "Repository",
-      "Repository": "RSPM",
+      "Repository": "CRAN",
       "Requirements": [
         "R",
         "bit",
@@ -356,7 +336,7 @@
       "Package": "cli",
       "Version": "3.6.3",
       "Source": "Repository",
-      "Repository": "RSPM",
+      "Repository": "CRAN",
       "Requirements": [
         "R",
         "utils"
@@ -457,7 +437,7 @@
       "Package": "cpp11",
       "Version": "0.5.1",
       "Source": "Repository",
-      "Repository": "RSPM",
+      "Repository": "CRAN",
       "Requirements": [
         "R"
       ],
@@ -467,7 +447,7 @@
       "Package": "crayon",
       "Version": "1.5.3",
       "Source": "Repository",
-      "Repository": "RSPM",
+      "Repository": "CRAN",
       "Requirements": [
         "grDevices",
         "methods",
@@ -677,7 +657,7 @@
       "Package": "glue",
       "Version": "1.8.0",
       "Source": "Repository",
-      "Repository": "RSPM",
+      "Repository": "CRAN",
       "Requirements": [
         "R",
         "methods"
@@ -789,7 +769,7 @@
       "Package": "lifecycle",
       "Version": "1.0.4",
       "Source": "Repository",
-      "Repository": "RSPM",
+      "Repository": "CRAN",
       "Requirements": [
         "R",
         "cli",
@@ -1050,11 +1030,9 @@
     },
     "posterior": {
       "Package": "posterior",
-      "Version": "1.6.0.9000",
+      "Version": "1.6.0",
       "Source": "Repository",
-      "Repository": "https://stan-dev.r-universe.dev",
-      "RemoteUrl": "https://github.com/stan-dev/posterior",
-      "RemoteSha": "79d4521b943e44f4ac31636c4488d9e2cfeac3ec",
+      "Repository": "CRAN",
       "Requirements": [
         "R",
         "abind",
@@ -1070,7 +1048,7 @@
         "tibble",
         "vctrs"
       ],
-      "Hash": "4bcd71a249bb520150ba9b657d2c677c"
+      "Hash": "fc1213566f2ed9f0b15bef656ed1000b"
     },
     "prettyunits": {
       "Package": "prettyunits",
@@ -1099,7 +1077,7 @@
       "Package": "progress",
       "Version": "1.2.3",
       "Source": "Repository",
-      "Repository": "RSPM",
+      "Repository": "CRAN",
       "Requirements": [
         "R",
         "R6",
@@ -1157,7 +1135,7 @@
       "Package": "readr",
       "Version": "2.1.5",
       "Source": "Repository",
-      "Repository": "RSPM",
+      "Repository": "CRAN",
       "Requirements": [
         "R",
         "R6",
@@ -1200,7 +1178,7 @@
       "Package": "rlang",
       "Version": "1.1.4",
       "Source": "Repository",
-      "Repository": "RSPM",
+      "Repository": "CRAN",
       "Requirements": [
         "R",
         "utils"
@@ -1228,10 +1206,10 @@
       "Source": "GitHub",
       "RemoteType": "github",
       "RemoteHost": "api.github.com",
-      "RemoteUsername": "pimentellab",
+      "RemoteUsername": "odcambc",
       "RemoteRepo": "rosace",
       "RemoteRef": "main",
-      "RemoteSha": "8b79098f9a733e4337622b50d267ca289b2af502",
+      "RemoteSha": "7a796e054813e07360a4e06458337add27e4f19f",
       "Requirements": [
         "MASS",
         "R",
@@ -1255,7 +1233,7 @@
         "tidyr",
         "utils"
       ],
-      "Hash": "78bd26aa0ca1a9d20ea75ce032fcf19a"
+      "Hash": "615c2ab3886f657ecedb20ad58384d90"
     },
     "rstatix": {
       "Package": "rstatix",
@@ -1304,7 +1282,7 @@
       "Package": "stringi",
       "Version": "1.8.4",
       "Source": "Repository",
-      "Repository": "RSPM",
+      "Repository": "CRAN",
       "Requirements": [
         "R",
         "stats",
@@ -1317,7 +1295,7 @@
       "Package": "stringr",
       "Version": "1.5.1",
       "Source": "Repository",
-      "Repository": "RSPM",
+      "Repository": "CRAN",
       "Requirements": [
         "R",
         "cli",
@@ -1403,7 +1381,7 @@
       "Package": "tidyselect",
       "Version": "1.2.1",
       "Source": "Repository",
-      "Repository": "RSPM",
+      "Repository": "CRAN",
       "Requirements": [
         "R",
         "cli",
@@ -1464,7 +1442,7 @@
       "Package": "vroom",
       "Version": "1.6.5",
       "Source": "Repository",
-      "Repository": "RSPM",
+      "Repository": "CRAN",
       "Requirements": [
         "R",
         "bit64",
@@ -1490,7 +1468,7 @@
       "Package": "withr",
       "Version": "3.0.2",
       "Source": "Repository",
-      "Repository": "RSPM",
+      "Repository": "CRAN",
       "Requirements": [
         "R",
         "grDevices",

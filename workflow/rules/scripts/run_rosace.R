@@ -208,7 +208,7 @@ rosace@var.data <- rosace@var.data %>%
     mutation = tmp[1],
     type = tmp[4]
   ) %>%
-  dplyr::select(-tmp, -tpm_n)
+  dplyr::select(-tmp, -tmp_n)
 
 # Finally, run rosace on each condition and write the output to a csv.
 

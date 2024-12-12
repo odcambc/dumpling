@@ -13,3 +13,10 @@ test/
 example/
 .mypt_cache/
 *.fasta.fai
+*.bam.bai
+*.sam
+*.bam
+*.fastq.gz
+*.dict
+*.fastq
+.Rproj.user

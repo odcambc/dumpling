@@ -6,7 +6,7 @@ rule run_rosace:
         ),
     output:
         expand(
-            "results/{{experiment_name}}/rosace/scores_{conditions}.tsv",
+            "results/{{experiment_name}}/rosace/{conditions}_scores.tsv",
             conditions=experimental_conditions,
         ),
     benchmark:
@@ -14,15 +14,19 @@ rule run_rosace:
     log:
         "logs/{experiment_name}/rosace/{experiment_name}.rosace.log",
     threads: 4
+    conda:
+        "../envs/rosace.yaml"
     script:
         "scripts/run_rosace.R"
 
 rule install_rosace:
     output:
-        directory("renv/library/")
+        temp("results/{experiment_name}/rosace/rosace_installed.txt"),
     benchmark:
-        "benchmarks/install_rosace.benchmark.txt"
+        "benchmarks/{experiment_name}/install_rosace.benchmark.txt"
     log:
-        "logs/install_rosace.log",
+        "logs/{experiment_name}/install_rosace.log",
+    conda:
+        "../envs/rosace.yaml"
     script:
         "scripts/install_rosace.R"

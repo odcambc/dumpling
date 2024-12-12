@@ -72,10 +72,14 @@ def get_input(wildcards):
     if experiment_samples:
         input_list.extend(
             expand(
-                "results/{experiment_name}/rosace/scores_{conditions}.tsv",
+                "results/{experiment_name}/rosace/{conditions}_scores.tsv",
                 experiment_name=config["experiment"],
                 conditions=experimental_conditions,
-            )
+            ) +
+            expand(
+                "results/{experiment_name}/rosace/rosace_installed.txt",
+                experiment_name=config["experiment"]
+            ),
         )
         if config["run_qc"]:
             input_list.extend(
