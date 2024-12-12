@@ -72,7 +72,7 @@ def get_input(wildcards):
     if experiment_samples:
         input_list.extend(
             expand(
-                "results/{experiment_name}/rosace/{conditions}_scores.tsv",
+                "results/{experiment_name}/rosace/{conditions}_scores.csv",
                 experiment_name=config["experiment"],
                 conditions=experimental_conditions,
             ) +

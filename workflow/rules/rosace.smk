@@ -1,12 +1,12 @@
 rule run_rosace:
     input:
         expand(
-            "results/{{experiment_name}}/processed_counts/{experiments}.tsv",
+            "results/{{experiment_name}}/processed_counts/{experiments}.csv",
             experiments=experiment_samples,
         ),
     output:
         expand(
-            "results/{{experiment_name}}/rosace/{conditions}_scores.tsv",
+            "results/{{experiment_name}}/rosace/{conditions}_scores.csv",
             conditions=experimental_conditions,
         ),
     benchmark:
