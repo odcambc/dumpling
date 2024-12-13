@@ -21,7 +21,7 @@ rule run_rosace:
 
 rule install_rosace:
     output:
-        temp("results/{experiment_name}/rosace/rosace_installed.txt"),
+        "results/{experiment_name}/rosace/rosace_installed.txt",
     benchmark:
         "benchmarks/{experiment_name}/install_rosace.benchmark.txt"
     log:
