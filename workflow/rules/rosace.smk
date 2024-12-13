@@ -19,6 +19,7 @@ rule run_rosace:
     script:
         "scripts/run_rosace.R"
 
+
 rule install_rosace:
     output:
         "results/{experiment_name}/rosace/rosace_installed.txt",

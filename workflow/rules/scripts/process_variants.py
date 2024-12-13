@@ -5,6 +5,9 @@ import logging
 import pandas as pd
 import regex
 
+from snakemake.script import snakemake
+
+
 # TODO: create stats file and return
 
 aa_3to1_dict = {

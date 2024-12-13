@@ -150,7 +150,7 @@ for (expt_condition in conditions[conditions != baseline_condition]) {
 
         file_name <- paste("results/",
           experiment_name,
-          "/processed_counts/",
+          "/processed_counts/enrich_format/",
           experimental_tile_df$sample, ".tsv",
           sep = ""
         )
