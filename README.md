@@ -15,6 +15,7 @@ with a variety of experimental designs. Please note several current [limitations
 
 - [GATK-based Snakemake pipeline for deep mutational scanning experiments](#gatk-based-snakemake-pipeline-for-deep-mutational-scanning-experiments)
   - [Quick start](#quick-start)
+    - [Testing the pipeline with example data](#testing-the-pipeline-with-example-data)
   - [Installation](#installation)
     - [Install via GitHub](#install-via-github)
     - [Installing Rosace](#installing-rosace)
@@ -66,6 +67,14 @@ edit the configuration files in the `config` directory as needed. Then run the p
 ```bash
 snakemake -s workflow/Snakefile --software-deployment-method conda --cores 16
 ```
+
+### Testing the pipeline with example data
+
+To test the pipeline with example data and examine the output, you can
+use the file provided in the [dumpling-example](https://github.com/odcambc/dumpling-example) repository. This repository contains a small dataset and configuration files that can be used to test the pipeline. To use it,
+clone the repository and move the data directory into the dumpling directory, then create the environment and run the pipeline as above. The repository also
+includes output files from running the pipeline on the example data that can
+be used to compare results.
 
 ## Installation
 
