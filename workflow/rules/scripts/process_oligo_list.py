@@ -6,6 +6,9 @@ import regex
 from Bio.Seq import Seq
 from Bio.SeqUtils import seq1
 
+from snakemake.script import snakemake
+
+
 PRE_SPAN = 15  # Number of bases in window to map
 
 

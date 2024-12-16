@@ -4,7 +4,6 @@ channels:
   - bioconda
   - nodefaults
 dependencies:
-  - r-base
   - python
   - snakemake>=8.0
   - pandas

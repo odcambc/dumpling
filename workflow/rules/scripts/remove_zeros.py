@@ -3,6 +3,8 @@ import pathlib
 
 import pandas as pd
 
+from snakemake.script import snakemake
+
 # Set up logging
 log_file = snakemake.log[0]
 
@@ -15,8 +17,10 @@ logging.debug("Performing unobserved variant removal.")
 
 
 experiment_name = snakemake.config["experiment"]
+
+# Improve directory handling
+input_dir = "results/" + experiment_name + "/processed_counts/enrich_format/"
 output_dir = "results/" + experiment_name + "/processed_counts/removed_zeros/"
-input_dir = "results/" + experiment_name + "/processed_counts/"
 
 
 def remove_zeros(experiment_list, output_dir):

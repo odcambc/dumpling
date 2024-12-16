@@ -4,7 +4,7 @@ from snakemake.utils import validate
 
 
 # Set your specific experimental configuration here
-configfile: "config/test.yaml"
+configfile: "config/example.yaml"
 
 
 # Include rules from other files
@@ -19,7 +19,8 @@ include: "rules/qc.smk"
 include: "rules/ref.smk"
 include: "rules/rosace.smk"
 
+
 # Pseudo-rule for running analysis
 rule all:
     input:
-        get_input
+        get_input,

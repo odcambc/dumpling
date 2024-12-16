@@ -150,7 +150,7 @@ for (expt_condition in conditions[conditions != baseline_condition]) {
 
         file_name <- paste("results/",
           experiment_name,
-          "/processed_counts/",
+          "/processed_counts/enrich_format/",
           experimental_tile_df$sample, ".tsv",
           sep = ""
         )
@@ -208,7 +208,7 @@ rosace@var.data <- rosace@var.data %>%
     mutation = tmp[1],
     type = tmp[4]
   ) %>%
-  dplyr::select(-tmp, -tpm_n)
+  dplyr::select(-tmp, -tmp_n)
 
 # Finally, run rosace on each condition and write the output to a csv.
 

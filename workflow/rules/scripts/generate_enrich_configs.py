@@ -1,6 +1,9 @@
 import pandas as pd
 import logging
 
+from snakemake.script import snakemake
+
+
 # The hierarchy of the enrich2 config file elements is as follows:
 # experiment
 #   conditions
@@ -287,7 +290,7 @@ experiment_name = snakemake.config["experiment"]
 if snakemake.params["remove_zeros"]:
     tsv_path = "results" + "/" + experiment_name + "/processed_counts/removed_zeros/"
 else:
-    tsv_path = "results" + "/" + experiment_name + "/processed_counts/"
+    tsv_path = "results" + "/" + experiment_name + "/processed_counts/enrich_format/"
 
 baseline_condition = snakemake.config["baseline_condition"]
 

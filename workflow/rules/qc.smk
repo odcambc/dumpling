@@ -27,6 +27,7 @@ rule multiqc_dir:
     wrapper:
         "v3.1.0/bio/multiqc"
 
+
 rule fastqc:
     """Initial QC: run FastQC on all input reads."""
     input:

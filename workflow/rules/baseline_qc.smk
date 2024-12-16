@@ -2,7 +2,7 @@ rule multiqc_baseline:
     """Rule for generating baseline QC report with MultiQC.
     """
     input:
-        expand("results/{{experiment}}/processed_counts/{samples}.tsv", samples=samples),
+        expand("results/{{experiment}}/processed_counts/{samples}.csv", samples=samples),
         expand(
             "stats/{{experiment}}/processing/{samples}_total_processing.tsv",
             samples=samples,

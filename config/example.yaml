@@ -1,20 +1,20 @@
 # Configuration for DMS analysis
 # This file is validated against the schema in "schemas/config.schema.yaml"
 
-# This is the name of the experiment. This is used to name the output files and 
+# This is the name of the experiment. This is used to name the output files and
 # results directories, so it must be unique.
-experiment: 'test_data'
+experiment: 'example_experiment'
 
 # -----------------------------------------------------------------------------
 # Path definitions:
 # These paths are relative to the base snakemake invocation directory,
-# typically the root of the git repository. 
+# typically the root of the git repository.
 # data_dir: Directory containing the raw sequencing data. Note: _all_ reads
 #           are expected in this directory, not as subfolders!
 # ref_dir: Directory containing the reference fasta files.
 # -----------------------------------------------------------------------------
 
-data_dir: 'test/data'
+data_dir: 'example/data'
 ref_dir: 'references'
 
 # -----------------------------------------------------------------------------
@@ -46,18 +46,18 @@ ref_dir: 'references'
 #                                including length for indels: e.g. "D_3" for a 3 amino acid deletion, "I_1" for
 #                                a 1 amino acid insertion)
 #                     length: Total length of codons changed in variant
-#                     hgvs: HGVS notation of the protein-level variant ('p.(V134_S136del)' for a 
-#                           deletion of the three codons from position 134 to 136, or 
+#                     hgvs: HGVS notation of the protein-level variant ('p.(V134_S136del)' for a
+#                           deletion of the three codons from position 134 to 136, or
 #                           'p.(I11_V12insG)' for an insertion of a Gly after Ile 11)
 #
 # OPTIONAL:
 # oligo_file:  CSV file containing the oligos used for generating the library, as in DIMPLE. This may be used
 #             to generate the variants_file if it does not already exist.
 # -----------------------------------------------------------------------------
-experiment_file: 'config/test.csv'
-reference: EccD_ref.fasta
-variants_file: "config/designed_variants/test_variants.csv"
-oligo_file: "config/oligos/test_oligos.csv"
+experiment_file: 'config/example.csv'
+reference: example_ref.fasta
+variants_file: "config/designed_variants/example_variants.csv"
+oligo_file: "config/oligos/example_oligos.csv"
 
 # -----------------------------------------------------------------------------
 # Analysis parameters:
@@ -75,7 +75,7 @@ oligo_file: "config/oligos/test_oligos.csv"
 # remove_zeros: Remove variants with zero counts from the output files.
 #
 # baseline_condition: The condition name in the experiment file to use as a baseline
-#                      or non-treated condition. This is useful for calculating the 
+#                      or non-treated condition. This is useful for calculating the
 #                      quality of input libraries.
 #
 # max_deletion_length: The maximum length (in codons) of a designed deletion in the library.
@@ -100,7 +100,7 @@ max_deletion_length: 3
 #
 # mem: Memory to allocate for BBTools jobs with Java (mapping, trimming, merging) (in GB)
 #
-# min_q: Used in GATK: the minimum quality score for bases to be analyzed. 
+# min_q: Used in GATK: the minimum quality score for bases to be analyzed.
 #
 # samtools_local: Flag for whether to use a locally-installed samtools or the wrapper version.
 #                 This is useful for platforms (such as ARM Macs currently) where conda does
@@ -127,6 +127,6 @@ samtools_local: false
 #               set of common sequencing artifacts. Used for contaminant removal with BBDuk.
 # -----------------------------------------------------------------------------
 adapters: "resources/adapters.fa"
-contaminants: 
+contaminants:
   - "resources/sequencing_artifacts.fa.gz"
   - "resources/phix174_ill.ref.fa.gz"
