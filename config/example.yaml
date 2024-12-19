@@ -114,6 +114,7 @@ mem: 16
 min_q: 30
 
 samtools_local: false
+rosace_local: false
 
 # -----------------------------------------------------------------------------
 # Other resources:

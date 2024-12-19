@@ -15,7 +15,7 @@ rule run_rosace:
         "logs/{experiment_name}/rosace/{experiment_name}.rosace.log",
     threads: 4
     conda:
-        "../envs/rosace.yaml"
+        "../envs/rosace.yaml" if not config["rosace_local"] else None
     script:
         "scripts/run_rosace.R"
 
@@ -28,6 +28,6 @@ rule install_rosace:
     log:
         "logs/{experiment_name}/install_rosace.log",
     conda:
-        "../envs/rosace.yaml"
+        "../envs/rosace.yaml" if not config["rosace_local"] else None
     script:
         "scripts/install_rosace.R"
