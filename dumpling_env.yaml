@@ -6,6 +6,7 @@ channels:
 dependencies:
   - python
   - snakemake>=8.0
+  - snakemake-wrapper-utils
   - pandas
   - biopython
   - fastqc

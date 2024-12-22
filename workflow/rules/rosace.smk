@@ -4,6 +4,7 @@ rule run_rosace:
             "results/{{experiment_name}}/processed_counts/{experiments}.csv",
             experiments=experiment_samples,
         ),
+        "results/{experiment_name}/rosace/rosace_installed.txt",
     output:
         expand(
             "results/{{experiment_name}}/rosace/{conditions}_scores.csv",
