@@ -12,4 +12,4 @@ dependencies:
   - matplotlib
   - pip
   - pip:
-    - git+http://github.com/odcambc/Enrich3.git
+    - git+http://github.com/FowlerLab/Enrich2.git@release-2.0.0
