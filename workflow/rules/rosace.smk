@@ -4,6 +4,7 @@ rule run_rosace:
             "results/{{experiment_name}}/processed_counts/{experiments}.csv",
             experiments=experiment_samples,
         ),
+        "results/{experiment_name}/rosace/rosace_installed.txt",
     output:
         expand(
             "results/{{experiment_name}}/rosace/{conditions}_scores.csv",
@@ -15,7 +16,7 @@ rule run_rosace:
         "logs/{experiment_name}/rosace/{experiment_name}.rosace.log",
     threads: 4
     conda:
-        "../envs/rosace.yaml"
+        "../envs/rosace.yaml" if not config["rosace_local"] else None
     script:
         "scripts/run_rosace.R"
 
@@ -28,6 +29,6 @@ rule install_rosace:
     log:
         "logs/{experiment_name}/install_rosace.log",
     conda:
-        "../envs/rosace.yaml"
+        "../envs/rosace.yaml" if not config["rosace_local"] else None
     script:
         "scripts/install_rosace.R"
