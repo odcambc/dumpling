@@ -9,3 +9,8 @@ test/
 .snakemake
 .vscode/
 *.pyc
+
+*.fastq.gz
+*.fq.gz
+*.bam
+*.sam
