@@ -107,6 +107,8 @@ rosace_assayset_dir <- file.path(
   sep = ""
 )
 
+sprintf("Creating directories: %s, %s", rosace_dir, rosace_assayset_dir)
+
 dir.create(rosace_assayset_dir, recursive = TRUE)
 
 # To create the rosace object, iterate over conditions and
@@ -150,7 +152,7 @@ for (expt_condition in conditions[conditions != baseline_condition]) {
 
         file_name <- paste("results/",
           experiment_name,
-          "/processed_counts/",
+          "/processed_counts/enrich_format/",
           experimental_tile_df$sample, ".tsv",
           sep = ""
         )
@@ -208,11 +210,13 @@ rosace@var.data <- rosace@var.data %>%
     mutation = tmp[1],
     type = tmp[4]
   ) %>%
-  dplyr::select(-tmp, -tpm_n)
+  dplyr::select(-tmp, -tmp_n)
 
 # Finally, run rosace on each condition and write the output to a csv.
 
 for (expt_condition in conditions[conditions != baseline_condition]) {
+  sprintf("Running ROSACE for condition: %s", expt_condition)
+
   rosace <- RunRosace(
     object = rosace,
     name = expt_condition,
@@ -230,9 +234,12 @@ for (expt_condition in conditions[conditions != baseline_condition]) {
   )
 
   output_file_name <- paste(expt_condition, "_scores.csv", sep = "")
+
   output_file <- file.path(rosace_dir, output_file_name)
 
   write.csv(scores.data, file = output_file)
+
+  sprintf("Results written to: %s", output_file)
 }
 
 # Close connection to log file
