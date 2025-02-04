@@ -16,5 +16,5 @@ dependencies:
   - regex
   - pip
   - pip:
-      - multiqc>=1.19
+      - multiqc>=1.25
       - regex
