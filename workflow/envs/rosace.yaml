@@ -1,0 +1,11 @@
+channels:
+  - conda-forge
+  - bioconda
+  - nodefaults
+dependencies:
+  - r-base
+  - r-nloptr
+  - nlopt
+  - libxml2
+  - cmake
+  - zlib
