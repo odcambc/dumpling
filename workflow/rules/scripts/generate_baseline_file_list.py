@@ -1,5 +1,6 @@
 import pandas as pd
 import logging
+from snakemake.script import snakemake
 
 """Generate a list of files specific to baseline conditionsto be used as input for MultiQC.
 This is just a list of files that will be passed using --file-list

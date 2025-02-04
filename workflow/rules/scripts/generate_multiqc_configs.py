@@ -1,7 +1,7 @@
 import pandas as pd
 import logging
 
-import yaml
+from snakemake.script import snakemake
 
 
 output_file = snakemake.output[0]

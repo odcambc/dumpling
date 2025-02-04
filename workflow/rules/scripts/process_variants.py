@@ -5,6 +5,9 @@ import logging
 import pandas as pd
 import regex
 
+from snakemake.script import snakemake
+
+
 # TODO: create stats file and return
 
 aa_3to1_dict = {
@@ -43,6 +46,7 @@ variantCounts_colnames = [
     "AA",
     "mutations",
 ]
+
 
 def name_to_hgvs(name):
     # syn case
@@ -266,7 +270,13 @@ def process_insdel(line, variant_names_array, ref_AA_sequence, max_deletion_leng
     return variant_dict
 
 
-def process_variants_file(gatk_list, designed_variants_df, ref_AA_sequence, max_deletion_length):
+def process_variants_file(
+    gatk_list,
+    designed_variants_df,
+    ref_AA_sequence,
+    max_deletion_length,
+    noprocess=True,
+):
     #   -Reject any variants with multiple substitutions
     #   -Reject any frameshifting mutations
     #   (designed mutations are singles, interpreting multi-codon indels as singles)
@@ -330,6 +340,9 @@ def process_variants_file(gatk_list, designed_variants_df, ref_AA_sequence, max_
     total_stats["total_accepted_counts"] = 0
 
     rejected_list = []
+
+    # If we are not processing the variants, we just add all the counts to a new one.
+    variants_noprocess_dict = {}
     variants_df = designed_variants_df.copy(deep=True)
 
     variant_names_array = sorted(variants_df["name"].array)
@@ -350,6 +363,30 @@ def process_variants_file(gatk_list, designed_variants_df, ref_AA_sequence, max_
         count = 0
         pos = -1
         rejected = 1
+
+        # If we are not processing the variants, just add each variant to the total.
+        # We just use the given mutation name from GATK ASM, and don't proceed any
+        # further.
+        if noprocess:
+            if mutation == "":
+                continue
+
+            new_entry = {
+                "count": counts,
+                "pos": pos,
+                "mutation_type": mutation_type,
+                "name": mutation,
+                "codon": "",
+                "mutation": mutation,
+                "length": length,
+                "hgvs": mutation,
+            }
+            # See whether there is already a variant with this name. Add to df if not.
+            if mutation not in variants_noprocess_dict:
+                variants_noprocess_dict[mutation] = new_entry
+            else:
+                variants_noprocess_dict[mutation]["count"] += counts
+            continue
 
         total_stats["total_counts"] = total_stats["total_counts"] + counts
 
@@ -505,7 +542,9 @@ def process_variants_file(gatk_list, designed_variants_df, ref_AA_sequence, max_
             )
 
             if insdel_re:
-                insdel_dict = process_insdel(line, variant_names_array, ref_AA_sequence, max_deletion_length)
+                insdel_dict = process_insdel(
+                    line, variant_names_array, ref_AA_sequence, max_deletion_length
+                )
                 count = insdel_dict["counts"]
                 pos = insdel_dict["pos"]
                 length = insdel_dict["length"]
@@ -565,11 +604,19 @@ def process_variants_file(gatk_list, designed_variants_df, ref_AA_sequence, max_
         + accepted_stats["accepted_insdel_counts"]
     )
 
+    if noprocess:
+        variants_df = pd.DataFrame.from_dict(variants_noprocess_dict, orient="index")
+        variants_df.reset_index(inplace=True)
+        variants_df.rename(columns={"index": "name"}, inplace=True)
+        # Counts are ints.
+        variants_df["count"] = variants_df["count"].astype(int)
+
     return variants_df, rejected_list, rejected_stats, accepted_stats, total_stats
 
 
 def write_enrich_df(file, variant_df):
-    wt_summed = variant_df[variant_df["mutation_type"] == "S"]["count"].sum()
+    # wt_summed = variant_df[variant_df["mutation_type"] == "S"]["count"].sum()
+    wt_summed = 100
 
     p = pathlib.Path(file)
     p.parent.mkdir(parents=True, exist_ok=True)

@@ -8,6 +8,8 @@ import process_oligo_list
 import process_variants
 from Bio import SeqIO
 
+from snakemake.script import snakemake
+
 order: list[str] = [
     "A",
     "C",
@@ -53,6 +55,8 @@ designed_variant_header: list[str] = [
 ]
 
 log_file = snakemake.log[0]
+
+# Improve directory handling
 output_dir = "results/" + snakemake.config["experiment"] + "/processed_counts/"
 
 # Set up logging
@@ -64,6 +68,8 @@ else:
 logging.debug("Loading experiment file: %s", snakemake.config["experiment_file"])
 
 max_deletion_length = snakemake.config["max_deletion_length"]
+
+noprocess = snakemake.config["noprocess"]
 
 
 def process_experiment(experiment_list, regenerate_variants=False):
@@ -107,16 +113,16 @@ def process_experiment(experiment_list, regenerate_variants=False):
         )
         df, other, rejected_stats, accepted_stats, total_stats = (
             process_variants.process_variants_file(
-                csv_file, designed_df, ref_AA_sequence, max_deletion_length
+                csv_file, designed_df, ref_AA_sequence, max_deletion_length, noprocess
             )
         )
 
         # Write an Enrich2-readable output
-        enrich_file = os.path.join(output_dir, experiment + ".tsv")
+        enrich_file = os.path.join(output_dir + "enrich_format", experiment + ".tsv")
         process_variants.write_enrich_df(enrich_file, df)
 
         # Write the processed file to csv
-        processed_file = os.path.join(output_dir, "counts", experiment + ".csv")
+        processed_file = os.path.join(output_dir, experiment + ".csv")
         p = pathlib.Path(processed_file)
         p.parent.mkdir(parents=True, exist_ok=True)
         df.to_csv(processed_file, index=False)
