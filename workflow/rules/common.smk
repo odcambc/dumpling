@@ -1,17 +1,47 @@
+from pathlib import Path
+
+
 def get_file_from_sample(wildcards):
     """Maps from the sequencing output file names to the sample names defined in the experiment CSV.
     This is used in rule bbduk_trim_adapters"""
-    filename = experiments.loc[
+
+    data_dir = Path(config["data_dir"]).resolve()
+
+    filename_match = experiments.loc[
         experiments["sample"] == wildcards.sample_prefix, "file"
-    ].squeeze()
-    prefix = config["data_dir"] + "/" + filename
-    R1 = prefix + "_R1_001.fastq.gz"
-    R2 = prefix + "_R2_001.fastq.gz"
-    return {"R1": R1, "R2": R2}
+    ]
+
+    if filename_match.empty:
+        raise ValueError(
+            f"No matching file found for sample prefix: {wildcards.sample_prefix}"
+        )
+
+    if len(filename_match) > 1:
+        raise ValueError(
+            f"Multiple matching files found for sample prefix: {wildcards.sample_prefix}"
+        )
+
+    filename = filename_match.squeeze()
+
+    # Find the actual file names for the given sample.
+    R1, R2 = None, None
+    for file in data_dir.glob(f"{filename}*"):
+        if "_R1" in file.stem:
+            R1 = file
+        elif "_R2" in file.stem:
+            R2 = file
+
+    # Make sure both exist.
+    if not R1 or not R2:
+        raise FileNotFoundError(
+            f"Could not find matching R1 and R2 files for prefix: {filename}"
+        )
+
+    return {"R1": str(R1), "R2": str(R2)}
 
 
 def get_ref(wildcards):
-    """Removes file suffix from reference fasta file. This is used in rule bwa_index"""
+    """Removes file suffix from reference fasta file."""
     prefix = config["reference"].split(".fasta")[0]
     return prefix
 
@@ -72,10 +102,14 @@ def get_input(wildcards):
     if experiment_samples:
         input_list.extend(
             expand(
-                "results/{experiment_name}/rosace/scores_{conditions}.tsv",
+                "results/{experiment_name}/rosace/{conditions}_scores.csv",
                 experiment_name=config["experiment"],
                 conditions=experimental_conditions,
             )
+            + expand(
+                "results/{experiment_name}/rosace/rosace_installed.txt",
+                experiment_name=config["experiment"],
+            ),
         )
         if config["run_qc"]:
             input_list.extend(
@@ -126,6 +160,8 @@ adapters_ref = pass_names(config["adapters"])
 contaminants_ref = pass_names(config["contaminants"])
 samtools_local = config["samtools_local"]
 
+noprocess = config["noprocess"]
+
 tiles = experiments["tile"].unique()
 if len(tiles) > 1:
     config["tiled"] = True
@@ -136,4 +172,5 @@ else:
 if config["enrich2"]:
     remove_zeros = config["remove_zeros"]
 else:
+    log.warn("Enrich2 will not be run, so zero counts will not be removed.")
     remove_zeros = False
