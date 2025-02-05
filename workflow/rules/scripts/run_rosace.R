@@ -7,12 +7,6 @@ library("rosace")
 
 library("purrr")
 
-
-## TODO: Position is not being written in output. Defined properly?
-## TODO: wildtype is not being written in output. Defined properly?
-## TODO: type is not being written in output. Defined properly?
-## TODO: Check cmdstanr and toolchain from rosace?
-
 # ===========================
 #        INITIALIZATION
 # ===========================
