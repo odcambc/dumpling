@@ -3,7 +3,7 @@ description: DMS experiment definition CSV file
 properties:
   sample:
     type: string
-    description: Sample name 
+    description: Sample name
   condition:
     type: string
     description: sample condition that will be compared during differential expression analysis (e.g. a treatment, a tissue time, a disease)
@@ -14,7 +14,7 @@ properties:
     type: number
     description: timepoint of sample (for timecourse experiments)
   bin:
-    type: int
+    type: integer
     description: sample bin (for FACS-type experiments)
   tile:
     type: integer

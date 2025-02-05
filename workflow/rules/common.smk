@@ -162,7 +162,13 @@ samtools_local = config["samtools_local"]
 
 noprocess = config["noprocess"]
 
+# Handle tiled experiments
+if "tile" not in experiments.columns:
+    experiments["tile"] = 1
+
 tiles = experiments["tile"].unique()
+
+# If tiles are defined and they are all identical, then the experiment is not tiled
 if len(tiles) > 1:
     config["tiled"] = True
 else:
@@ -172,5 +178,4 @@ else:
 if config["enrich2"]:
     remove_zeros = config["remove_zeros"]
 else:
-    log.warn("Enrich2 will not be run, so zero counts will not be removed.")
     remove_zeros = False

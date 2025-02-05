@@ -38,6 +38,10 @@ properties:
     type: boolean
     default: false
     description: Flag for whether to use local samtools or wrapper version.
+  rosace_local:
+    type: boolean
+    default: false
+    description: Flag for whether to use ROSACE installed on system-wide R or through a conda-controlled R environment.
   adapters:
     type:
       - string
@@ -64,15 +68,15 @@ properties:
     type: boolean
     default: false
     description: Flag for whether to remove unobserved and zero-count variants before processing with Enrich.
-  regenerate_variants: 
+  regenerate_variants:
     type: boolean
     default: false
     description: Flag for whether to regenerate the designed variants file from an oligo list.
-  noprocess: 
+  noprocess:
     type: boolean
     default: false
     description: Flag for whether called variants are filtered or not.
-  run_qc: 
+  run_qc:
     type: boolean
     default: true
     description: Flag for whether QC should be performed.

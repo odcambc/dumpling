@@ -10,38 +10,62 @@ from snakemake.script import snakemake
 #      timepoints/bins (individual samples)
 
 
-def remove_truncated_replicates(experiments):
-    """Remove replicates with fewer than two timepoints/bins.
+def remove_truncated_replicates(experiments, conditions, tiled):
+    """
+    Remove replicates with fewer than two timepoints/bins.
 
     Accepts as input a dataframe of experiment metadata.
     Returns a dataframe of experiment metadata with all replicates
-    with two or fewer timepoints removed."""
+    that have two or fewer timepoints removed.
+    """
+    has_tile_column = "tile" in experiments.columns
 
     for condition in conditions:
-        tiles = experiments.loc[(experiments["condition"] == condition)][
-            "tile"
-        ].unique()
+        # Determine the tile values we loop over
+        if tiled and has_tile_column:
+            tiles = experiments.loc[
+                experiments["condition"] == condition, "tile"
+            ].unique()
+        else:
+            # Treat as if there's only one tile when 'tile' doesn't exist or it's not tiled
+            tiles = [None]
 
         for tile in tiles:
-            replicates = experiments.loc[
-                (experiments["condition"] == condition) & (experiments["tile"] == tile)
-            ]["replicate"].unique()
+            # Subset for a given condition/tile (or no tile)
+            if tile is None or not (tiled and has_tile_column):
+                condition_subset = experiments.loc[
+                    experiments["condition"] == condition
+                ]
+            else:
+                condition_subset = experiments.loc[
+                    (experiments["condition"] == condition)
+                    & (experiments["tile"] == tile)
+                ]
+
+            replicates = condition_subset["replicate"].unique()
 
             for replicate in replicates:
-                timepoints = experiments.loc[
-                    (experiments["condition"] == condition)
-                    & (experiments["replicate"] == replicate)
-                    & (experiments["tile"] == tile)
-                ]["time"].unique()
+                rep_subset = condition_subset.loc[
+                    condition_subset["replicate"] == replicate
+                ]
+                timepoints = rep_subset["time"].unique()
 
                 if len(timepoints) <= 2:
-                    experiments = experiments.loc[
-                        (experiments["condition"] != condition)
-                        | (experiments["replicate"] != replicate)
-                        | (experiments["tile"] != tile)
-                    ]
+                    # Remove all rows matching this condition+replicate (+tile if present)
+                    if tile is None or not (tiled and has_tile_column):
+                        experiments = experiments.loc[
+                            (experiments["condition"] != condition)
+                            | (experiments["replicate"] != replicate)
+                        ]
+                    else:
+                        experiments = experiments.loc[
+                            (experiments["condition"] != condition)
+                            | (experiments["replicate"] != replicate)
+                            | (experiments["tile"] != tile)
+                        ]
                     logging.warning(
-                        "Replicate %s in condition %s has fewer than two timepoints. Removing from analysis.",
+                        "Replicate %s in condition %s has fewer than two timepoints. "
+                        "Removing from analysis.",
                         replicate,
                         condition,
                     )
@@ -49,38 +73,62 @@ def remove_truncated_replicates(experiments):
     return experiments
 
 
-def remove_missing_t0(experiments):
-    """Remove replicates without a T0 sample.
+def remove_missing_t0(experiments, conditions, tiled):
+    """
+    Remove replicates without a T0 sample.
 
-    Accepts as input a dataframe of experiment metadata.
-    Returns a dataframe of experiment metadata with all replicates
-    without a T0 sample removed."""
+    Accepts as input:
+      - experiments: DataFrame of experiment metadata.
+      - conditions: List of condition names.
+      - tiled: Boolean indicating whether the experiment is tiled or not.
+
+    Returns:
+      experiments: DataFrame with all replicates lacking T0 removed.
+    """
+    has_tile_column = "tile" in experiments.columns
 
     for condition in conditions:
-        tiles = experiments.loc[(experiments["condition"] == condition)][
-            "tile"
-        ].unique()
+        if tiled and has_tile_column:
+            tiles = experiments.loc[
+                experiments["condition"] == condition, "tile"
+            ].unique()
+        else:
+            tiles = [None]
 
         for tile in tiles:
-            replicates = experiments.loc[
-                (experiments["condition"] == condition) & (experiments["tile"] == tile)
-            ]["replicate"].unique()
+            if tile is None or not (tiled and has_tile_column):
+                condition_subset = experiments.loc[
+                    experiments["condition"] == condition
+                ]
+            else:
+                condition_subset = experiments.loc[
+                    (experiments["condition"] == condition)
+                    & (experiments["tile"] == tile)
+                ]
+
+            replicates = condition_subset["replicate"].unique()
 
             for replicate in replicates:
-                timepoints = experiments.loc[
-                    (experiments["condition"] == condition)
-                    & (experiments["replicate"] == replicate)
-                    & (experiments["tile"] == tile)
-                ]["time"].unique()
+                rep_subset = condition_subset.loc[
+                    condition_subset["replicate"] == replicate
+                ]
+                timepoints = rep_subset["time"].unique()
 
                 if 0 not in timepoints:
-                    experiments = experiments.loc[
-                        (experiments["condition"] != condition)
-                        | (experiments["replicate"] != replicate)
-                        | (experiments["tile"] != tile)
-                    ]
+                    if tile is None or not (tiled and has_tile_column):
+                        experiments = experiments.loc[
+                            (experiments["condition"] != condition)
+                            or (experiments["replicate"] != replicate)
+                        ]
+                    else:
+                        experiments = experiments.loc[
+                            (experiments["condition"] != condition)
+                            | (experiments["replicate"] != replicate)
+                            | (experiments["tile"] != tile)
+                        ]
                     logging.warning(
-                        "Replicate %s in condition %s has no T0 sample. Removing from analysis.",
+                        "Replicate %s in condition %s has no T0 sample. "
+                        "Removing from analysis.",
                         replicate,
                         condition,
                     )
@@ -88,242 +136,177 @@ def remove_missing_t0(experiments):
     return experiments
 
 
-def tiled_config(conditions, experiments, tsv_path, output_directory):
-    """Generate the Enrich2 config file for tiled experiments."""
+def generate_config(
+    conditions, experiments, tsv_path, output_directory, experiment_name, tiled
+):
+    """Generate the Enrich2 config file for experiments."""
     enrich2_config = ["{", '\t"conditions": [']
 
     for condition in conditions:
-        tiles = experiments.loc[(experiments["condition"] == condition)][
-            "tile"
-        ].unique()
+        tiles = (
+            experiments.loc[experiments["condition"] == condition, "tile"].unique()
+            if (tiled and "tile" in experiments.columns)
+            else [None]
+        )
 
         for tile in tiles:
-            # open condition
-            enrich2_config.extend(["\t{"])
-            # condition name
-            enrich2_config.extend(
-                ['\t\t"name": "' + condition + "_tile" + str(tile) + '",']
+            enrich2_config.append("\t{")
+            condition_name = (
+                f'"name": "{condition}_tile{tile}"'
+                if (tiled and "tile" in experiments.columns)
+                else f'"name": "{condition}"'
             )
-            # start selections (a.k.a. set of replicates)
-            enrich2_config.extend(['\t\t"selections": ['])
+            enrich2_config.append(f"\t\t{condition_name},")
+            enrich2_config.append('\t\t"selections": [')
 
             replicates = experiments.loc[
-                (experiments["condition"] == condition) & (experiments["tile"] == tile)
-            ]["replicate"].unique()
+                (experiments["condition"] == condition)
+                & (
+                    (experiments["tile"] == tile)
+                    if (tiled and "tile" in experiments.columns)
+                    else True
+                ),
+                "replicate",
+            ].unique()
 
             for replicate in replicates:
                 timepoints = experiments.loc[
                     (experiments["condition"] == condition)
                     & (experiments["replicate"] == replicate)
-                    & (experiments["tile"] == tile)
-                ]["time"].unique()
+                    & (
+                        (experiments["tile"] == tile)
+                        if (tiled and "tile" in experiments.columns)
+                        else True
+                    ),
+                    "time",
+                ].unique()
 
-                # open library (a.k.a. single replicate)
-                enrich2_config.extend(["\t\t{"])
-                # start libraries
-                enrich2_config.extend(['\t\t\t"libraries": ['])
+                enrich2_config.append("\t\t{")
+                enrich2_config.append('\t\t\t"libraries": [')
+
                 for time in timepoints:
                     sample_name = experiments.loc[
                         (experiments["condition"] == condition)
                         & (experiments["replicate"] == replicate)
                         & (experiments["time"] == time)
-                        & (experiments["tile"] == tile)
-                    ]["sample"].iloc[0]
-
-                    # open file definition
-                    name = "{}_rep{}_T{}_tile{}".format(
-                        condition, str(replicate), str(time), str(tile)
+                        & (
+                            (experiments["tile"] == tile)
+                            if (tiled and "tile" in experiments.columns)
+                            else True
+                        ),
+                        "sample",
+                    ].iloc[0]
+                    name = (
+                        f"{condition}_rep{replicate}_T{time}_tile{tile}"
+                        if (tiled and "tile" in experiments.columns)
+                        else f"{condition}_rep{replicate}_T{time}"
                     )
 
-                    enrich2_config.extend(["\t\t\t\t{"])
-
-                    # close file definition
-                    enrich2_config.extend(
-                        [
-                            '\t\t\t\t\t"counts file": "'
-                            + tsv_path
-                            + sample_name
-                            + '.tsv",',
-                            '\t\t\t\t\t"identifiers": {},',
-                            '\t\t\t\t\t"name": "' + name + '",',
-                            '\t\t\t\t\t"report filtered reads": false,',
-                            '\t\t\t\t\t"timepoint": ' + str(time),
-                        ]
+                    enrich2_config.append("\t\t\t\t{")
+                    enrich2_config.append(
+                        f'\t\t\t\t\t"counts file": "{tsv_path}{sample_name}.tsv",'
                     )
-                    if time == timepoints[-1]:
-                        enrich2_config.extend(["\t\t\t\t}"])
-                    else:
-                        enrich2_config.extend(["\t\t\t\t},"])
+                    enrich2_config.append('\t\t\t\t\t"identifiers": {},')
+                    enrich2_config.append(f'\t\t\t\t\t"name": "{name}",')
+                    enrich2_config.append('\t\t\t\t\t"report filtered reads": false,')
+                    enrich2_config.append(f'\t\t\t\t\t"timepoint": {time}')
+                    enrich2_config.append(
+                        "\t\t\t\t}," if time != timepoints[-1] else "\t\t\t\t}"
+                    )
 
-                # closes and completes library definition
-                enrich2_config.extend(["\t\t\t],"])
-                enrich2_config.extend(
-                    [
-                        '\t\t\t"name": "'
-                        + condition
-                        + "_R"
-                        + str(replicate)
-                        + "_tile"
-                        + str(tile)
-                        + '"'
-                    ]
+                enrich2_config.append("\t\t\t],")
+                enrich2_config.append(
+                    f'\t\t\t"name": "{condition}_R{replicate}_tile{tile}"'
+                    if (tiled and "tile" in experiments.columns)
+                    else f'\t\t\t"name": "{condition}_R{replicate}"'
                 )
-                if replicate == replicates[-1]:
-                    enrich2_config.extend(["\t\t}"])
-                else:
-                    enrich2_config.extend(["\t\t},"])
-
-                # closes replicate
-            enrich2_config.extend(["\t\t]"])
-
-            # closes condition. Checks for this being the last
-            # condition in the file, as well.
-            if condition == conditions[-1] and tile == tiles[-1]:
-                enrich2_config.extend(["\t}"])
-            else:
-                enrich2_config.extend(["\t},"])
-
-    enrich2_config.extend(["\t],"])
-    enrich2_config.extend(['"name": "' + experiment_name + '",'])
-    enrich2_config.extend(['"output directory": "' + output_directory + '"'])
-    enrich2_config.extend(["}"])
-
-    return enrich2_config
-
-
-def untiled_config(conditions, experiments, tsv_path, output_directory):
-    """Generate the Enrich2 config file for untiled experiments."""
-    enrich2_config = ["{", '\t"conditions": [']
-
-    for condition in conditions:
-        # open condition
-        enrich2_config.extend(["\t{"])
-        # condition name
-        enrich2_config.extend(['\t\t"name": "' + condition + '",'])
-        # start selections (a.k.a. set of replicates)
-        enrich2_config.extend(['\t\t"selections": ['])
-
-        replicates = experiments.loc[(experiments["condition"] == condition)][
-            "replicate"
-        ].unique()
-
-        for replicate in replicates:
-            timepoints = experiments.loc[
-                (experiments["condition"] == condition)
-                & (experiments["replicate"] == replicate)
-            ]["time"].unique()
-
-            # open library (a.k.a. single replicate)
-            enrich2_config.extend(["\t\t{"])
-            # start libraries
-            enrich2_config.extend(['\t\t\t"libraries": ['])
-            for time in timepoints:
-                sample_name = experiments.loc[
-                    (experiments["condition"] == condition)
-                    & (experiments["replicate"] == replicate)
-                    & (experiments["time"] == time)
-                ]["sample"].iloc[0]
-
-                # open file definition
-                name = "{}_rep{}_T{}".format(condition, str(replicate), str(time))
-
-                enrich2_config.extend(["\t\t\t\t{"])
-
-                # close file definition
-                enrich2_config.extend(
-                    [
-                        '\t\t\t\t\t"counts file": "'
-                        + tsv_path
-                        + sample_name
-                        + '.tsv",',
-                        '\t\t\t\t\t"identifiers": {},',
-                        '\t\t\t\t\t"name": "' + name + '",',
-                        '\t\t\t\t\t"report filtered reads": false,',
-                        '\t\t\t\t\t"timepoint": ' + str(time),
-                    ]
+                enrich2_config.append(
+                    "\t\t}," if replicate != replicates[-1] else "\t\t}"
                 )
-                if time == timepoints[-1]:
-                    enrich2_config.extend(["\t\t\t\t}"])
-                else:
-                    enrich2_config.extend(["\t\t\t\t},"])
 
-            # closes and completes library definition
-            enrich2_config.extend(["\t\t\t],"])
-            enrich2_config.extend(
-                ['\t\t\t"name": "' + condition + "_R" + str(replicate) + '"']
+            enrich2_config.append("\t\t]")
+            enrich2_config.append(
+                "\t},"
+                if (
+                    condition != conditions[-1]
+                    or (tiled and "tile" in experiments.columns and tile != tiles[-1])
+                )
+                else "\t}"
             )
-            if replicate == replicates[-1]:
-                enrich2_config.extend(["\t\t}"])
-            else:
-                enrich2_config.extend(["\t\t},"])
 
-            # closes replicate
-        enrich2_config.extend(["\t\t]"])
-
-        # closes condition
-        if condition == conditions[-1]:
-            enrich2_config.extend(["\t}"])
-        else:
-            enrich2_config.extend(["\t},"])
-
-    enrich2_config.extend(["\t],"])
-    enrich2_config.extend(['"name": "' + experiment_name + '",'])
-    enrich2_config.extend(['"output directory": "' + output_directory + '"'])
-    enrich2_config.extend(["}"])
+    enrich2_config.append("\t],")
+    enrich2_config.append(f'"name": "{experiment_name}",')
+    enrich2_config.append(f'"output directory": "{output_directory}"')
+    enrich2_config.append("}")
 
     return enrich2_config
 
 
-output_file = snakemake.output[0]
-log_file = snakemake.log[0]
+def main():
+    """
+    Handle the main logic of the script.
+    """
+    # Set up logging
+    log_file = snakemake.log[0]
+    if log_file:
+        logging.basicConfig(filename=log_file, filemode="w", level=logging.DEBUG)
+    else:
+        logging.basicConfig(level=logging.DEBUG)
 
-# Set up logging
-if log_file:
-    logging.basicConfig(filename=log_file, filemode="w", level=logging.DEBUG)
-else:
-    logging.basicConfig(level=logging.DEBUG)
+    experiment_name = snakemake.config["experiment"]
+    tiled = snakemake.config["tiled"]
 
-experiment_name = snakemake.config["experiment"]
+    # Decide which directory path to use
+    if snakemake.params["remove_zeros"]:
+        tsv_path = f"results/{experiment_name}/processed_counts/removed_zeros/"
+    else:
+        tsv_path = f"results/{experiment_name}/processed_counts/"
 
-if snakemake.params["remove_zeros"]:
-    tsv_path = "results" + "/" + experiment_name + "/processed_counts/removed_zeros/"
-else:
-    tsv_path = "results" + "/" + experiment_name + "/processed_counts/"
+    baseline_condition = snakemake.config["baseline_condition"]
+    output_directory = f"results/{experiment_name}/enrich/"
+    output_file = snakemake.output[0]
 
-baseline_condition = snakemake.config["baseline_condition"]
-
-output_directory = "results" + "/" + experiment_name + "/enrich/"
-
-experiments = (
-    pd.read_csv(snakemake.config["experiment_file"], header=0)
-    .dropna(how="all")
-    .set_index("sample", drop=False, verify_integrity=True)
-)
-
-conditions = experiments["condition"].unique().tolist()
-
-# Do not generate scores for the baseline condition, if it exists.
-if baseline_condition:
-    try:
-        conditions.remove(baseline_condition)
-    except ValueError:
-        logging.warning(
-            "Baseline condition %s not found in experiment file.", baseline_condition
-        )
-
-# Remove truncated replicates (those with fewer than two timepoints) and those without a T0 sample.
-filtered_experiments = remove_truncated_replicates(remove_missing_t0(experiments))
-
-# Generate the Enrich2 config file
-if snakemake.config["tiled"]:
-    enrich2_config_lines = tiled_config(
-        conditions, filtered_experiments, tsv_path, output_directory
-    )
-else:
-    enrich2_config_lines = untiled_config(
-        conditions, filtered_experiments, tsv_path, output_directory
+    # Read in the experiments file
+    experiments = (
+        pd.read_csv(snakemake.config["experiment_file"], header=0)
+        .dropna(how="all")
+        .set_index("sample", drop=False, verify_integrity=True)
     )
 
-with open(output_file, "w+") as f:
-    for line in enrich2_config_lines:
-        f.write(line + "\n")
+    # List of condition names, ignoring baseline condition if present
+    global conditions
+    conditions = experiments["condition"].unique().tolist()
+    if baseline_condition:
+        try:
+            conditions.remove(baseline_condition)
+        except ValueError:
+            logging.warning(
+                "Baseline condition %s not found in experiment file.",
+                baseline_condition,
+            )
+
+    # First remove replicates with no T0 sample, then replicates with <2 timepoints
+    experiments_filtered = remove_missing_t0(experiments, conditions, tiled)
+    experiments_filtered = remove_truncated_replicates(
+        experiments_filtered, conditions, tiled
+    )
+
+    # Generate the Enrich2 config
+    enrich2_config_lines = generate_config(
+        conditions,
+        experiments_filtered,
+        tsv_path,
+        output_directory,
+        experiment_name,
+        tiled,
+    )
+
+    # Write out the generated config file
+    with open(output_file, "w+") as f:
+        f.write("\n".join(enrich2_config_lines))
+
+    logging.info("Enrich2 config file written to %s.", output_file)
+
+
+if __name__ == "__main__":
+    main()
