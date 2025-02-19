@@ -53,7 +53,8 @@ rule prepare_bbmap_index:
             reference=config["reference"],
         ),
     output:
-        "ref/genome/1/chr1.chrom.gz",
+        temp("ref/genome/1/chr1.chrom.gz"),
+        temp("ref/genome/1/summary.txt"),
     params:
         mem=config["mem"],
     threads: 16
