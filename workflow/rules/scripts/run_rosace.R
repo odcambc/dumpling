@@ -131,7 +131,7 @@ build_counts_for_replicate <- function(df_subset, experiment_name) {
     tile_values <- if (has_tile) {
       unique(experimental_time_df$tile)
     } else {
-      NA  # Just one iteration
+      NA # Just one iteration
     }
 
     for (tile_val in tile_values) {
@@ -191,7 +191,7 @@ build_counts_for_replicate <- function(df_subset, experiment_name) {
 # ===========================
 #   BUILD ROSACE OBJECT
 # ===========================
-build_rosace_object <- function(experiment_definition, experiment_name, baseline_condition) {
+build_rosace_object <- function(experiment_definition, experiment_name, baseline_condition, noprocess) {
   # This function:
   #   - Loops over conditions (excluding baseline)
   #   - Loops over replicates
@@ -203,7 +203,7 @@ build_rosace_object <- function(experiment_definition, experiment_name, baseline
   conditions <- conditions[conditions != baseline_condition]
 
   rosace_created <- FALSE
-  rosace_obj <- NULL  # We'll return this at the end
+  rosace_obj <- NULL # We'll return this at the end
 
   for (expt_condition in conditions) {
     # Subset by condition
@@ -246,13 +246,23 @@ build_rosace_object <- function(experiment_definition, experiment_name, baseline
         impute.method = "knn",
         na.rmax = 0.5
       )
-      rosace_obj <- NormalizeData(
-        rosace_obj,
-        key = expt_condition,
-        normalization.method = "wt",
-        wt.var.names = c("_wt"),
-        wt.rm = TRUE
-      )
+      if (noprocess) {
+        message("Skipping normalization and integration due to noprocess flag.")
+        rosace_obj <- NormalizeData(
+          rosace_obj,
+          key = expt_condition,
+          normalization.method = "total"
+        )
+      } else {
+        rosace_obj <- NormalizeData(
+          rosace_obj,
+          key = expt_condition,
+          normalization.method = "wt",
+          wt.var.names = c("_wt"),
+          wt.rm = TRUE
+        )
+      }
+
       rosace_obj <- IntegrateData(object = rosace_obj, key = expt_condition)
     }
   }
@@ -268,7 +278,7 @@ build_rosace_object <- function(experiment_definition, experiment_name, baseline
 # ===========================
 #   FINALIZE VARIANT METADATA
 # ===========================
-finalize_variants_in_rosace <- function(rosace_obj) {
+finalize_variants_in_rosace <- function(rosace_obj, noprocess) {
   # Parse the variant strings, storing them in new columns
   # e.g., rosace_obj@var.data
   if (is.null(rosace_obj)) {
@@ -278,6 +288,10 @@ finalize_variants_in_rosace <- function(rosace_obj) {
 
   # The var.data data frame has a column 'variants' that looks like "p.(...)"?
   # We strip that substring and parse
+
+  if (noprocess) {
+    return(rosace_obj)
+  }
 
   rosace_obj@var.data <- rosace_obj@var.data %>%
     mutate(tmp_n = substr(variants, 4, nchar(variants) - 1)) %>%
@@ -299,7 +313,7 @@ finalize_variants_in_rosace <- function(rosace_obj) {
 # ===========================
 #   RUN ROSACE ANALYSIS
 # ===========================
-run_rosace_for_conditions <- function(rosace_obj, experiment_definition, experiment_name, baseline_condition) {
+run_rosace_for_conditions <- function(rosace_obj, experiment_definition, experiment_name, baseline_condition, noprocess) {
   # Run Rosace for each condition except baseline, writing results
   if (is.null(rosace_obj)) {
     warning("Rosace object is NULL; skipping run_rosace_for_conditions.")
@@ -313,16 +327,28 @@ run_rosace_for_conditions <- function(rosace_obj, experiment_definition, experim
   for (expt_condition in conditions) {
     message(sprintf("Running ROSACE for condition: %s", expt_condition))
 
-    rosace_obj <- RunRosace(
-      object = rosace_obj,
-      name = expt_condition,
-      type = "AssaySet",
-      savedir = rosace_dir,
-      pos.col = "position",
-      ctrl.col = "type",
-      ctrl.name = "synonymous",
-      install = FALSE
-    )
+    # If we are using the noprocess flag, variant data will not be parsed.
+    # Therefore we cannot use the type or position as controls.
+    if (noprocess) {
+      rosace_obj <- RunRosace(
+        object = rosace_obj,
+        name = expt_condition,
+        type = "AssaySet",
+        savedir = rosace_dir,
+        install = FALSE
+      )
+    } else {
+      rosace_obj <- RunRosace(
+        object = rosace_obj,
+        name = expt_condition,
+        type = "AssaySet",
+        savedir = rosace_dir,
+        pos.col = "position",
+        ctrl.col = "type",
+        ctrl.name = "synonymous",
+        install = FALSE
+      )
+    }
 
     scores.data <- OutputScore(
       rosace_obj,
@@ -357,6 +383,7 @@ main <- function() {
   baseline_condition <- snakemake@config[["baseline_condition"]]
 
   tiled <- snakemake@config[["tiled"]]
+  noprocess <- snakemake@config[["noprocess"]]
 
   # Create directories
   rosace_dir <- file.path("results", experiment_name, "rosace")
@@ -368,10 +395,10 @@ main <- function() {
   experiment_definition <- load_experiment_definition(experiment_file)
 
   # Build the Rosace object (including filter/impute/normalize/integrate)
-  rosace_obj <- build_rosace_object(experiment_definition, experiment_name, baseline_condition)
+  rosace_obj <- build_rosace_object(experiment_definition, experiment_name, baseline_condition, noprocess)
 
   # Parse the variant strings in var.data
-  rosace_obj <- finalize_variants_in_rosace(rosace_obj)
+  rosace_obj <- finalize_variants_in_rosace(rosace_obj, noprocess)
 
   # Run the Rosace analysis on each condition
   print("Running ROSACE")
@@ -380,7 +407,8 @@ main <- function() {
     rosace_obj,
     experiment_definition,
     experiment_name,
-    baseline_condition
+    baseline_condition,
+    noprocess
   )
 
   # Clean up
