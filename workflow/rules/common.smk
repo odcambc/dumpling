@@ -42,6 +42,7 @@ def get_file_from_sample(wildcards):
 
 def get_ref(wildcards):
     """Removes file suffix from reference fasta file."""
+    # TODO: should detect other fasta extensions
     prefix = config["reference"].split(".fasta")[0]
     return prefix
 
@@ -160,8 +161,12 @@ adapters_ref = pass_names(config["adapters"])
 contaminants_ref = pass_names(config["contaminants"])
 samtools_local = config["samtools_local"]
 
+variants_file = config["variants_file"]
+oligo_file = config["oligo_file"]
+
 noprocess = config["noprocess"]
 
+reference_file = Path(config["ref_dir"]) / config["reference"]
 # Handle tiled experiments
 if "tile" not in experiments.columns:
     experiments["tile"] = 1
@@ -179,3 +184,31 @@ if config["enrich2"]:
     remove_zeros = config["remove_zeros"]
 else:
     remove_zeros = False
+
+# Check whether a correct set of input files are present
+if not Path(config["data_dir"]).exists():
+    raise FileNotFoundError(f"Data directory {config['data_dir']} does not exist")
+
+if not reference_file.exists():
+    raise FileNotFoundError(f"Reference file {config['reference']} does not exist")
+
+if not Path(config["adapters"]).exists():
+    raise FileNotFoundError(f"Adapters file {config['adapters']} does not exist")
+
+# Check for mode with variant filtering
+if not noprocess:
+    # If we are regenerating the variants, then the variants file should not exist
+    if config["regenerate_variants"]:
+        if Path(variants_file).exists():
+            print(
+                f"Variants file {variants_file} already exists, but regenerate_variants is set to true"
+            )
+        if not Path(oligo_file).exists():
+            raise FileNotFoundError(
+                f"Oligo file {oligo_file} does not exist, but is required to make list of designed variants"
+            )
+    else:
+        if not Path(variants_file).exists():
+            raise FileNotFoundError(
+                f"Variants file {variants_file} does not exist, but is required to process counts"
+            )

@@ -19,6 +19,14 @@ properties:
   reference:
     type: string
     description: reference file name
+  variants_file:
+    type: string
+    default: None
+    description: designed variants file name
+  oligo_file:
+    type: string
+    default: None
+    description: oligo list file name
   orf:
     type: string
     description: "ORF coordinates in reference file. Format: start-stop"

@@ -130,7 +130,7 @@ def process_experiment(
         enrich_file = os.path.join(
             output_dir, "enrich_format", f"{experiment_name}.tsv"
         )
-        process_variants.write_enrich_df(enrich_file, df)
+        process_variants.write_enrich_df(enrich_file, df, noprocess)
 
         # 5d. Write processed file to CSV
         processed_file = os.path.join(output_dir, f"{experiment_name}.csv")
