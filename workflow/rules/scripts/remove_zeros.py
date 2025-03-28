@@ -2,7 +2,6 @@ import logging
 from pathlib import Path
 
 import pandas as pd
-from snakemake.script import snakemake
 
 
 def remove_zeros_enrich(enrich_file_list, output_dir):
@@ -15,31 +14,56 @@ def remove_zeros_enrich(enrich_file_list, output_dir):
     :return: List of unobserved variant IDs
     """
     # Build a combined DataFrame from all inputs
-    df_list = [
-        pd.read_csv(f, sep="\t", names=["hgvs", f], header=0).set_index("hgvs")
-        for f in enrich_file_list
-    ]
-    combined_enrich_df = pd.concat(df_list, join="outer", axis=1)
 
-    # Identify unobserved variants (those with all zeros)
-    unobserved_variants = combined_enrich_df[
-        (combined_enrich_df == 0).all(axis=1)
-    ].index.to_list()
-
-    # Keep only variants that are observed in at least one file
-    combined_enrich_df = combined_enrich_df[(combined_enrich_df != 0).any(axis=1)]
-
-    # Write out each file with filtered data
+    df_list = []
     for enrich_file in enrich_file_list:
-        file_name = Path(enrich_file).name
-        output_path = Path(output_dir, file_name)
-        output_path.parent.mkdir(parents=True, exist_ok=True)
+        file_stem = Path(enrich_file).stem  # e.g. "sample1"
+        # Use "Int64" so we can safely store 0/NA as integers
+        df = pd.read_csv(
+            enrich_file,
+            sep="\t",
+            names=["hgvs", file_stem],
+            header=0,
+            dtype={"hgvs": str, file_stem: "Int64"},
+        ).set_index("hgvs")
+        df_list.append(df)
 
-        # Write the single-column file for that sample
-        combined_enrich_df[[enrich_file]].to_csv(
-            output_path, header=["count"], index=True, sep="\t"
+    combined_enrich_df = pd.concat(df_list, axis=1, join="outer")
+    # NA or 0 means unobserved. We define a boolean mask:
+    is_null_or_zero = combined_enrich_df.isna() | (combined_enrich_df == 0)
+
+    # Variants that are unobserved in ALL files
+    unobserved_mask = is_null_or_zero.all(axis=1)
+    unobserved_variants = unobserved_mask[unobserved_mask].index.to_list()
+
+    # Keep only rows that have at least one non-zero, non-NA value
+    combined_enrich_df = combined_enrich_df[~unobserved_mask]
+
+    # Rewrite each file using only the "surviving" variants
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    for enrich_file in enrich_file_list:
+        file_stem = Path(enrich_file).stem
+        file_name = Path(enrich_file).name
+        output_path = output_dir / file_name
+
+        # We write just the single column for this file
+        # The index is 'hgvs', and the column is the newly filtered data
+        # named after the file_stem
+        subset_df = combined_enrich_df[[file_stem]].fillna(0).astype("Int64")
+
+        # Rename the column back to "count" so it remains in Enrich2 format
+        subset_df.columns = ["count"]
+
+        # Write out
+        subset_df.to_csv(
+            output_path,
+            header=True,
+            index=True,
+            sep="\t",
         )
-        logging.debug("Writing zero-filtered file %s to %s.", enrich_file, output_path)
+        logging.debug("Writing zero-filtered file %s -> %s", enrich_file, output_path)
 
     return unobserved_variants
 
@@ -71,6 +95,9 @@ def main():
     - Calls remove_zeros() for each replicate group
     """
     # Set up logging
+
+    from snakemake.script import snakemake
+
     log_file = snakemake.log[0]
     if log_file:
         logging.basicConfig(filename=log_file, filemode="w", level=logging.DEBUG)
