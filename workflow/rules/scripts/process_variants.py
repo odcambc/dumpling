@@ -516,13 +516,15 @@ def process_variants_file(
     rejected_list: List[List[str]] = []
 
     # If we are not processing the variants, we just add all the counts to a new one.
+    # Otherwise we will populate a copy of the designed variants dataframe.
     variants_noprocess_dict: Dict[str, VariantDict] = {}
-    variants_df = designed_variants_df.copy(deep=True)
-    logging.info(f"variants_df.dtype: {variants_df.dtypes}")
-    logging.info(f"variants_df head: {variants_df.head()}")
-    logging.info(f"variants_df number of unique names: {variants_df['name'].nunique()}")
 
-    variant_names_array = sorted(variants_df["name"].array)
+    if noprocess:
+        variants_df = pd.DataFrame()
+        variant_names_array = []
+    else:
+        variants_df = designed_variants_df.copy(deep=True)
+        variant_names_array = sorted(variants_df["name"].array)
 
     for line in gatk_list:
         counts = int(line[0])
@@ -578,7 +580,22 @@ def process_variants_file(
                     logging.warning("Error in multi-synonymous parsing")
                     logging.warning(line)
 
-        if not noprocess:
+        # If we aren't filtering variants, just add them to the dict.
+        if noprocess:
+            try:
+                if variant_dict["name"] in variants_noprocess_dict:
+                    variants_noprocess_dict[variant_dict["name"]]["count"] = int(
+                        variant_dict["count"]
+                    ) + int(variants_noprocess_dict[variant_dict["name"]]["count"])
+                else:
+                    variants_noprocess_dict[str(variant_dict["name"])] = variant_dict
+            except KeyError:
+                logging.warning("Error in variant processing")
+                logging.warning(line)
+
+        # If we are filtering the variants, we need to check if the variant is in the
+        # designed variants dataframe. If it is not, we will reject it.
+        else:
             variant_dict["rejected"] = check_expected(variant_dict, variant_names_array)
 
             accepted_stats, rejected_stats = update_stats(
@@ -602,17 +619,6 @@ def process_variants_file(
                 rejected_stats["wrong_variant_counts"] = (
                     rejected_stats["wrong_variant_counts"] + counts
                 )
-        else:
-            try:
-                if variant_dict["name"] in variants_noprocess_dict:
-                    variants_noprocess_dict[variant_dict["name"]]["count"] = int(
-                        variant_dict["count"]
-                    ) + int(variants_noprocess_dict[variant_dict["name"]]["count"])
-                else:
-                    variants_noprocess_dict[str(variant_dict["name"])] = variant_dict
-            except KeyError:
-                logging.warning("Error in variant processing")
-                logging.warning(line)
 
     total_stats["total_rejected_counts"] = (
         rejected_stats["outside_orf_counts"]
@@ -633,10 +639,12 @@ def process_variants_file(
 
     if noprocess:
         variants_df = pd.DataFrame.from_dict(variants_noprocess_dict, orient="index")
-        variants_df.reset_index(inplace=True)
-        variants_df.rename(columns={"index": "name"}, inplace=True)
+        # Drop the "rejected" column
+        variants_df.drop(columns=["rejected"], inplace=True)
         # Counts are ints.
         variants_df["count"] = variants_df["count"].astype(int)
+        # rename mutation column to mutant
+        variants_df.rename(columns={"mutation": "mutant"}, inplace=True)
 
     return variants_df, rejected_list, rejected_stats, accepted_stats, total_stats
 
