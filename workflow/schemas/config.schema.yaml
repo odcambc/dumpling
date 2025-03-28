@@ -37,7 +37,11 @@ properties:
   min_q:
     type: integer
     default: 30
-    description: minimum Q score for bases to be analyzed by GATK
+    description: minimum Q score for bases to be analyzed by GATK ASM
+  min_variant_obs:
+    type: integer
+    default: 3
+    description: minimum number of variant observations for GATK ASM to include
   sam:
     type: string
     default: "1.3"

@@ -4,7 +4,9 @@ rule generate_variants:
         oligo_file=oligo_file,
         ref_fasta=reference_file,
     output:
-        variants_file,
+        expand("{variants_file}", variants_file=config["variants_file"])
+        if config["regenerate_variants"]
+        else [],
     benchmark:
         "benchmarks/generate_variants.benchmark.txt"
     log:
@@ -18,7 +20,7 @@ rule process_counts:
     as is required for running Enrich2 and Rosace."""
     input:
         expand("results/{{experiment}}/gatk/{samples}.variantCounts", samples=samples),
-        variants_file=variants_file,
+        expand("{variants_file}", variants_file=config["variants_file"]),
     output:
         expand(
             "results/{{experiment}}/processed_counts/enrich_format/{samples}.tsv",
@@ -57,7 +59,6 @@ rule remove_zeros:
             samples=samples,
         ),
     params:
-        regenerate_variants=config["regenerate_variants"],
         samples=samples,
     benchmark:
         "benchmarks/{experiment}/{experiment}.remove_zeros.benchmark.txt"
