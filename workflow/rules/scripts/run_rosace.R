@@ -1,11 +1,4 @@
 #!/usr/bin/env Rscript
-library("readr")
-library("stringr")
-library("dplyr")
-library("cmdstanr")
-library("rosace")
-
-library("purrr")
 
 # ===========================
 #        INITIALIZATION
@@ -121,8 +114,10 @@ build_counts_for_replicate <- function(df_subset, experiment_name) {
 
   # Initialize an empty tibble
   counts <- tibble::tibble(hgvs = character())
+  message(sprintf("Building counts for condition=%s, replicate=%s", df_subset$condition[1], df_subset$replicate[1]))
 
   for (expt_time in unique(df_subset$time)) {
+    message(sprintf("Processing time=%s", expt_time))
     # Filter by time
     experimental_time_df <- filter(df_subset, time == expt_time)
 
@@ -141,6 +136,7 @@ build_counts_for_replicate <- function(df_subset, experiment_name) {
       } else {
         # Filter by tile
         experimental_tile_df <- filter(experimental_time_df, tile == tile_val)
+        message(sprintf("Processing tile=%s", tile_val))
       }
 
       if (nrow(experimental_tile_df) > 1) {
@@ -247,13 +243,14 @@ build_rosace_object <- function(experiment_definition, experiment_name, baseline
         na.rmax = 0.5
       )
       if (noprocess) {
-        message("Skipping normalization and integration due to noprocess flag.")
+        message(sprintf("Normalizing by total counts since noprocess flag is set."))
         rosace_obj <- NormalizeData(
           rosace_obj,
           key = expt_condition,
           normalization.method = "total"
         )
       } else {
+        message(sprintf("Normalizing data by variant names and WT."))
         rosace_obj <- NormalizeData(
           rosace_obj,
           key = expt_condition,
@@ -263,6 +260,7 @@ build_rosace_object <- function(experiment_definition, experiment_name, baseline
         )
       }
 
+      message(sprintf("Integrated data for condition: %s", expt_condition))
       rosace_obj <- IntegrateData(object = rosace_obj, key = expt_condition)
     }
   }
@@ -290,8 +288,10 @@ finalize_variants_in_rosace <- function(rosace_obj, noprocess) {
   # We strip that substring and parse
 
   if (noprocess) {
+    message("Skipping variant parsing since noprocess flag is set.")
     return(rosace_obj)
   }
+
 
   rosace_obj@var.data <- rosace_obj@var.data %>%
     mutate(tmp_n = substr(variants, 4, nchar(variants) - 1)) %>%
@@ -306,6 +306,7 @@ finalize_variants_in_rosace <- function(rosace_obj, noprocess) {
     ) %>%
     select(-tmp_n, -parsed)
 
+  message("Parsed variant strings in var.data")
   return(rosace_obj)
 }
 
@@ -371,11 +372,7 @@ run_rosace_for_conditions <- function(rosace_obj, experiment_definition, experim
 #           MAIN
 # ===========================
 main <- function() {
-  # Activate environment if using renv
-  renv::activate()
-
   # Logging setup
-  con <- init_logging()
 
   # Read configs
   experiment_name <- snakemake@config[["experiment"]]
@@ -414,6 +411,23 @@ main <- function() {
   # Clean up
   stop_logging()
 }
+
+con <- init_logging()
+
+# Enable renv if not using user-manged rosace
+
+if (!snakemake@config[["rosace_local"]]) {
+  # Activate environment if using renv
+  message(sprintf("Activating renv environment"))
+  renv::activate()
+}
+library("readr")
+library("stringr")
+library("dplyr")
+library("purrr")
+library("cmdstanr")
+library("rosace")
+
 
 # Run main
 main()
