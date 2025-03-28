@@ -40,13 +40,6 @@ def get_file_from_sample(wildcards):
     return {"R1": str(R1), "R2": str(R2)}
 
 
-def get_ref(wildcards):
-    """Removes file suffix from reference fasta file."""
-    # TODO: should detect other fasta extensions
-    prefix = config["reference"].split(".fasta")[0]
-    return prefix
-
-
 def pass_names(names):
     """Takes either an array of strings (such as files) or a single string and returns a comma-separated string.
     This is used while passing references to bbduk."""
@@ -137,6 +130,57 @@ def get_input(wildcards):
     return input_list
 
 
+def validate_config(config):
+    # Check ORF definition
+    # etc etc...
+
+    # Check reference file type
+    reference_file_suffix = Path(config["reference"]).suffix
+    if reference_file_suffix not in [
+        ".fasta",
+        ".fas",
+        ".fa",
+        ".fna",
+        ".ffn",
+        ".faa",
+        ".mpfa",
+        ".frn",
+    ]:
+        raise ValueError(
+            f"Reference file {config['reference']} does not appear to be a valid FASTA file: {reference_file_suffix}"
+        )
+
+    # Check whether a correct set of input files are present
+    if not Path(config["data_dir"]).exists():
+        raise FileNotFoundError(f"Data directory {config['data_dir']} does not exist")
+
+    if not reference_file.exists():
+        raise FileNotFoundError(f"Reference file {config['reference']} does not exist")
+
+    if not Path(config["adapters"]).exists():
+        raise FileNotFoundError(f"Adapters file {config['adapters']} does not exist")
+
+    # Check for mode with variant filtering
+    if not noprocess:
+        # If we are regenerating the variants, then the variants file should not exist
+        if config["regenerate_variants"]:
+            if Path(variants_file).exists():
+                print(
+                    f"Variants file {variants_file} already exists, but regenerate_variants is set to true"
+                )
+            if not Path(oligo_file).exists():
+                raise FileNotFoundError(
+                    f"Oligo file {oligo_file} does not exist, but is required to make list of designed variants"
+                )
+        else:
+            if not Path(variants_file).exists():
+                raise FileNotFoundError(
+                    f"Variants file {variants_file} does not exist, but is required to process counts"
+                )
+
+    return
+
+
 # Validate config and experiment files
 validate(config, "../schemas/config.schema.yaml")
 
@@ -148,7 +192,7 @@ experiments = (
 
 validate(experiments, "../schemas/experiments.schema.yaml")
 
-# Set variables from config and experiment files
+# Determine experiments, samples, and files by parsing config and experiment input
 experiment = config["experiment"]
 samples = experiments["sample"]
 baseline_samples, baseline_files = get_baseline_samples(experiments, samples)
@@ -156,18 +200,23 @@ experiment_samples, experiment_files = get_experiment_samples(experiments, sampl
 files = experiments["file"]
 conditions = set(experiments["condition"])
 experimental_conditions = conditions - set([config["baseline_condition"]])
-reference_name = get_ref(config["reference"])
-adapters_ref = pass_names(config["adapters"])
-contaminants_ref = pass_names(config["contaminants"])
-samtools_local = config["samtools_local"]
 
+
+# Load additional files
 variants_file = config["variants_file"]
 oligo_file = config["oligo_file"]
 
+reference_file = Path(config["ref_dir"]) / config["reference"]
+reference_name = Path(config["reference"]).stem
+
+adapters_ref = pass_names(config["adapters"])
+contaminants_ref = pass_names(config["contaminants"])
+
+# Set configuration variables
+samtools_local = config["samtools_local"]
 noprocess = config["noprocess"]
 
-reference_file = Path(config["ref_dir"]) / config["reference"]
-# Handle tiled experiments
+# Set up tiled experiments
 if "tile" not in experiments.columns:
     experiments["tile"] = 1
 
@@ -185,30 +234,5 @@ if config["enrich2"]:
 else:
     remove_zeros = False
 
-# Check whether a correct set of input files are present
-if not Path(config["data_dir"]).exists():
-    raise FileNotFoundError(f"Data directory {config['data_dir']} does not exist")
-
-if not reference_file.exists():
-    raise FileNotFoundError(f"Reference file {config['reference']} does not exist")
-
-if not Path(config["adapters"]).exists():
-    raise FileNotFoundError(f"Adapters file {config['adapters']} does not exist")
-
-# Check for mode with variant filtering
-if not noprocess:
-    # If we are regenerating the variants, then the variants file should not exist
-    if config["regenerate_variants"]:
-        if Path(variants_file).exists():
-            print(
-                f"Variants file {variants_file} already exists, but regenerate_variants is set to true"
-            )
-        if not Path(oligo_file).exists():
-            raise FileNotFoundError(
-                f"Oligo file {oligo_file} does not exist, but is required to make list of designed variants"
-            )
-    else:
-        if not Path(variants_file).exists():
-            raise FileNotFoundError(
-                f"Variants file {variants_file} does not exist, but is required to process counts"
-            )
+# Validate the configuration
+validate_config(config)
