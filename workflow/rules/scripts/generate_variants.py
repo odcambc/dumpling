@@ -8,6 +8,8 @@ from Bio import SeqIO
 from Bio.SeqUtils import seq1
 from collections import namedtuple
 
+import pandas as pd
+
 from snakemake.script import snakemake
 
 log_file = snakemake.log[0]
@@ -25,22 +27,6 @@ ref_file = snakemake.input["ref_fasta"]
 
 # Define constants
 PRE_SPAN = 15  # Number of bases in window to map
-
-# Define a named tuple for variant data
-Variant = namedtuple(
-    "Variant",
-    [
-        "index",
-        "position",
-        "mutation_type",
-        "name",
-        "codon",
-        "mutant",
-        "length",
-        "hgvs",
-        "chunk",
-    ],
-)
 
 
 def name_to_hgvs(name):
@@ -97,7 +83,7 @@ def designed_variants(oligo_csv, ref, offset, is_circular=False):
         is_circular (bool): Whether the reference is circular
 
     Returns:
-        list: List of Variant namedtuples containing mutation information
+        list: List of Variant named tuples containing mutation information
     """
     variant_list = []
     ref_len = len(ref)
@@ -115,7 +101,7 @@ def designed_variants(oligo_csv, ref, offset, is_circular=False):
 
             try:
                 # Initialize variables to None to detect which pattern matched
-                variant_data = None
+                variant_data = {}
 
                 # Match substitutions
                 variant_sub = regex.search(
@@ -165,17 +151,15 @@ def designed_variants(oligo_csv, ref, offset, is_circular=False):
                     mutant = seq1(variant_sub.group(4))
                     length = 1
 
-                    variant_data = [
-                        0,
-                        pos,
-                        mutation_type,
-                        name,
-                        codon,
-                        mutant,
-                        length,
-                        name_to_hgvs(name),
-                        chunk,
-                    ]
+                    variant_data["count"] = 0
+                    variant_data["pos"] = pos
+                    variant_data["mutation_type"] = mutation_type
+                    variant_data["name"] = name
+                    variant_data["codon"] = codon
+                    variant_data["mutant"] = mutant
+                    variant_data["length"] = length
+                    variant_data["hgvs"] = name_to_hgvs(name)
+                    variant_data["chunk"] = chunk
 
                 # Deletions
                 # Updated regex to better handle deletion format variations
@@ -240,17 +224,15 @@ def designed_variants(oligo_csv, ref, offset, is_circular=False):
                     mutant = "D_" + str(codon_length)
                     length = codon_length
 
-                    variant_data = [
-                        0,
-                        pos,
-                        mutation_type,
-                        name,
-                        codon,
-                        mutant,
-                        length,
-                        name_to_hgvs(name),
-                        deletion_chunk,
-                    ]
+                    variant_data["count"] = 0
+                    variant_data["pos"] = pos
+                    variant_data["mutation_type"] = mutation_type
+                    variant_data["name"] = name
+                    variant_data["codon"] = codon
+                    variant_data["mutant"] = mutant
+                    variant_data["length"] = length
+                    variant_data["hgvs"] = name_to_hgvs(name)
+                    variant_data["chunk"] = deletion_chunk
 
                 # Insertions
                 variant_ins = regex.search(
@@ -321,21 +303,19 @@ def designed_variants(oligo_csv, ref, offset, is_circular=False):
                     )
                     mutant = "I_" + str(length)
 
-                    variant_data = [
-                        0,
-                        pos,
-                        mutation_type,
-                        name,
-                        codon,
-                        mutant,
-                        length,
-                        name_to_hgvs(name),
-                        insertion_chunk,
-                    ]
+                    variant_data["count"] = 0
+                    variant_data["pos"] = pos
+                    variant_data["mutation_type"] = mutation_type
+                    variant_data["name"] = name
+                    variant_data["codon"] = codon
+                    variant_data["mutant"] = mutant
+                    variant_data["length"] = length
+                    variant_data["hgvs"] = name_to_hgvs(name)
+                    variant_data["chunk"] = insertion_chunk
 
                 # If we found a match, add it to our list
                 if variant_data:
-                    variant_list.append(Variant(*variant_data))
+                    variant_list.append(variant_data)
                 else:
                     logging.warning(
                         f"No pattern matched for {line[0]}. This may be a header or unrecognized format."
@@ -418,6 +398,44 @@ def extract_codon(
     return ""
 
 
+def check_designed_df(df) -> bool:
+    """
+    Check the designed variants dataframe for any potential issues.
+
+    Args:
+        df (pd.DataFrame): Designed variants dataframe
+
+    Returns:
+        bool: True if the dataframe is valid, False otherwise
+    """
+
+    # Check for missing values
+    df.to_csv("designed_variants_check.csv", index=False)
+    missing_values = df.isnull().sum().sum()
+    if missing_values > 0:
+        logging.error(
+            f"Found {missing_values} missing values in the designed variants dataframe"
+        )
+        return False
+
+    # Check for duplicate rows. We'll just warn and drop duplicates.
+    duplicate_rows = df.duplicated().sum()
+    if duplicate_rows > 0:
+        logging.warning(
+            f"Found {duplicate_rows} duplicate rows in the designed variants dataframe. Dropping duplicates."
+        )
+
+    # If there are duplicated names without identical positions, etc, something is non-trivially wrong.
+    duplicated_names = df.drop_duplicates()["name"].duplicated().sum()
+    if duplicated_names > 0:
+        logging.error(
+            f"Found {duplicated_names} duplicated variant names with non-identical values in the designed variants dataframe. Check for errors."
+        )
+        return False
+
+    return True
+
+
 def write_designed_csv(file, header, variant_list):
     """
     Write variants to a CSV file.
@@ -425,7 +443,7 @@ def write_designed_csv(file, header, variant_list):
     Args:
         file (str): Output file path
         header (list): Column headers
-        variant_list (list): List of Variant namedtuples
+        variant_list (list): List of variant dicts
     """
     p = pathlib.Path(file)
     p.parent.mkdir(parents=True, exist_ok=True)
@@ -438,6 +456,7 @@ def write_designed_csv(file, header, variant_list):
 
 
 # Main execution
+
 orf_range = snakemake.config[
     "orf"
 ]  # e.g. "100-500" or "500-100" for circular crossing origin
@@ -483,20 +502,35 @@ logging.info(
 logging.info(f"Reference sequence length: {len(ref_sequence)}")
 logging.info(f"Reference AA sequence length: {len(ref_AA_sequence)}")
 
-# Generate the variants
+# Generate the variants: returns list of dicts
 variants = designed_variants(oligo_file, str(ref_sequence), offset, is_circular)
+logging.info(variants[0:20])
+logging.info(f"Generated {len(variants)} variants.")
+
+# Convert the list of dicts to a DataFrame
+variants_df = pd.DataFrame(variants)
+# Make sure types are strings
+variants_df["name"] = variants_df["name"].astype(str)
+variants_df["codon"] = variants_df["codon"].astype(str)
+variants_df["mutant"] = variants_df["mutant"].astype(str)
+variants_df["hgvs"] = variants_df["hgvs"].astype(str)
+
+logging.info(variants_df.head())
+logging.info(variants_df.dtypes)
+
+# Check for any issues in the designed variants
+if not check_designed_df(variants_df):
+    logging.error("Error in designed variants. Check log for details.")
+    raise Exception("Error in designed variants. Check log for details.")
+
 
 # Write the variants to a file
-header = [
-    "index",
-    "position",
-    "mutation_type",
-    "name",
-    "codon",
-    "mutant",
-    "length",
-    "hgvs",
-    "chunk",
-]
+logging.info("Regenerated variants.")
 
-write_designed_csv(variants_file, header, variants)
+logging.info(f"{len(variants_df)} variants before deduplication.")
+logging.info(f"{len(variants_df.drop_duplicates())} variants after deduplication.")
+
+# Deduplicate before writing.
+variants_df.drop_duplicates().to_csv(variants_file, index=False)
+
+logging.info(f"New designed variants file written to {variants_file}.")
