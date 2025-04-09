@@ -596,11 +596,15 @@ def process_variants_file(
         # If we are filtering the variants, we need to check if the variant is in the
         # designed variants dataframe. If it is not, we will reject it.
         else:
-            variant_dict["rejected"] = check_expected(variant_dict, variant_names_array)
-
-            accepted_stats, rejected_stats = update_stats(
-                accepted_stats, rejected_stats, variant_dict
-            )
+            try:
+                if variant_dict["name"] in variant_names_array:
+                    variant_dict["rejected"] = False
+                else:
+                    variant_dict["rejected"] = True
+            except KeyError:
+                logging.warning("Error in variant processing")
+                logging.warning(line)
+                continue
 
             if variant_dict["rejected"]:
                 rejected_list = rejected_list + [line]
@@ -608,6 +612,10 @@ def process_variants_file(
                     rejected_stats["wrong_variant_counts"] + counts
                 )
                 continue
+
+            accepted_stats, rejected_stats = update_stats(
+                accepted_stats, rejected_stats, variant_dict
+            )
 
             try:
                 variants_df.loc[
