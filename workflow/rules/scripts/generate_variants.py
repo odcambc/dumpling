@@ -6,7 +6,6 @@ import logging
 from Bio.Seq import Seq
 from Bio import SeqIO
 from Bio.SeqUtils import seq1
-from collections import namedtuple
 
 import pandas as pd
 
@@ -97,6 +96,11 @@ def designed_variants(oligo_csv, ref, offset, is_circular=False):
         for i, line in enumerate(lines):
             if not line or len(line) < 2:  # Skip empty lines or insufficient columns
                 logging.warning(f"Skipping line {i}: Insufficient data")
+                continue
+
+            # Skip header lines
+            if line[0] == "name" or line[0] == "\ufeffname":
+                logging.warning(f"Skipping header line {i}: {line[0]}")
                 continue
 
             try:
@@ -320,6 +324,7 @@ def designed_variants(oligo_csv, ref, offset, is_circular=False):
                     logging.warning(
                         f"No pattern matched for {line[0]}. This may be a header or unrecognized format."
                     )
+                    logging.warning(f"Line: {line}")
 
             except Exception as e:
                 logging.error(f"Error processing line {i}: {line[0]} - {str(e)}")
@@ -410,26 +415,10 @@ def check_designed_df(df) -> bool:
     """
 
     # Check for missing values
-    df.to_csv("designed_variants_check.csv", index=False)
     missing_values = df.isnull().sum().sum()
     if missing_values > 0:
         logging.error(
             f"Found {missing_values} missing values in the designed variants dataframe"
-        )
-        return False
-
-    # Check for duplicate rows. We'll just warn and drop duplicates.
-    duplicate_rows = df.duplicated().sum()
-    if duplicate_rows > 0:
-        logging.warning(
-            f"Found {duplicate_rows} duplicate rows in the designed variants dataframe. Dropping duplicates."
-        )
-
-    # If there are duplicated names without identical positions, etc, something is non-trivially wrong.
-    duplicated_names = df.drop_duplicates()["name"].duplicated().sum()
-    if duplicated_names > 0:
-        logging.error(
-            f"Found {duplicated_names} duplicated variant names with non-identical values in the designed variants dataframe. Check for errors."
         )
         return False
 
@@ -515,22 +504,69 @@ variants_df["codon"] = variants_df["codon"].astype(str)
 variants_df["mutant"] = variants_df["mutant"].astype(str)
 variants_df["hgvs"] = variants_df["hgvs"].astype(str)
 
-logging.info(variants_df.head())
-logging.info(variants_df.dtypes)
 
 # Check for any issues in the designed variants
 if not check_designed_df(variants_df):
     logging.error("Error in designed variants. Check log for details.")
     raise Exception("Error in designed variants. Check log for details.")
 
+# Check for duplicate rows
+duplicate_rows = variants_df.duplicated().sum()
+
+logging.info(variants_df.nunique())
+logging.info(
+    f"Found {duplicate_rows} completely duplicate rows in the designed variants dataframe."
+)
+
+# Deduplicate identical rows
+if duplicate_rows > 0:
+    logging.warning(
+        f"Found {duplicate_rows} duplicate rows in the designed variants dataframe. Dropping duplicates."
+    )
+    variants_df = variants_df.drop_duplicates()
+
+# If there are duplicated names without identical positions, etc, something else might be wrong.
+duplicated_names = variants_df.drop_duplicates()["name"].duplicated().sum()
+if duplicated_names > 0:
+    logging.warning(
+        f"Found {duplicated_names} duplicated variant names in the designed variants dataframe. Attempting to deduplicate."
+    )
+
+    # Try to merge duplicates. If two rows have the same name but only differ in chunk values, we can combine and set the chunk to the first.
+    # In this case, the codon might also be different, if the variant was generated in two different chunks!
+    # We will keep the first chunk and codon, and drop the others.
+    variants_df = (
+        variants_df.groupby(
+            [
+                "count",
+                "pos",
+                "mutation_type",
+                "name",
+                "mutant",
+                "length",
+                "hgvs",
+            ],
+            as_index=False,
+        )
+        .agg({"chunk": "first", "codon": "first"})
+        .reset_index()
+    )
+
+    # Check again for duplicates
+    duplicated_names = variants_df["name"].duplicated().sum()
+    if duplicated_names > 0:
+        # If we still have duplicates, it means they are not trivially different.
+        variants_df.to_csv("duped.csv", index=False)
+        logging.error(
+            f"Found {duplicated_names} duplicated variant names with non-identical values in the designed variants dataframe. Check for errors."
+        )
+        raise Exception(
+            "Found duplicated variant names with non-identical values. Check for errors."
+        )
 
 # Write the variants to a file
 logging.info("Regenerated variants.")
 
-logging.info(f"{len(variants_df)} variants before deduplication.")
-logging.info(f"{len(variants_df.drop_duplicates())} variants after deduplication.")
-
-# Deduplicate before writing.
-variants_df.drop_duplicates().to_csv(variants_file, index=False)
+variants_df.to_csv(variants_file, index=False)
 
 logging.info(f"New designed variants file written to {variants_file}.")
