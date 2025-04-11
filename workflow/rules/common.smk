@@ -232,6 +232,7 @@ else:
 if config["enrich2"]:
     remove_zeros = config["remove_zeros"]
 else:
+    log.warn("Enrich2 will not be run, so zero counts will not be removed.")
     remove_zeros = False
 
 # Validate the configuration

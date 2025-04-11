@@ -2,6 +2,9 @@ import pandas as pd
 import logging
 from snakemake.script import snakemake
 
+from snakemake.script import snakemake
+
+
 # The hierarchy of the enrich2 config file elements is as follows:
 # experiment
 #   conditions

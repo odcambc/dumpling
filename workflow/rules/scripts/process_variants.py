@@ -2,11 +2,13 @@ from typing import Dict, List, Tuple, Any, Union
 import csv
 import pathlib
 import logging
+import Bio.Seq
 
 import pandas as pd
 import regex
 
-import Bio.Seq
+from snakemake.script import snakemake
+
 
 # Type aliases
 VariantDict = Dict[str, Union[int, str, bool]]

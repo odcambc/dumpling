@@ -10,9 +10,13 @@ test/
 .vscode/
 *.pyc
 
-*.fastq.gz
-*.fq.gz
-*.bam
+example/
+.mypt_cache/
+*.fasta.fai
+*.bam.bai
 *.sam
+*.bam
+*.fastq.gz
 *.dict
-*.fai
+*.fastq
+.Rproj.user

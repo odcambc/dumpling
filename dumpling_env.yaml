@@ -4,9 +4,9 @@ channels:
   - bioconda
   - nodefaults
 dependencies:
-  - r-base
   - python
   - snakemake>=8.0
+  - snakemake-wrapper-utils
   - pandas
   - biopython
   - fastqc

@@ -15,9 +15,11 @@ with a variety of experimental designs. Please note several current [limitations
 
 - [GATK-based Snakemake pipeline for deep mutational scanning experiments](#gatk-based-snakemake-pipeline-for-deep-mutational-scanning-experiments)
   - [Quick start](#quick-start)
+    - [Testing the pipeline with example data](#testing-the-pipeline-with-example-data)
   - [Installation](#installation)
     - [Install via GitHub](#install-via-github)
     - [Installing Rosace](#installing-rosace)
+      - [Issues installing Rosace on OSX](#issues-installing-rosace-on-osx)
     - [Dependencies](#dependencies)
       - [Via conda (recommended)](#via-conda-recommended)
       - [Manually](#manually)
@@ -48,8 +50,13 @@ conda activate dumpling_env
 Note that, on ARM-based Macs, the conda environment may fail to install due to required packages not being available for that platform.
 Assuming that [Rosetta](https://support.apple.com/en-us/102527) is installed, the environment can be installed using emulation with the following command:
 
+Installation for ARM-based Macs:
+
 ```bash
 CONDA_SUBDIR=osx-64 conda env create --file dumpling_env.yaml
+CONDA_SUBDIR=osx-64 conda env create --name enrich2 --file workflow/envs/enrich2.yaml
+
+conda env create --platform osx-64 --name enrich2_arm64
 ```
 
 You will also need to set the "samtools_local" variable in the config yaml to "true" to tell the pipeline to use this local version.
@@ -60,6 +67,15 @@ edit the configuration files in the `config` directory as needed. Then run the p
 ```bash
 snakemake -s workflow/Snakefile --software-deployment-method conda --cores 16
 ```
+
+### Testing the pipeline with example data
+
+To test the pipeline with example data and examine the output, you can
+use the file provided in the [dumpling-example](https://github.com/odcambc/dumpling-example) repository. This repository contains a small dataset and configuration files that can be used to test the pipeline. To use it,
+clone the repository and move the data directory into the dumpling directory, then create the environment and run the pipeline as above. The repository also
+includes output files from running the pipeline on the example data that can
+be used to compare results.
+
 ## Installation
 
 ### Install via GitHub
@@ -67,6 +83,7 @@ snakemake -s workflow/Snakefile --software-deployment-method conda --cores 16
 Download or fork this repository and edit the configuration files as needed.
 
 ### Installing Rosace
+
 This pipeline uses the [Rosace](https://github.com/pimentellab/rosace) scoring tool.
 Rosace uses [CmdStanR](https://mc-stan.org/cmdstanr/) and R to infer scores.
 
@@ -79,13 +96,22 @@ possible. This can be invoked by calling the `install_rosace` rule:
 This tries to install renv, restore the renv environment, and install Rosace and CmdStanR. If this fails,
 please try installing Rosace manually.
 
-We recommend installing Rosace manually before running the pipeline, or at least 
+We recommend installing Rosace manually before running the pipeline, or at least
 verifying that the install script works. More details about manually installing Rosace are
 available in the vignettes of the package and at the repository linked above.
+
+#### Issues installing Rosace on OSX
+
+Rosace requires a C++ and fortran compiler to install required dependencies.
+R, by default, requires these to be installed in `/opt/gfortran`. User installs (via Homebrew, for example)
+may not work. If you encounter an error compiling packages for Rosace, you may need to install the gfortran compiler from R.
+
+See https://cran.r-project.org/bin/macosx/tools/ for more details.
 
 ### Dependencies
 
 #### Via conda (recommended)
+
 The simplest way to handle dependencies is with [Conda](https://conda.io/docs/) and the provided environment file.
 
 ```bash
@@ -102,18 +128,19 @@ conda activate dumpling_env
 
 The following are the dependencies required to run the pipeline:
 
-* [Snakemake](https://snakemake.readthedocs.io/en/stable/)
-* [GATK](https://software.broadinstitute.org/gatk/)
-* [BBTools](https://jgi.doe.gov/data-and-tools/bbtools/)
-* [Samtools](http://www.htslib.org/)
-* [FastQC](https://www.bioinformatics.babraham.ac.uk/projects/fastqc/)
-* [MultiQC](http://multiqc.info/)
-* [Enrich2](https://enrich2.readthedocs.io/en/latest/)
-* [Rosace](https://github.com/pimentellab/rosace)
+- [Snakemake](https://snakemake.readthedocs.io/en/stable/)
+- [GATK](https://software.broadinstitute.org/gatk/)
+- [BBTools](https://jgi.doe.gov/data-and-tools/bbtools/)
+- [Samtools](http://www.htslib.org/)
+- [FastQC](https://www.bioinformatics.babraham.ac.uk/projects/fastqc/)
+- [MultiQC](http://multiqc.info/)
+- [Enrich2](https://enrich2.readthedocs.io/en/latest/)
+- [Rosace](https://github.com/pimentellab/rosace)
 
 ## Configuration
 
 ### Configuration files
+
 The details of an experiment need to be specified in a configuration file that defines
 parameters and an associated experiment file that details the experimental setup.
 
@@ -140,6 +167,7 @@ file and setting `regenerate_variants` to `True` in the config.
 ### Working directory structure
 
 The pipeline has the following directory structure:
+
 ```
 ├── workflow
 │   ├── rules
@@ -170,7 +198,9 @@ The pipeline has the following directory structure:
 │   └── ...
 
 ```
+
 ## Usage
+
 We normally use one instance of the pipeline for each experiment.
 This allows for simpler tracking and reproducibility of individual experiments: for
 a new dataset, fork the repo, edit the configuration files, and run the pipeline. This way,
@@ -185,32 +215,34 @@ Once the dependencies have been installed (whether via conda or otherwise) the p
 snakemake -s workflow/Snakefile --software-deployment-method conda --cores 8
 ```
 
-The maximum number of cores can be specified with the `--cores` flag. The `--software-deployment-method conda` flag 
+The maximum number of cores can be specified with the `--cores` flag. The `--software-deployment-method conda` flag
 tells Snakemake to use conda to create the environment specified within each rule.
 
 ### Output files
 
 The pipeline generates a variety of output files. These are organized into the following directories:
 
-* `benchmarks`: details of the runtime and process usage for each rule 
-* `logs`: log files from each rule
-* `results`: outputs from each rule (Note: many of these are intermediate files and are deleted by default).
-* `stats`: various processing statistics from each rule
-* `ref`: mapping target files generated by BBTools
+- `benchmarks`: details of the runtime and process usage for each rule
+- `logs`: log files from each rule
+- `results`: outputs from each rule (Note: many of these are intermediate files and are deleted by default).
+- `stats`: various processing statistics from each rule
+- `ref`: mapping target files generated by BBTools
 
 These are ignored by git by default.
 
 ### Analyzing results
+
 #### QC metrics
+
 A variety of stats from tool outputs are provided in the `stats` directory. These are
 aggregated using MultiQC. The aggregated reports contain:
-* FastQC reports for raw reads (read counts, base quality, adapter content, etc.)
-* BBTools reports
-  * BBDuk reports for adapter trimming and contamination removal
-  * BBMerge reports for merging paired-end reads
-  * BBMap reports for mapping reads to the reference
-* GATK AnalyzeSaturationMutagenesis reports for variant calling
-* Reports for variant filtering
+- FastQC reports for raw reads (read counts, base quality, adapter content, etc.)
+- BBTools reports
+  - BBDuk reports for adapter trimming and contamination removal
+  - BBMerge reports for merging paired-end reads
+  - BBMap reports for mapping reads to the reference
+- GATK AnalyzeSaturationMutagenesis reports for variant calling
+- Reports for variant filtering
 
 If a baseline condition is defined, a separate baseline report is also generated.
 
@@ -219,26 +251,27 @@ The files are saved as `stats/{experiment_name}_multiqc_report.html` and
 
 #### Data analysis
 
-A starting analysis and plotting workflow is available in an associated 
-repository: https://github.com/odcambc/dms_analysis_stub
+A starting analysis and plotting workflow is available in an associated
+repository: <https://github.com/odcambc/dms_analysis_stub>
 
 ## Limitations
 
 We aim to regularly update this pipeline and continually expand
 its functionality. However, there are currently several known limitations.
 
-* The pipeline is currently designed for short-read sequencing. It does not support long-read PacBio or Nanopore sequencing.
-* The pipeline is currently designed for direct sequencing. It does not support barcoded sequencing.
-* The pipeline is currently designed for single-site variants (including varying-length indels, however). It largely does not support combinatorial variants.
-* The designed variant generation step is currently optimized for DIMPLE libraries. Other protocols may require the user to generate the designed variants CSV themself.
-* Rosace is designed for growth-based experiments. It is not optimized for FACS-seq experiments.
-* This pipeline may not work properly if the data is in a cloud server (i.e., a Box drive) or other non-standard file system.
+- The pipeline is currently designed for short-read sequencing. It does not support long-read PacBio or Nanopore sequencing.
+- The pipeline is currently designed for direct sequencing. It does not support barcoded sequencing.
+- The pipeline is currently designed for single-site variants (including varying-length indels, however). It largely does not support combinatorial variants.
+- The designed variant generation step is currently optimized for DIMPLE libraries. Other protocols may require the user to generate the designed variants CSV themself.
+- Rosace is designed for growth-based experiments. It is not optimized for FACS-seq experiments.
+- This pipeline may not work properly if the data is in a cloud server (i.e., a Box drive) or other non-standard file system.
 
 ## Citations
+
 This workflow is described in the following publication:
 
-* Preprint: [Rao et al., 2023](https://www.biorxiv.org/content/10.1101/2023.10.24.562292v1)
-* Published: [Rao et al., 2024](https://doi.org/10.1186/s13059-024-03279-7)
+- Preprint: [Rao et al., 2023](https://www.biorxiv.org/content/10.1101/2023.10.24.562292v1)
+- Published: [Rao et al., 2024](https://doi.org/10.1186/s13059-024-03279-7)
 
 ## License
 
