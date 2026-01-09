@@ -7,5 +7,5 @@ dependencies:
   - r-nloptr
   - nlopt
   - libxml2
-  - cmake
+  - cmake <3.25
   - zlib

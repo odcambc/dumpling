@@ -5,6 +5,7 @@ channels:
 dependencies:
   - multiqc>=1.25
   - python=3
+  - numpy
   - pandas
   - pip
   - pip:

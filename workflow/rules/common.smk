@@ -1,4 +1,5 @@
 from pathlib import Path
+import logging
 
 
 def get_file_from_sample(wildcards):
@@ -232,7 +233,7 @@ else:
 if config["enrich2"]:
     remove_zeros = config["remove_zeros"]
 else:
-    log.warn("Enrich2 will not be run, so zero counts will not be removed.")
+    logging.warning("Enrich2 will not be run, so zero counts will not be removed.")
     remove_zeros = False
 
 # Validate the configuration
