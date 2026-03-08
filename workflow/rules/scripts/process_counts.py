@@ -52,7 +52,7 @@ designed_variant_header: list[str] = [
 ]
 
 
-def process_gatk_file(gatk_output_file, designed_df, ref_AA_sequence, noprocess):
+def process_gatk_file(gatk_output_file, designed_df, ref_AA_sequence, max_deletion_length, noprocess):
     """
     Process a GATK CSV file.
     * Read the GATK CSV file.
@@ -66,7 +66,7 @@ def process_gatk_file(gatk_output_file, designed_df, ref_AA_sequence, noprocess)
     # Process variants (returns multiple dataframes & stats)
     filtered_df, rejected_df, rejected_stats, accepted_stats, total_stats = (
         process_variants.process_variants_file(
-            gatk_data, designed_df, ref_AA_sequence, 9, noprocess
+            gatk_data, designed_df, ref_AA_sequence, max_deletion_length, noprocess
         )
     )
 
@@ -122,6 +122,7 @@ def process_experiment(
     oligo_file,
     variants_file,
     orf_range,
+    max_deletion_length,
     noprocess,
     gatk_dir,
     output_dir,
@@ -152,22 +153,9 @@ def process_experiment(
     ref_AA_sequence = ref_sequence[orf_start - 1 : orf_end].translate()
 
     # Read the designed variants file
-    with open(variants_file, "r") as f:
-        variants_reader = csv.reader(f, delimiter=",")
-        designed_variants_list = list(variants_reader)
-
     logging.info("Processing designed variants file")
-
-    designed_df = pd.DataFrame.from_records(
-        designed_variants_list[1:], columns=designed_variants_list[0]
-    ).convert_dtypes()
-    designed_df["pos"] = pd.to_numeric(designed_df["pos"])
-    designed_df["count"] = pd.to_numeric(designed_df["count"])
-
-    logging.info("Original length: %d", len(designed_df))
-
     designed_df = pd.read_csv(variants_file)
-    logging.info("New length: %d", len(designed_df))
+    logging.info("Designed variants length: %d", len(designed_df))
 
     # Process each sample in the experiment list
     for sample_name in sample_list:
@@ -177,7 +165,7 @@ def process_experiment(
         logging.debug("Reading GATK file: %s", gatk_output_file)
 
         filtered_df, rejected_df, rejected_stats, accepted_stats, total_stats = (
-            process_gatk_file(gatk_output_file, designed_df, ref_AA_sequence, noprocess)
+            process_gatk_file(gatk_output_file, designed_df, ref_AA_sequence, max_deletion_length, noprocess)
         )
         logging.debug("Finished processing GATK file")
 
@@ -261,6 +249,7 @@ def main():
     designed_variants_file = snakemake.config["variants_file"]
     gatk_dir = snakemake.params["gatk_dir"]
     noprocess = snakemake.config["noprocess"]
+    max_deletion_length = snakemake.config["max_deletion_length"]
     regenerate_variants = snakemake.config["regenerate_variants"]
     tiled = snakemake.config["tiled"]
 
@@ -326,6 +315,7 @@ def main():
                     oligo_file=oligo_file,
                     variants_file=designed_variants_file,
                     orf_range=orf_range,
+                    max_deletion_length=max_deletion_length,
                     noprocess=noprocess,
                     gatk_dir=gatk_dir,
                     output_dir=output_dir,

@@ -254,8 +254,7 @@ def process_insdel(
             name = variant
             mutation_type = "ID"
             mutation = "ID_" + str(insdel_length)
-
-    rejected = False
+            rejected = False
 
     variant_dict["count"] = count
     variant_dict["pos"] = int(codon.split(":")[0])
