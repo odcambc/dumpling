@@ -2,8 +2,6 @@ import pandas as pd
 import logging
 from snakemake.script import snakemake
 
-from snakemake.script import snakemake
-
 
 # The hierarchy of the enrich2 config file elements is as follows:
 # experiment
@@ -121,7 +119,7 @@ def remove_missing_t0(experiments, conditions, tiled):
                     if tile is None or not (tiled and has_tile_column):
                         experiments = experiments.loc[
                             (experiments["condition"] != condition)
-                            or (experiments["replicate"] != replicate)
+                            | (experiments["replicate"] != replicate)
                         ]
                     else:
                         experiments = experiments.loc[
@@ -263,7 +261,7 @@ def main():
     if snakemake.params["remove_zeros"]:
         tsv_path = f"results/{experiment_name}/processed_counts/removed_zeros/"
     else:
-        tsv_path = f"results/{experiment_name}/processed_counts/"
+        tsv_path = f"results/{experiment_name}/processed_counts/enrich_format/"
 
     baseline_condition = snakemake.config["baseline_condition"]
     output_directory = f"results/{experiment_name}/enrich/"
@@ -277,7 +275,6 @@ def main():
     )
 
     # List of condition names, ignoring baseline condition if present
-    global conditions
     conditions = experiments["condition"].unique().tolist()
     if baseline_condition:
         try:

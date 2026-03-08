@@ -95,25 +95,6 @@ def write_counts_output(counts_file, counts):
             f.write(f"{mutation}\t{counts.get(mutation, 0)}\n")
 
 
-def write_sample_output(
-    enrich_file,
-    filtered_df,
-    rejected_df,
-    noprocess,
-    rejected_stats,
-    accepted_stats,
-    total_stats,
-):
-    """
-    Write sample output files.
-    - Processed counts
-    - Rejected counts
-    - Enrich2-readable file
-    - Stats files
-    """
-    pass
-
-
 def process_experiment(
     sample_list,
     experiment_name,
@@ -173,15 +154,6 @@ def process_experiment(
         enrich_file = os.path.join(output_dir, "enrich_format", f"{sample_name}.tsv")
         logging.debug(f"Writing Enrich2 file: {enrich_file}")
 
-        write_sample_output(
-            enrich_file,
-            filtered_df,
-            rejected_df,
-            noprocess,
-            rejected_stats,
-            accepted_stats,
-            total_stats,
-        )
         process_variants.write_enrich_df(enrich_file, filtered_df, noprocess)
 
         # 5d. Write processed file to CSV
