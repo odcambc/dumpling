@@ -15,6 +15,8 @@ rule run_rosace:
     log:
         "logs/{experiment_name}/rosace/{experiment_name}.rosace.log",
     threads: 4
+    resources:
+        mem_mb=config["mem_rosace"],
     conda:
         "../envs/rosace.yaml" if not config["rosace_local"] else None
     script:

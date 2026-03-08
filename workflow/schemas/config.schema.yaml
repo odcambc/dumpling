@@ -72,6 +72,10 @@ properties:
     type: integer
     default: 1024
     description: memory for bbtools (in Mb)
+  mem_rosace:
+    type: integer
+    default: 16000
+    description: memory for Rosace (in Mb)
   enrich2:
     type: boolean
     default: false

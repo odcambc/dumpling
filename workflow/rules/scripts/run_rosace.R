@@ -172,6 +172,13 @@ build_counts_for_replicate <- function(df_subset, experiment_name) {
       )
       this_count <- read_tsv(file_name)
 
+      if (anyDuplicated(this_count$hgvs) > 0) {
+        stop(sprintf(
+          "Duplicate HGVS entries found in %s. Each variant must appear at most once per sample.",
+          file_name
+        ))
+      }
+
       col_name <- paste0("c_", expt_time)
 
       # Join into the main counts tibble

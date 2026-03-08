@@ -52,7 +52,15 @@ if (snakemake@config[["rosace_local"]]) {
 
 
   # Check toolchain before intstalling cmdstan
-  check_cmdstan_toolchain()
+  tryCatch(
+    check_cmdstan_toolchain(),
+    error = function(e) {
+      stop(paste(
+        "CmdStan toolchain check failed. Ensure a C++ compiler (gcc/clang) and",
+        "cmake <3.25 are available in the conda environment.\nOriginal error:", conditionMessage(e)
+      ))
+    }
+  )
 
   # Install cmdstan, catch warning if already installed
   tryCatch(

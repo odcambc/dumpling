@@ -7,5 +7,7 @@ dependencies:
   - r-nloptr
   - nlopt
   - libxml2
+  # cmake must be <3.25: CmdStan's build system uses cmake_minimum_required()
+  # with policies incompatible with the 3.25+ behavior change (CMP0135).
   - cmake <3.25
   - zlib
