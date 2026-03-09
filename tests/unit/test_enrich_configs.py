@@ -64,9 +64,9 @@ def test_generate_config_tiled():
     )
 
     assert config[0] == "{"
-    assert '"name": "A_tile1"' in config
-    assert f'"counts file": "{tsv_path}s1.tsv"' in config
-    assert f'"output directory": "{output_directory}"' in config
+    assert any('"name": "A_tile1"' in line for line in config)
+    assert any(f'"counts file": "{tsv_path}s1.tsv"' in line for line in config)
+    assert any(f'"output directory": "{output_directory}"' in line for line in config)
 
 
 def test_generate_config_untiled():
@@ -93,6 +93,6 @@ def test_generate_config_untiled():
     )
 
     assert config[0] == "{"
-    assert '"name": "A"' in config
-    assert f'"counts file": "{tsv_path}s1.tsv"' in config
-    assert f'"output directory": "{output_directory}"' in config
+    assert any('"name": "A"' in line for line in config)
+    assert any(f'"counts file": "{tsv_path}s1.tsv"' in line for line in config)
+    assert any(f'"output directory": "{output_directory}"' in line for line in config)

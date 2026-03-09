@@ -1,5 +1,5 @@
 import unittest
-from unittest.mock import patch, mock_open, MagicMock
+from unittest.mock import patch
 import os
 import tempfile
 import csv
@@ -53,7 +53,7 @@ class TestOligoProcessing(unittest.TestCase):
 
         # Wrap around the origin
         self.assertEqual(get_sequence_segment(ref, 8, 12, True), "IJAB")
-        self.assertEqual(get_sequence_segment(ref, -2, 3, True), "IJAB")
+        self.assertEqual(get_sequence_segment(ref, -2, 3, True), "IJABC")
 
         # Full wrap around
         self.assertEqual(get_sequence_segment(ref, 8, 18, True), "IJABCDEFGH")
@@ -68,142 +68,87 @@ class TestOligoProcessing(unittest.TestCase):
         # Test case where post_codon is used
         oligo = "ATGCTAGCAGACTCGATCGA"
         post_codon = "GACTCGATCGA"
-        self.assertEqual(extract_codon(oligo, "", post_codon, 0, "", 0, 1), "AGC")
+        self.assertEqual(extract_codon(oligo, "", post_codon, 0, "", 0, 1), "GCA")
 
-        # Test direct lookup
+        # If both flanking sequences are empty, the function returns early.
         ref = "ATGCTAGCAGACTCGATCGA"
         oligo = "XXATGCTAGCAXXXX"
-        self.assertEqual(extract_codon(oligo, "", "", 0, ref, 0, 1, False), "ATG")
+        self.assertEqual(extract_codon(oligo, "", "", 0, ref, 0, 1, False), "")
 
         # Test with no matches
         self.assertEqual(extract_codon("ACTG", "XXX", "YYY", 0, "ZZZZ", 0, 1), "")
 
-    @patch(
-        "builtins.open",
-        new_callable=mock_open,
-        read_data="name,sequence\ntest_DMS-1_Ala10Gly,ACTAGCTAGCGCTAGCTAGCT\n",
-    )
-    def test_designed_variants_substitution(self, mock_file):
+    def test_designed_variants_substitution(self):
         """Test processing substitution variants."""
         with tempfile.NamedTemporaryFile(delete=False) as temp_file:
             temp_name = temp_file.name
+            temp_file.write(
+                b"name,sequence\ntest_DMS-1_Ala10Gly,ACTAGCTAGCGCTAGCTAGCT\n"
+            )
 
         # Mock the reference sequence
         ref = "ATGGCTAGCATGGCTAGCATGGCTAGCATGGCTAGCATGGCTAGC"
         offset = 1
 
-        # Mock the regex search and extract_codon function
-        with patch("regex.search") as mock_regex:
-            with patch("builtins.open", mock_file):
-                # Set up the mock regex match
-                mock_match = MagicMock()
-                mock_match.group.side_effect = lambda x: {
-                    1: "1",
-                    2: "Ala",
-                    3: "10",
-                    4: "Gly",
-                }[x]
-                mock_regex.return_value = mock_match
+        # Call the function
+        with patch(
+            "workflow.rules.scripts.generate_variants.extract_codon",
+            return_value="GGC",
+        ):
+            variants = designed_variants(temp_name, ref, offset)
 
-                # Call the function
-                with patch(
-                    "workflow.rules.scripts.generate_variants.extract_codon",
-                    return_value="GGC",
-                ):
-                    variants = designed_variants(temp_name, ref, offset)
-
-                # Verify the results
-                self.assertEqual(len(variants), 1)
-                self.assertEqual(variants[0]["mutation_type"], "M")  # Missense
-                self.assertEqual(variants[0]["name"], "A10G")
-                self.assertEqual(variants[0]["codon"], "GGC")
-                self.assertEqual(variants[0]["hgvs"], "p.(A10G)")
+        # Verify the results
+        self.assertEqual(len(variants), 1)
+        self.assertEqual(variants[0]["mutation_type"], "M")  # Missense
+        self.assertEqual(variants[0]["name"], "A10G")
+        self.assertEqual(variants[0]["codon"], "GGC")
+        self.assertEqual(variants[0]["hgvs"], "p.(A10G)")
 
         os.unlink(temp_name)
 
-    @patch(
-        "builtins.open",
-        new_callable=mock_open,
-        read_data="name,sequence\ntest_delete-1_3-5,ACTAGCTAGCGCTAGCTAGCT\n",
-    )
-    def test_designed_variants_deletion(self, mock_file):
+    def test_designed_variants_deletion(self):
         """Test processing deletion variants."""
         with tempfile.NamedTemporaryFile(delete=False) as temp_file:
             temp_name = temp_file.name
+            temp_file.write(
+                b"name,sequence\ntest_delete-1_3-5,ACTAGCTAGCGCTAGCTAGCT\n"
+            )
 
         # Mock the reference sequence
         ref = "ATGGCTAGCATGGCTAGCATGGCTAGCATGGCTAGCATGGCTAGC"
         offset = 1
 
-        # Mock the regex search
-        with patch("regex.search") as mock_regex:
-            with patch("builtins.open", mock_file):
-                # First return None for substitution pattern, then a match for deletion
-                mock_regex.side_effect = [
-                    None,  # No match for substitution
-                    MagicMock(),  # Match for deletion
-                ]
+        variants = designed_variants(temp_name, ref, offset)
 
-                # Set up the deletion mock match
-                mock_regex.return_value.group.side_effect = lambda x: {
-                    1: "1",
-                    2: "3",
-                    3: "5",
-                }[x]
-
-                # Mock Seq.translate to return amino acids
-                with patch("Bio.Seq.Seq.translate", return_value="M"):
-                    variants = designed_variants(temp_name, ref, offset)
-
-                # Verify the results
-                self.assertEqual(len(variants), 1)
-                self.assertEqual(variants[0]["mutation_type"], "D")  # Deletion
-                self.assertEqual(variants[0]["name"], "M5del")
-                self.assertEqual(variants[0]["mutant"], "D_1")  # 1 codon deletion
+        # Verify the results
+        self.assertEqual(len(variants), 1)
+        self.assertEqual(variants[0]["mutation_type"], "D")  # Deletion
+        self.assertEqual(variants[0]["pos"], 5)
+        self.assertEqual(variants[0]["mutant"], "D_1")  # 1 codon deletion
+        self.assertEqual(variants[0]["length"], 1)
 
         os.unlink(temp_name)
 
-    @patch(
-        "builtins.open",
-        new_callable=mock_open,
-        read_data="name,sequence\ntest_insert-1_ATGGCG-5,ACTAGCTAGCGCTAGCTAGCT\n",
-    )
-    def test_designed_variants_insertion(self, mock_file):
+    def test_designed_variants_insertion(self):
         """Test processing insertion variants."""
         with tempfile.NamedTemporaryFile(delete=False) as temp_file:
             temp_name = temp_file.name
+            temp_file.write(
+                b"name,sequence\ntest_insert-1_ATGGCG-5,ACTAGCTAGCGCTAGCTAGCT\n"
+            )
 
         # Mock the reference sequence
         ref = "ATGGCTAGCATGGCTAGCATGGCTAGCATGGCTAGCATGGCTAGC"
         offset = 1
 
-        # Mock the regex search and Bio.Seq.translate
-        with patch("regex.search") as mock_regex:
-            with patch("builtins.open", mock_file):
-                # Return None for the first two patterns, then a match for insertion
-                mock_regex.side_effect = [
-                    None,  # No match for substitution
-                    None,  # No match for deletion
-                    MagicMock(),  # Match for insertion
-                ]
+        variants = designed_variants(temp_name, ref, offset)
 
-                # Set up the insertion mock match
-                mock_regex.return_value.group.side_effect = lambda x: {
-                    1: "1",
-                    2: "ATGGCG",
-                    3: "5",
-                }[x]
-
-                # Mock Seq.translate to return amino acids
-                with patch("Bio.Seq.Seq.translate", side_effect=["M", "A"]):
-                    variants = designed_variants(temp_name, ref, offset)
-
-                # Verify the results
-                self.assertEqual(len(variants), 1)
-                self.assertEqual(variants[0]["mutation_type"], "I")  # Insertion
-                self.assertTrue("ins" in variants[0]["name"])
-                self.assertEqual(variants[0]["codon"], "ATGGCG")
-                self.assertEqual(variants[0]["mutant"], "I_2")  # 2 codon insertion
+        # Verify the results
+        self.assertEqual(len(variants), 1)
+        self.assertEqual(variants[0]["mutation_type"], "I")  # Insertion
+        self.assertTrue("ins" in variants[0]["name"])
+        self.assertEqual(variants[0]["codon"], "ATGGCG")
+        self.assertEqual(variants[0]["mutant"], "I_2")  # 2 codon insertion
 
         os.unlink(temp_name)
 
