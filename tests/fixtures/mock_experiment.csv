@@ -1,0 +1,13 @@
+sample,condition,replicate,time,tile,file
+sample_A_R1_T0,cond_A,1,0,1,mock_reads
+sample_A_R1_T1,cond_A,1,1,1,mock_reads
+sample_A_R1_T2,cond_A,1,2,1,mock_reads
+sample_A_R2_T0,cond_A,2,0,1,mock_reads
+sample_A_R2_T1,cond_A,2,1,1,mock_reads
+sample_A_R2_T2,cond_A,2,2,1,mock_reads
+sample_B_R1_T0,baseline,1,0,1,mock_reads
+sample_B_R1_T1,baseline,1,1,1,mock_reads
+sample_B_R1_T2,baseline,1,2,1,mock_reads
+sample_B_R2_T0,baseline,2,0,1,mock_reads
+sample_B_R2_T1,baseline,2,1,1,mock_reads
+sample_B_R2_T2,baseline,2,2,1,mock_reads

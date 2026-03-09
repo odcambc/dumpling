@@ -1,0 +1,39 @@
+# Mock configuration for testing
+# This configuration uses minimal test fixtures
+
+experiment: 'mock_experiment'
+data_dir: 'tests/fixtures'
+ref_dir: 'tests/fixtures'
+experiment_file: 'tests/fixtures/mock_experiment.csv'
+
+# Reference and variants
+reference: 'mock_reference.fasta'
+variants_file: 'tests/fixtures/mock_variants.csv'
+oligo_file: 'tests/fixtures/mock_oligos.csv'
+orf: "1-300"
+
+# Analysis flags
+enrich2: true
+noprocess: false
+run_qc: false
+baseline_condition: 'baseline'
+remove_zeros: true
+regenerate_variants: false
+
+# Tool parameters
+kmers: 15
+sam: "1.3"
+mem: 4
+min_q: 30
+min_variant_obs: 3
+max_deletion_length: 3
+
+# Environment flags
+samtools_local: false
+rosace_local: false
+
+# Resources (minimal for testing)
+adapters: 'resources/adapters.fa'
+contaminants:
+  - 'resources/sequencing_artifacts.fa.gz'
+  - 'resources/phix174_ill.ref.fa.gz'
