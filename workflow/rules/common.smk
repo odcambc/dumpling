@@ -158,8 +158,25 @@ def validate_config(config):
     if not reference_file.exists():
         raise FileNotFoundError(f"Reference file {config['reference']} does not exist")
 
-    if not Path(config["adapters"]).exists():
-        raise FileNotFoundError(f"Adapters file {config['adapters']} does not exist")
+    # Check if adapters is a list or a string, then check if each file exists
+    adapter_paths = (
+        config["adapters"]
+        if isinstance(config["adapters"], list)
+        else [config["adapters"]]
+    )
+    for adapter in adapter_paths:
+        if not Path(adapter).exists():
+            raise FileNotFoundError(f"Adapters file {adapter} does not exist")
+
+    # Check if contaminants is a list or a string, then check if each file exists
+    contaminants_paths = (
+        config["contaminants"]
+        if isinstance(config["contaminants"], list)
+        else [config["contaminants"]]
+    )
+    for contaminant in contaminants_paths:
+        if not Path(contaminant).exists():
+            raise FileNotFoundError(f"Contaminants file {contaminant} does not exist")
 
     # Check for mode with variant filtering
     if not noprocess:
