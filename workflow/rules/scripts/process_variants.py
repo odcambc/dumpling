@@ -671,7 +671,7 @@ def write_enrich_df(
 
     with p.open("w+") as f:
         variant_df.to_csv(f, columns=["hgvs", "count"], index=False, sep="\t")
-        if wt_summed:
+        if wt_summed is not None:
             f.write("_wt\t" + str(wt_summed))
 
     return
