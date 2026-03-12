@@ -1,7 +1,5 @@
-import pandas as pd
 import logging
-from snakemake.script import snakemake
-
+import pandas as pd
 from snakemake.script import snakemake
 
 
