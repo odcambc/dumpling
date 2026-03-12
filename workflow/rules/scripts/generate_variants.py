@@ -425,25 +425,6 @@ def check_designed_df(df) -> bool:
     return True
 
 
-def write_designed_csv(file, header, variant_list):
-    """
-    Write variants to a CSV file.
-
-    Args:
-        file (str): Output file path
-        header (list): Column headers
-        variant_list (list): List of variant dicts
-    """
-    p = pathlib.Path(file)
-    p.parent.mkdir(parents=True, exist_ok=True)
-
-    with p.open("w+") as f:
-        csvwriter = csv.writer(f, delimiter=",")
-        csvwriter.writerow(header)
-        for row in variant_list:
-            csvwriter.writerow(row)
-
-
 # Main execution
 
 orf_range = snakemake.config[
