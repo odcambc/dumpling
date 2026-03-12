@@ -83,7 +83,7 @@ def get_enrich2_input(wildcards):
         )
     else:
         return expand(
-            "results/{{experiment_name}}/processed_counts/{samples}.tsv",
+            "results/{{experiment_name}}/processed_counts/enrich_format/{samples}.tsv",
             samples=samples,
         )
 
