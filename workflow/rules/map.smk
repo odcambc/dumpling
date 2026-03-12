@@ -1,7 +1,7 @@
 rule map_to_reference_bbmap:
     """Map reads to reference sequence using BBMap. covhist output is currently disabled as it causes MultiQC bloat."""
     input:
-        "ref/genome/1/chr1.chrom.gz",
+        index_dir=f"ref/bbmap/{experiment}",
         R1_ec="results/{experiment}/{sample_prefix}_R1.ec.clean.trim.fastq.gz",
         R2_ec="results/{experiment}/{sample_prefix}_R2.ec.clean.trim.fastq.gz",
     output:
@@ -14,8 +14,6 @@ rule map_to_reference_bbmap:
         mhist="stats/{experiment}/{sample_prefix}_map.mhist",
         idhist="stats/{experiment}/{sample_prefix}_map.idhist",
     params:
-        ref=config["reference"],
-        ref_dir=config["ref_dir"],
         sam=config["sam"],
         kmers=config["kmers"],
         mem=config["mem"],
@@ -25,12 +23,17 @@ rule map_to_reference_bbmap:
         "logs/{experiment}/bbmap/{sample_prefix}.bbmap_map.log",
     threads: 16
     shell:
+        "[ -f {input.index_dir}/ref/genome/1/summary.txt ] "
+        "|| (echo 'BBMap index missing summary file: {input.index_dir}/ref/genome/1/summary.txt' >&2; exit 1); "
+        "[ -f {input.index_dir}/ref/genome/1/chr1.chrom.gz ] "
+        "|| (echo 'BBMap index missing chrom file: {input.index_dir}/ref/genome/1/chr1.chrom.gz' >&2; exit 1); "
         "bbmap.sh "
         "-Xmx{params.mem}g "
         "in1={input.R1_ec} "
         "in2={input.R2_ec} "
         "sam={params.sam} 32bit=t "
-        "ref={params.ref_dir}/{params.ref} "
+        "path={input.index_dir} "
+        "build=1 "
         "outm={output.mapped} "
         "k={params.kmers} "
         "t={threads} "

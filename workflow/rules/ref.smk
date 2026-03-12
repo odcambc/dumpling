@@ -53,10 +53,10 @@ rule prepare_bbmap_index:
             reference=config["reference"],
         ),
     output:
-        temp("ref/genome/1/chr1.chrom.gz"),
-        temp("ref/genome/1/summary.txt"),
+        index_dir=temp(directory(f"ref/bbmap/{experiment}")),
     params:
         mem=config["mem"],
+        kmers=config["kmers"],
     threads: 16
     log:
         expand(
@@ -65,6 +65,14 @@ rule prepare_bbmap_index:
             reference=config["reference"],
         ),
     shell:
+        "rm -rf {output.index_dir} "
+        "&& mkdir -p {output.index_dir} "
+        "&& "
         "bbmap.sh "
         "-Xmx{params.mem}g "
-        "ref={input}"
+        "ref={input} "
+        "path={output.index_dir} "
+        "build=1 "
+        "k={params.kmers} "
+        "rebuild=t "
+        "2> {log}"
