@@ -20,3 +20,10 @@ example/
 *.dict
 *.fastq
 .Rproj.user
+.venv*/
+reports/full_e2e/latest.json
+
+.cache/
+.mypy_cache/
+.pytest_cache/
+__pycache__/
