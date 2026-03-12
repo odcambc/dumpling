@@ -28,17 +28,19 @@ experiments = (
 
 enrich2_config = ["{", '\t"conditions": [']
 
-conditions = experiments["condition"].unique()
+
+conditions = [c for c in experiments["condition"].unique()]
 replicates = experiments["replicate"].unique()
 
 # Do not generate scores for the baseline condition, if it exists.
+# But it should exist if you say it does....
 if baseline_condition:
-    try:
-        conditions = conditions.remove(baseline_condition)
-    except ValueError:
+    if baseline_condition not in conditions:
         logging.warning(
             "Baseline condition %s not found in experiment file.", baseline_condition
         )
+    else:
+        conditions.remove(baseline_condition)
 
 for condition in conditions:
     # open condition
