@@ -16,10 +16,11 @@ init_logging <- function() {
   return(invisible(con))
 }
 
-stop_logging <- function() {
+stop_logging <- function(con) {
   # Close the sink connections so logs are properly flushed
   sink(type = "message")
   sink(type = "output")
+  close(con)
 }
 
 
@@ -414,12 +415,15 @@ main <- function() {
     baseline_condition,
     noprocess
   )
-
-  # Clean up
-  stop_logging()
 }
 
 con <- init_logging()
+on.exit(
+  {
+    stop_logging(con)
+  },
+  add = TRUE
+)
 
 # Enable renv if not using user-manged rosace
 
