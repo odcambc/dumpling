@@ -16,23 +16,32 @@ suppressPackageStartupMessages({
   library(readr)
 })
 
-# Source the functions we want to test
-# Note: We extract just the pure functions from run_rosace.R to avoid
-# snakemake dependency during testing
-
-# Get the repository root
-repo_root <- normalizePath(file.path(dirname(sys.frame(1)$ofile), "../.."))
-scripts_dir <- file.path(repo_root, "workflow/rules/scripts")
+# Determine the directory of this script robustly
+# commandArgs() works with Rscript; sys.frame(1)$ofile works with source()
+this_script <- tryCatch(
+  normalizePath(sys.frame(1)$ofile),
+  error = function(e) {
+    args <- commandArgs(trailingOnly = FALSE)
+    file_arg <- grep("^--file=", args, value = TRUE)
+    if (length(file_arg) > 0) {
+      normalizePath(sub("^--file=", "", file_arg[1]))
+    } else {
+      # Fallback: assume running from repo root
+      normalizePath("tests/r/testthat.R")
+    }
+  }
+)
+this_dir <- dirname(this_script)
 
 # Source helper functions that define the functions we want to test
-source(file.path(dirname(sys.frame(1)$ofile), "testthat/helper-functions.R"))
+source(file.path(this_dir, "testthat/helper-functions.R"))
 
 # Run all tests
 cat("Running R unit tests for Dumpling pipeline...\n")
 cat("==============================================\n\n")
 
 test_results <- test_dir(
-  file.path(dirname(sys.frame(1)$ofile), "testthat"),
+  file.path(this_dir, "testthat"),
   reporter = "summary"
 )
 
