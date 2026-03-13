@@ -228,7 +228,7 @@ def process_insdel(
         rejected = False
         pos = start_pos + insertion_length
         mutation_type = "D"
-        mutation = "D_" + str(insertion_length)
+        mutation = "D_" + str(insdel_length)
 
         if insdel_length == 1:
             name = end_aa + str(pos) + "del"
@@ -257,7 +257,7 @@ def process_insdel(
             rejected = False
 
     variant_dict["count"] = count
-    variant_dict["pos"] = int(codon.split(":")[0])
+    variant_dict["pos"] = pos
     variant_dict["mutation_type"] = mutation_type
     variant_dict["name"] = name
     variant_dict["codon"] = ""
