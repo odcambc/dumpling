@@ -26,6 +26,24 @@ test_that("parse_stripped_hgvs handles synonymous at different positions", {
   expect_equal(result["WT"], c(WT = "M"))
 })
 
+test_that("parse_stripped_hgvs handles GATK/dimple synonymous variants (X1X)", {
+  result <- parse_stripped_hgvs("A1A")
+
+  expect_equal(result["variant"], c(variant = "S"))
+  expect_equal(result["pos"], c(pos = "1"))
+  expect_equal(result["mutation_type"], c(mutation_type = "synonymous"))
+  expect_equal(result["WT"], c(WT = "A"))
+})
+
+test_that("parse_stripped_hgvs handles GATK/dimple synonymous at different positions", {
+  result <- parse_stripped_hgvs("M154M")
+
+  expect_equal(result["variant"], c(variant = "S"))
+  expect_equal(result["pos"], c(pos = "154"))
+  expect_equal(result["mutation_type"], c(mutation_type = "synonymous"))
+  expect_equal(result["WT"], c(WT = "M"))
+})
+
 test_that("parse_stripped_hgvs handles missense variants (X1Y)", {
   result <- parse_stripped_hgvs("A1G")
 
@@ -100,7 +118,7 @@ test_that("parse_stripped_hgvs handles WT case", {
 
   expect_equal(result["variant"], c(variant = "WT"))
   expect_equal(result["pos"], c(pos = "0"))
-  expect_equal(result["mutation_type"], c(mutation_type = "WT"))
+  expect_equal(result["mutation_type"], c(mutation_type = "X"))
 })
 
 # =============================================================================
@@ -109,13 +127,16 @@ test_that("parse_stripped_hgvs handles WT case", {
 
 test_that("parse_stripped_hgvs extracts WT amino acid correctly", {
   # Test various amino acids
-  amino_acids <- c("A", "C", "D", "E", "F", "G", "H", "I", "K", "L",
-                   "M", "N", "P", "Q", "R", "S", "T", "V", "W", "Y")
+  amino_acids <- c(
+    "A", "C", "D", "E", "F", "G", "H", "I", "K", "L",
+    "M", "N", "P", "Q", "R", "S", "T", "V", "W", "Y"
+  )
 
   for (aa in amino_acids) {
     result <- parse_stripped_hgvs(paste0(aa, "1="))
     expect_equal(result["WT"], c(WT = aa),
-                 info = paste("Failed for amino acid:", aa))
+      info = paste("Failed for amino acid:", aa)
+    )
   }
 })
 

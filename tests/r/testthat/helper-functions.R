@@ -12,10 +12,10 @@ library(readr)
 #' @return Named vector with: variant, pos, len, mutation_type, WT
 #'
 #' @examples
-#' parse_stripped_hgvs("A1=")      # Synonymous
-#' parse_stripped_hgvs("A1B")      # Missense
-#' parse_stripped_hgvs("A1*")      # Nonsense
-#' parse_stripped_hgvs("A1del")    # Single deletion
+#' parse_stripped_hgvs("A1=") # Synonymous
+#' parse_stripped_hgvs("A1B") # Missense
+#' parse_stripped_hgvs("A1*") # Nonsense
+#' parse_stripped_hgvs("A1del") # Single deletion
 #' parse_stripped_hgvs("A1_A3del") # Multi deletion
 #' parse_stripped_hgvs("A1_A2insGGG") # Insertion
 parse_stripped_hgvs <- function(hgvs_string) {
@@ -32,9 +32,11 @@ parse_stripped_hgvs <- function(hgvs_string) {
     variant <- "WT"
     pos <- 0
     len <- 0
-    mutation_type <- "WT"
-    return(c(variant = variant, pos = as.character(pos), len = as.character(len),
-             mutation_type = mutation_type, WT = WT))
+    mutation_type <- "X"
+    return(c(
+      variant = variant, pos = as.character(pos), len = as.character(len),
+      mutation_type = mutation_type, WT = WT
+    ))
   }
 
   # S (synonymous) - format: X1=
@@ -49,15 +51,21 @@ parse_stripped_hgvs <- function(hgvs_string) {
     }
   }
 
-  # M (missense) - format: X1Y
+  # M (missense) or S (synonymous via GATK/dimple format: X1X where letters match)
   if (str_detect(hgvs_string, "^[A-Z][0-9]+[A-Z]$")) {
-    mutation_type <- "missense"
     match <- str_match(hgvs_string, "([A-Z])([0-9]+)([A-Z])")
     if (!is.na(match[1])) {
       WT <- match[2]
       pos <- match[3]
       len <- 1
-      variant <- match[4]
+      if (match[2] == match[4]) {
+        # Same amino acid = synonymous (GATK/dimple notation, e.g. A10A)
+        mutation_type <- "synonymous"
+        variant <- "S"
+      } else {
+        mutation_type <- "missense"
+        variant <- match[4]
+      }
     }
   }
 
@@ -110,8 +118,10 @@ parse_stripped_hgvs <- function(hgvs_string) {
     }
   }
 
-  return(c(variant = variant, pos = as.character(pos), len = as.character(len),
-           mutation_type = mutation_type, WT = WT))
+  return(c(
+    variant = variant, pos = as.character(pos), len = as.character(len),
+    mutation_type = mutation_type, WT = WT
+  ))
 }
 
 

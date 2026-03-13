@@ -48,58 +48,100 @@ parse_stripped_hgvs <- function(hgvs_string) {
   WT <- substr(hgvs_string, 1, 1)
 
   # WT case, as in enrich2 format
-  if (str_detect(hgvs_string, "_wt")) {
-    variant <- "Z"
-    pos <- -1
-    len <- -1
+  if (hgvs_string == "_wt") {
+    variant <- "WT"
+    pos <- 0
+    len <- 0
     mutation_type <- "X"
+    return(c(
+      variant = variant, pos = as.character(pos), len = as.character(len),
+      mutation_type = mutation_type, WT = WT
+    ))
   }
 
-  # M/S/N
-  if (str_detect(hgvs_string, "[A-Z][0-9]+[A-Z]+")) {
-    len <- 1
-    match <- str_match(hgvs_string, "([A-Z])([0-9]+)([A-Z]+)")
-    pos <- match[3]
-    if (match[2] == match[4]) {
-      mutation_type <- "synonymous"
-      variant <- match[4]
-    } else if (match[4] == "X") {
-      mutation_type <- "nonsense"
-      variant <- match[4]
-    } else {
-      mutation_type <- "missense"
-      variant <- match[4]
+  # S (synonymous) - format: X1=
+  if (str_detect(hgvs_string, ".*=$")) {
+    mutation_type <- "synonymous"
+    match <- str_match(hgvs_string, "([A-Z])([0-9]+)=")
+    if (!is.na(match[1])) {
+      WT <- match[2]
+      pos <- match[3]
+      len <- 1
+      variant <- "S"
+    }
+  }
+
+  # M (missense) or S (synonymous via GATK/dimple format: X1X where letters match)
+  if (str_detect(hgvs_string, "^[A-Z][0-9]+[A-Z]$")) {
+    match <- str_match(hgvs_string, "([A-Z])([0-9]+)([A-Z])")
+    if (!is.na(match[1])) {
+      WT <- match[2]
+      pos <- match[3]
+      len <- 1
+      if (match[2] == match[4]) {
+        # Same amino acid = synonymous (GATK/dimple notation, e.g. A10A)
+        mutation_type <- "synonymous"
+        variant <- "S"
+      } else {
+        mutation_type <- "missense"
+        variant <- match[4]
+      }
+    }
+  }
+
+  # N (nonsense) - format: X1*
+  if (str_detect(hgvs_string, ".*\\*$")) {
+    mutation_type <- "nonsense"
+    match <- str_match(hgvs_string, "([A-Z])([0-9]+)\\*")
+    if (!is.na(match[1])) {
+      WT <- match[2]
+      pos <- match[3]
+      len <- 1
+      variant <- "X"
     }
   }
 
   # D (deletions)
-  if (str_detect(hgvs_string, ".*del")) {
+  if (str_detect(hgvs_string, ".*del$")) {
     mutation_type <- "deletion"
     if (str_detect(hgvs_string, "[A-Z][0-9]+_[A-Z][0-9]+del")) {
-      # e.g. D_2, D_3
-      match <- str_match(hgvs_string, "[A-Z]([0-9]+)_[A-Z]([0-9]+)del")
-      pos <- match[2]
-      len <- as.integer(match[3]) - as.integer(match[2]) + 1
-      variant <- paste0("D_", as.character(len))
+      # Multi-codon deletion: e.g., A1_A3del
+      match <- str_match(hgvs_string, "([A-Z])([0-9]+)_[A-Z]([0-9]+)del")
+      if (!is.na(match[1])) {
+        WT <- match[2]
+        pos <- match[3]
+        len <- as.integer(match[4]) - as.integer(match[3]) + 1
+        variant <- paste0("D_", as.character(len))
+      }
     } else {
-      # e.g. D_1
+      # Single-codon deletion: e.g., A1del
       len <- 1
       match <- str_match(hgvs_string, "([A-Z])([0-9]+)del")
-      pos <- match[3]
-      variant <- "D_1"
+      if (!is.na(match[1])) {
+        WT <- match[2]
+        pos <- match[3]
+        variant <- "D_1"
+      }
     }
   }
 
   # I (insertions)
-  if (str_detect(hgvs_string, ".*ins.*")) {
+  if (str_detect(hgvs_string, ".*ins[A-Z]+$")) {
     mutation_type <- "insertion"
-    match <- str_match(hgvs_string, "[A-Z]([0-9]+)_[A-Z][0-9]+ins([A-Z]+)")
-    len <- nchar(match[3])
-    pos <- match[2]
-    variant <- paste0("I_", as.character(len))
+    match <- str_match(hgvs_string, "([A-Z])([0-9]+)_[A-Z]([0-9]+)ins([A-Z]+)")
+    if (!is.na(match[1])) {
+      WT <- match[2]
+      pos <- match[3]
+      inserted <- match[5]
+      len <- nchar(inserted)
+      variant <- paste0("I_", as.character(len))
+    }
   }
 
-  return(c(variant, pos, len, mutation_type, WT))
+  return(c(
+    variant = variant, pos = as.character(pos), len = as.character(len),
+    mutation_type = mutation_type, WT = WT
+  ))
 }
 
 
@@ -129,6 +171,9 @@ build_counts_for_replicate <- function(df_subset, experiment_name) {
     } else {
       NA # Just one iteration
     }
+
+    # Accumulate counts across tiles for this time point, then join once
+    time_count <- tibble::tibble(hgvs = character(), count = integer())
 
     for (tile_val in tile_values) {
       if (is.na(tile_val) || !has_tile) {
@@ -180,10 +225,20 @@ build_counts_for_replicate <- function(df_subset, experiment_name) {
         ))
       }
 
-      col_name <- paste0("c_", expt_time)
+      # Combine tile counts (tiles cover disjoint variants)
+      overlap <- intersect(time_count$hgvs, this_count$hgvs)
+      if (length(overlap) > 0) {
+        stop(sprintf(
+          "Overlapping HGVS variants across tiles at time %s: %s. Tiles must cover disjoint variants.",
+          expt_time, paste(head(overlap, 5), collapse = ", ")
+        ))
+      }
+      time_count <- bind_rows(time_count, this_count)
+    }
 
-      # Join into the main counts tibble
-      counts <- full_join(counts, this_count, by = "hgvs") %>%
+    if (nrow(time_count) > 0) {
+      col_name <- paste0("c_", expt_time)
+      counts <- full_join(counts, time_count, by = "hgvs") %>%
         rename(!!col_name := count)
     }
   }
