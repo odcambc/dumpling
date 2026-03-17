@@ -200,6 +200,7 @@ def validate_config(config):
 
 
 # Validate config and experiment files
+config.setdefault("bbtools_use_bgzip", True)
 validate(config, "../schemas/config.schema.yaml")
 
 experiments = (
@@ -233,6 +234,7 @@ contaminants_ref = pass_names(config["contaminants"])
 # Set configuration variables
 samtools_local = config["samtools_local"]
 noprocess = config["noprocess"]
+bbtools_compression_flags = "" if config["bbtools_use_bgzip"] else "bgzip=f unbgzip=f "
 
 # Set up tiled experiments
 if "tile" not in experiments.columns:

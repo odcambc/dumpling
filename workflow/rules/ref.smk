@@ -57,6 +57,7 @@ rule prepare_bbmap_index:
     params:
         mem=config["mem"],
         kmers=config["kmers"],
+        compression_flags=bbtools_compression_flags,
     threads: 16
     log:
         expand(
@@ -73,6 +74,7 @@ rule prepare_bbmap_index:
         "ref={input} "
         "path={output.index_dir} "
         "build=1 "
+        "{params.compression_flags}"
         "k={params.kmers} "
         "rebuild=t "
         "2> {log}"

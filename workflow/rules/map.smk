@@ -17,6 +17,7 @@ rule map_to_reference_bbmap:
         sam=config["sam"],
         kmers=config["kmers"],
         mem=config["mem"],
+        compression_flags=bbtools_compression_flags,
     benchmark:
         "benchmarks/{experiment}/{sample_prefix}.bbmap_map.benchmark.txt"
     log:
@@ -35,6 +36,7 @@ rule map_to_reference_bbmap:
         "path={input.index_dir} "
         "build=1 "
         "outm={output.mapped} "
+        "{params.compression_flags}"
         "k={params.kmers} "
         "t={threads} "
         "nzo=true "

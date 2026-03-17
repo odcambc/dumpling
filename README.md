@@ -137,6 +137,10 @@ The following are the dependencies required to run the pipeline:
 - [Enrich2](https://enrich2.readthedocs.io/en/latest/)
 - [Rosace](https://github.com/pimentellab/rosace)
 
+BBTools compressed IO defaults to `bgzip` in this pipeline. If your environment hangs in
+`bbduk.sh`, `bbmerge.sh`, or `bbmap.sh`, set `bbtools_use_bgzip: false` in the config to
+fall back to `pigz`/`unpigz`.
+
 ## Configuration
 
 ### Configuration files

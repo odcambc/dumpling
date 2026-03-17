@@ -335,6 +335,7 @@ def mock_config():
         "min_variant_obs": 3,
         "samtools_local": False,
         "rosace_local": False,
+        "bbtools_use_bgzip": True,
         "adapters": "resources/adapters.fa",
         "contaminants": [
             "resources/sequencing_artifacts.fa.gz",

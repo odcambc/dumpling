@@ -47,6 +47,7 @@ class TestConfigSchema:
             "run_qc",
             "samtools_local",
             "rosace_local",
+            "bbtools_use_bgzip",
         ]
         for field in boolean_fields:
             if field in mock_config:

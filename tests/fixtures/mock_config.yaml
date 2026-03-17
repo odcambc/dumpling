@@ -31,6 +31,7 @@ max_deletion_length: 3
 # Environment flags
 samtools_local: false
 rosace_local: false
+bbtools_use_bgzip: true
 
 # Resources (minimal for testing)
 adapters: 'resources/adapters.fa'

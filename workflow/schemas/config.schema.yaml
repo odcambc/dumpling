@@ -54,6 +54,10 @@ properties:
     type: boolean
     default: false
     description: Flag for whether to use ROSACE installed on system-wide R or through a conda-controlled R environment.
+  bbtools_use_bgzip:
+    type: boolean
+    default: true
+    description: Flag for whether BBTools should use bgzip for compressed IO. Set to false to fall back to pigz/unpigz on systems where BBTools hangs with bgzip.
   adapters:
     type:
       - string

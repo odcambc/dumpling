@@ -105,6 +105,8 @@ max_deletion_length: 3
 # samtools_local: Flag for whether to use a locally-installed samtools or the wrapper version.
 #                 This is useful for platforms (such as ARM Macs currently) where conda does
 #                 not have a compatible samtools version.
+# bbtools_use_bgzip: Keep BBTools on bgzip for compressed IO. Set to false only if
+#                    your environment hangs in BBTools and you need to fall back to pigz/unpigz.
 #
 # -----------------------------------------------------------------------------
 
@@ -115,6 +117,7 @@ min_q: 30
 
 samtools_local: false
 rosace_local: false
+bbtools_use_bgzip: true
 
 # -----------------------------------------------------------------------------
 # Other resources:
