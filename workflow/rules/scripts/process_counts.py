@@ -6,6 +6,7 @@ import pandas as pd
 from Bio import SeqIO
 
 import process_variants
+from script_utils import run_script
 
 
 order: list[str] = [
@@ -197,29 +198,9 @@ def process_experiment(
 
 
 def main():
-    """
-    Main function that orchestrates:
-      - Logging setup
-      - Reading config
-      - Reading the experiment file
-      - Looping over conditions, tiles (optional), replicates
-      - Calling process_experiment
-    """
-
-    # Set up logging
     from snakemake.script import snakemake
 
-    log_file = snakemake.log[0]
-    if log_file:
-        logging.basicConfig(filename=log_file, filemode="w", level=logging.DEBUG)
-    else:
-        logging.basicConfig(level=logging.DEBUG)
-
-    try:
-        _run(snakemake)
-    except Exception:
-        logging.exception("process_counts failed")
-        raise
+    run_script(snakemake, _run)
 
 
 def _run(snakemake):

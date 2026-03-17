@@ -9,20 +9,7 @@ from Bio.SeqUtils import seq1
 
 import pandas as pd
 
-from snakemake.script import snakemake
-
-log_file = snakemake.log[0]
-
-# Set up logging
-if log_file:
-    logging.basicConfig(filename=log_file, filemode="w", level=logging.DEBUG)
-else:
-    logging.basicConfig(level=logging.DEBUG)
-
-oligo_file = snakemake.input["oligo_file"]
-variants_file = snakemake.output[0]
-
-ref_file = snakemake.input["ref_fasta"]
+from script_utils import run_script
 
 # Define constants
 PRE_SPAN = 15  # Number of bases in window to map
@@ -425,129 +412,133 @@ def check_designed_df(df) -> bool:
     return True
 
 
-# Main execution
+def write_designed_csv(file, header, variant_list):
+    p = pathlib.Path(file)
+    p.parent.mkdir(parents=True, exist_ok=True)
 
-orf_range = snakemake.config[
-    "orf"
-]  # e.g. "100-500" or "500-100" for circular crossing origin
+    with p.open("w+") as f:
+        csvwriter = csv.writer(f, delimiter=",")
+        csvwriter.writerow(header)
+        for row in variant_list:
+            csvwriter.writerow(row)
 
-orf_parts = orf_range.split("-")
-orf_start = int(orf_parts[0])
-orf_end = int(orf_parts[1])
 
-# Determine if the reference is circular based on the ORF range
-is_circular = orf_start > orf_end
-if is_circular:
-    logging.info("Detected circular genome (ORF crosses origin)")
-    # For circular genomes with reversed ranges, we'll adjust the offset differently
-    offset = orf_start - 4  # Maintain the same offset calculation for consistency
-else:
-    offset = orf_start - 4  # Adjust offset based on ORF start
+def _run(snakemake):
+    oligo_file = snakemake.input["oligo_file"]
+    variants_file = snakemake.output[0]
+    ref_file = snakemake.input["ref_fasta"]
 
-# Read in the reference sequence
-with open(ref_file, "r") as f:
-    ref_list = list(SeqIO.parse(f, "fasta"))
-    ref_sequence = ref_list[0].seq
+    orf_range = snakemake.config[
+        "orf"
+    ]  # e.g. "100-500" or "500-100" for circular crossing origin
 
-# For a circular genome, if ORF crosses the origin, we need to handle the ORF extraction differently
-if is_circular:
-    # Extract ORF that wraps around the origin
-    # First part: from orf_start to the end of sequence
-    first_part = ref_sequence[orf_start - 1 :]
-    # Second part: from the beginning to orf_end
-    second_part = ref_sequence[:orf_end]
-    # Join them to get the complete ORF
-    ref_AA_sequence = (first_part + second_part).translate()
+    orf_parts = orf_range.split("-")
+    orf_start = int(orf_parts[0])
+    orf_end = int(orf_parts[1])
+
+    # Determine if the reference is circular based on the ORF range
+    is_circular = orf_start > orf_end
+    if is_circular:
+        logging.info("Detected circular genome (ORF crosses origin)")
+        offset = orf_start - 4
+    else:
+        offset = orf_start - 4
+
+    # Read in the reference sequence
+    with open(ref_file, "r") as f:
+        ref_list = list(SeqIO.parse(f, "fasta"))
+        ref_sequence = ref_list[0].seq
+
+    # For a circular genome, if ORF crosses the origin, we need to handle the ORF extraction differently
+    if is_circular:
+        first_part = ref_sequence[orf_start - 1 :]
+        second_part = ref_sequence[:orf_end]
+        ref_AA_sequence = (first_part + second_part).translate()
+        logging.info(
+            f"Circular ORF: joined sequence from positions {orf_start-1}:{len(ref_sequence)} and 0:{orf_end}"
+        )
+    else:
+        ref_AA_sequence = ref_sequence[orf_start - 1 : orf_end].translate()
+
     logging.info(
-        f"Circular ORF: joined sequence from positions {orf_start-1}:{len(ref_sequence)} and 0:{orf_end}"
-    )
-else:
-    # Linear case - just extract the ORF directly
-    ref_AA_sequence = ref_sequence[orf_start - 1 : orf_end].translate()
-
-logging.info(
-    f"ORF range: {orf_range}, offset: {offset}, ORF start: {orf_start}, ORF end: {orf_end}, is_circular: {is_circular}"
-)
-
-logging.info(f"Reference sequence length: {len(ref_sequence)}")
-logging.info(f"Reference AA sequence length: {len(ref_AA_sequence)}")
-
-# Generate the variants: returns list of dicts
-variants = designed_variants(oligo_file, str(ref_sequence), offset, is_circular)
-logging.info(variants[0:20])
-logging.info(f"Generated {len(variants)} variants.")
-
-# Convert the list of dicts to a DataFrame
-variants_df = pd.DataFrame(variants)
-# Make sure types are strings
-variants_df["name"] = variants_df["name"].astype(str)
-variants_df["codon"] = variants_df["codon"].astype(str)
-variants_df["mutant"] = variants_df["mutant"].astype(str)
-variants_df["hgvs"] = variants_df["hgvs"].astype(str)
-
-
-# Check for any issues in the designed variants
-if not check_designed_df(variants_df):
-    logging.error("Error in designed variants. Check log for details.")
-    raise Exception("Error in designed variants. Check log for details.")
-
-# Check for duplicate rows
-duplicate_rows = variants_df.duplicated().sum()
-
-logging.info(variants_df.nunique())
-logging.info(
-    f"Found {duplicate_rows} completely duplicate rows in the designed variants dataframe."
-)
-
-# Deduplicate identical rows
-if duplicate_rows > 0:
-    logging.warning(
-        f"Found {duplicate_rows} duplicate rows in the designed variants dataframe. Dropping duplicates."
-    )
-    variants_df = variants_df.drop_duplicates()
-
-# If there are duplicated names without identical positions, etc, something else might be wrong.
-duplicated_names = variants_df.drop_duplicates()["name"].duplicated().sum()
-if duplicated_names > 0:
-    logging.warning(
-        f"Found {duplicated_names} duplicated variant names in the designed variants dataframe. Attempting to deduplicate."
+        f"ORF range: {orf_range}, offset: {offset}, ORF start: {orf_start}, ORF end: {orf_end}, is_circular: {is_circular}"
     )
 
-    # Try to merge duplicates. If two rows have the same name but only differ in chunk values, we can combine and set the chunk to the first.
-    # In this case, the codon might also be different, if the variant was generated in two different chunks!
-    # We will keep the first chunk and codon, and drop the others.
-    variants_df = (
-        variants_df.groupby(
-            [
-                "count",
-                "pos",
-                "mutation_type",
-                "name",
-                "mutant",
-                "length",
-                "hgvs",
-            ],
-            as_index=False,
+    logging.info(f"Reference sequence length: {len(ref_sequence)}")
+    logging.info(f"Reference AA sequence length: {len(ref_AA_sequence)}")
+
+    variants = designed_variants(oligo_file, str(ref_sequence), offset, is_circular)
+    logging.info(variants[0:20])
+    logging.info(f"Generated {len(variants)} variants.")
+
+    variants_df = pd.DataFrame(variants)
+    variants_df["name"] = variants_df["name"].astype(str)
+    variants_df["codon"] = variants_df["codon"].astype(str)
+    variants_df["mutant"] = variants_df["mutant"].astype(str)
+    variants_df["hgvs"] = variants_df["hgvs"].astype(str)
+
+    if not check_designed_df(variants_df):
+        logging.error("Error in designed variants. Check log for details.")
+        raise Exception("Error in designed variants. Check log for details.")
+
+    duplicate_rows = variants_df.duplicated().sum()
+
+    logging.info(variants_df.nunique())
+    logging.info(
+        f"Found {duplicate_rows} completely duplicate rows in the designed variants dataframe."
+    )
+
+    if duplicate_rows > 0:
+        logging.warning(
+            f"Found {duplicate_rows} duplicate rows in the designed variants dataframe. Dropping duplicates."
         )
-        .agg({"chunk": "first", "codon": "first"})
-        .reset_index()
-    )
+        variants_df = variants_df.drop_duplicates()
 
-    # Check again for duplicates
-    duplicated_names = variants_df["name"].duplicated().sum()
+    duplicated_names = variants_df.drop_duplicates()["name"].duplicated().sum()
     if duplicated_names > 0:
-        # If we still have duplicates, it means they are not trivially different.
-        variants_df.to_csv("duped.csv", index=False)
-        logging.error(
-            f"Found {duplicated_names} duplicated variant names with non-identical values in the designed variants dataframe. Check for errors."
-        )
-        raise Exception(
-            "Found duplicated variant names with non-identical values. Check for errors."
+        logging.warning(
+            f"Found {duplicated_names} duplicated variant names in the designed variants dataframe. Attempting to deduplicate."
         )
 
-# Write the variants to a file
-logging.info("Regenerated variants.")
+        variants_df = (
+            variants_df.groupby(
+                [
+                    "count",
+                    "pos",
+                    "mutation_type",
+                    "name",
+                    "mutant",
+                    "length",
+                    "hgvs",
+                ],
+                as_index=False,
+            )
+            .agg({"chunk": "first", "codon": "first"})
+            .reset_index()
+        )
 
-variants_df.to_csv(variants_file, index=False)
+        duplicated_names = variants_df["name"].duplicated().sum()
+        if duplicated_names > 0:
+            variants_df.to_csv("duped.csv", index=False)
+            logging.error(
+                f"Found {duplicated_names} duplicated variant names with non-identical values in the designed variants dataframe. Check for errors."
+            )
+            raise Exception(
+                "Found duplicated variant names with non-identical values. Check for errors."
+            )
 
-logging.info(f"New designed variants file written to {variants_file}.")
+    logging.info("Regenerated variants.")
+
+    variants_df.to_csv(variants_file, index=False)
+
+    logging.info(f"New designed variants file written to {variants_file}.")
+
+
+def main():
+    from snakemake.script import snakemake
+
+    run_script(snakemake, _run)
+
+
+if __name__ == "__main__":
+    main()

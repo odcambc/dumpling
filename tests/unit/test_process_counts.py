@@ -231,3 +231,29 @@ def test_process_experiment_minimal(
     content = rejected_stats_file.read_text()
     # We'll not do detailed checks here, as we used a patched version.
     # But you can parse or do line-by-line checks if needed.
+
+
+def test_process_experiment_missing_variants_file(
+    mock_ref_dir,
+    reference_fasta,
+    oligo_file,
+    gatk_dir,
+    output_dir,
+):
+    missing_variants_file = str(Path(output_dir) / "does_not_exist.csv")
+
+    with pytest.raises(FileNotFoundError, match="Variants file not found"):
+        process_experiment(
+            sample_list=["sampleA"],
+            experiment_name="experiment",
+            ref_dir=mock_ref_dir,
+            reference_fasta=os.path.basename(reference_fasta),
+            oligo_file=oligo_file,
+            variants_file=missing_variants_file,
+            orf_range="1-12",
+            max_deletion_length=3,
+            noprocess=True,
+            gatk_dir=gatk_dir,
+            output_dir=output_dir,
+            regenerate_variants=False,
+        )

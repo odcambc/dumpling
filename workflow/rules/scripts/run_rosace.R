@@ -23,6 +23,20 @@ stop_logging <- function(con) {
   close(con)
 }
 
+log_and_rethrow <- function(script_name, err) {
+  message(sprintf("%s failed: %s", script_name, conditionMessage(err)))
+  calls <- vapply(
+    sys.calls(),
+    function(call) paste(deparse(call), collapse = " "),
+    character(1)
+  )
+  if (length(calls) > 0) {
+    message("Call stack:")
+    message(paste(calls, collapse = "\n"))
+  }
+  stop(err)
+}
+
 
 # ===========================
 #   LOAD EXPERIMENT DEFINITION
@@ -496,4 +510,9 @@ library("rosace")
 
 
 # Run main
-main()
+tryCatch(
+  main(),
+  error = function(err) {
+    log_and_rethrow("run_rosace", err)
+  }
+)

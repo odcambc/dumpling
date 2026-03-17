@@ -2,6 +2,8 @@ import pandas as pd
 import logging
 from snakemake.script import snakemake
 
+from script_utils import run_script
+
 
 # The hierarchy of the enrich2 config file elements is as follows:
 # experiment
@@ -243,17 +245,10 @@ def generate_config(
     return enrich2_config
 
 
-def main():
+def _run(snakemake):
     """
     Handle the main logic of the script.
     """
-    # Set up logging
-    log_file = snakemake.log[0]
-    if log_file:
-        logging.basicConfig(filename=log_file, filemode="w", level=logging.DEBUG)
-    else:
-        logging.basicConfig(level=logging.DEBUG)
-
     experiment_name = snakemake.config["experiment"]
     tiled = snakemake.config["tiled"]
 
@@ -306,6 +301,10 @@ def main():
         f.write("\n".join(enrich2_config_lines))
 
     logging.info("Enrich2 config file written to %s.", output_file)
+
+
+def main():
+    run_script(snakemake, _run)
 
 
 if __name__ == "__main__":

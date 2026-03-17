@@ -3,6 +3,8 @@ from pathlib import Path
 
 import pandas as pd
 
+from script_utils import run_script
+
 
 def remove_zeros_enrich(enrich_file_list, output_dir):
     """
@@ -86,24 +88,13 @@ def remove_zeros(experiment_list, input_dir, output_dir, experiment_name):
         f.writelines(f"{variant}\n" for variant in unobserved)
 
 
-def main():
+def _run(snakemake):
     """
     Main function to perform unobserved variant removal for each condition/tile/replicate grouping.
-    - Sets up logging
     - Reads config from Snakemake
     - Checks if 'tile' column exists for optional tiling
     - Calls remove_zeros() for each replicate group
     """
-    # Set up logging
-
-    from snakemake.script import snakemake
-
-    log_file = snakemake.log[0]
-    if log_file:
-        logging.basicConfig(filename=log_file, filemode="w", level=logging.DEBUG)
-    else:
-        logging.basicConfig(level=logging.DEBUG)
-
     logging.debug("Performing unobserved variant removal.")
 
     experiment_name = snakemake.config["experiment"]
@@ -156,6 +147,12 @@ def main():
                 logging.debug("Samples: %s", experiment_list)
 
                 remove_zeros(experiment_list, input_dir, output_dir, experiment_name)
+
+
+def main():
+    from snakemake.script import snakemake
+
+    run_script(snakemake, _run)
 
 
 if __name__ == "__main__":
