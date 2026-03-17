@@ -134,7 +134,11 @@ def process_experiment(
     ref_AA_sequence = ref_sequence[orf_start - 1 : orf_end].translate()
 
     # Read the designed variants file
-    logging.info("Processing designed variants file")
+    logging.info("Processing designed variants file: %s", variants_file)
+    if not os.path.exists(variants_file):
+        raise FileNotFoundError(
+            f"Variants file not found: '{variants_file}'. Check 'variants_file' path in config YAML."
+        )
     designed_df = pd.read_csv(variants_file)
     logging.info("Designed variants length: %d", len(designed_df))
 
@@ -211,6 +215,14 @@ def main():
     else:
         logging.basicConfig(level=logging.DEBUG)
 
+    try:
+        _run(snakemake)
+    except Exception:
+        logging.exception("process_counts failed")
+        raise
+
+
+def _run(snakemake):
     # Read from Snakemake config
     experiment_name = snakemake.config["experiment"]
     experiment_file = snakemake.config["experiment_file"]
