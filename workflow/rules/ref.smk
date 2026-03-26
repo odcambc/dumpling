@@ -4,11 +4,11 @@ rule prepare_dict_GATK:
     https://gatk.broadinstitute.org/hc/en-us/articles/360036712531-CreateSequenceDictionary-Picard-
     """
     input:
-        expand("{ref_dir}/{{reference}}.fasta", ref_dir=config["ref_dir"]),
+        str(reference_file),
     output:
-        expand("{ref_dir}/{{reference}}.dict", ref_dir=config["ref_dir"]),
+        str(reference_file.parent / f"{reference_name}.dict"),
     log:
-        "logs/gatk/{reference}.create_dict.log",
+        f"logs/gatk/{reference_name}.create_dict.log",
     shell:
         "gatk CreateSequenceDictionary -R {input} 2> {log}"
 
@@ -22,11 +22,11 @@ if samtools_local:
         This can be useful if conda does not have a samtools version for the platform.
         """
         input:
-            expand("{ref_dir}/{{reference}}.fasta", ref_dir=config["ref_dir"]),
+            str(reference_file),
         output:
-            expand("{ref_dir}/{{reference}}.fasta.fai", ref_dir=config["ref_dir"]),
+            str(reference_file) + ".fai",
         log:
-            "logs/gatk/{reference}.create_index.log",
+            f"logs/gatk/{reference_name}.create_index.log",
         shell:
             "samtools faidx {input} 2> {log}"
 
@@ -35,11 +35,11 @@ else:
     rule prepare_index:
         """Index the reference sequence using samtools. Necessary for GATK."""
         input:
-            expand("{ref_dir}/{{reference}}.fasta", ref_dir=config["ref_dir"]),
+            str(reference_file),
         output:
-            expand("{ref_dir}/{{reference}}.fasta.fai", ref_dir=config["ref_dir"]),
+            str(reference_file) + ".fai",
         log:
-            "logs/gatk/{reference}.create_index.log",
+            f"logs/gatk/{reference_name}.create_index.log",
         wrapper:
             "v3.12.0/bio/samtools/faidx"
 
@@ -47,11 +47,7 @@ else:
 rule prepare_bbmap_index:
     """Generate the index for mapping with bbmap. This must be run once before mapping."""
     input:
-        expand(
-            "{ref_dir}/{reference}",
-            ref_dir=config["ref_dir"],
-            reference=config["reference"],
-        ),
+        str(reference_file),
     output:
         index_dir=temp(directory(f"ref/bbmap/{experiment}")),
     params:
@@ -60,11 +56,7 @@ rule prepare_bbmap_index:
         compression_flags=bbtools_compression_flags,
     threads: 16
     log:
-        expand(
-            "logs/{experiment}/bbmap/{reference}.bbmap_index.log",
-            experiment=experiment,
-            reference=config["reference"],
-        ),
+        f"logs/{experiment}/bbmap/{reference_name}.bbmap_index.log",
     shell:
         "rm -rf {output.index_dir} "
         "&& mkdir -p {output.index_dir} "

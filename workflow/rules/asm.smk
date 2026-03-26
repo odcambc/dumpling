@@ -2,16 +2,8 @@ rule gatk_ASM:
     """Use the GATK AnalyzeSaturationMutagenesis tool to call and count variants.
     This is the culmination of the initial variant calling pipeline."""
     input:
-        index=expand(
-            "{ref_dir}/{ref_name}.fasta.fai",
-            ref_dir=config["ref_dir"],
-            ref_name=reference_name,
-        ),
-        ref_dict=expand(
-            "{ref_dir}/{ref_name}.dict",
-            ref_dir=config["ref_dir"],
-            ref_name=reference_name,
-        ),
+        index=str(reference_file) + ".fai",
+        ref_dict=str(reference_file.parent / f"{reference_name}.dict"),
         sam="results/{experiment}/{sample_prefix}.mapped.sam",
     output:
         "results/{experiment}/gatk/{sample_prefix}.variantCounts",
@@ -19,11 +11,7 @@ rule gatk_ASM:
         orf=config["orf"],
         min_q=config["min_q"],
         min_variant_obs=config["min_variant_obs"],
-        ref=expand(
-            "{ref_dir}/{ref_name}.fasta",
-            ref_dir=config["ref_dir"],
-            ref_name=reference_name,
-        ),
+        ref=str(reference_file),
     benchmark:
         "benchmarks/{experiment}/{sample_prefix}.gatk_asm.benchmark.txt"
     log:
