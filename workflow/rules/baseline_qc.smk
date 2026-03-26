@@ -50,14 +50,8 @@ rule generate_baseline_configs:
 rule generate_baseline_file_list:
     """Rule for generating a file list for baseline QC."""
     input:
-        expand(
-            "stats/{{experiment}}/fastqc/{file}_R1_001_fastqc.html",
-            file=baseline_files,
-        ),
-        expand(
-            "stats/{{experiment}}/fastqc/{file}_R2_001_fastqc.html",
-            file=baseline_files,
-        ),
+        [f"stats/{{experiment}}/fastqc/{fastqc_names[f]['R1']}_fastqc.html" for f in baseline_files],
+        [f"stats/{{experiment}}/fastqc/{fastqc_names[f]['R2']}_fastqc.html" for f in baseline_files],
         expand(
             "results/{{experiment}}/gatk/{sample_prefix}.variantCounts",
             sample_prefix=baseline_samples,
