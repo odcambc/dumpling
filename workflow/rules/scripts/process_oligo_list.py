@@ -1,6 +1,7 @@
 import csv
 import pathlib
 import re
+import logging
 
 import regex
 from Bio.Seq import Seq
@@ -22,6 +23,10 @@ def name_to_hgvs(name):
 
 
 def designed_variants(oligo_csv, ref, offset):
+    logging.info(
+        f"Processing oligo list {oligo_csv} with reference sequence {ref} and offset {offset}"
+    )
+
     variant_list = []
 
     p = pathlib.Path(oligo_csv)
@@ -61,12 +66,9 @@ def designed_variants(oligo_csv, ref, offset):
                     if len(post_split) == 2:
                         codon = post_split[0][-3:]
                     else:
-                        print(
-                            "Warning: could not find codon for",
-                            line[0],
-                            "Double check offset value and reference sequence.",
+                        logging.warning(
+                            f"Warning: could not find codon for {line[0]}. Double check offset value and reference sequence."
                         )
-
                 name = (
                     seq1(variant_sub.group(1))
                     + variant_sub.group(2)
@@ -87,9 +89,9 @@ def designed_variants(oligo_csv, ref, offset):
                 mutation_type = "D"
                 pos = int(variant_del.group(2))
                 # check if length is divisible by 3
-                # if not, print warning and set length to 0
+                # if not, log a warning and set length to 0
                 if int(variant_del.group(1)) % 3 != 0:
-                    print("Warning: Deletion length is not divisible by 3")
+                    logging.warning("Warning: Deletion length is not divisible by 3")
                     length = 0
                 else:
                     length = int(int(variant_del.group(1)) / 3)
@@ -151,7 +153,7 @@ def designed_variants(oligo_csv, ref, offset):
                     ]
                 ]
             except UnboundLocalError:
-                print("Error: no match found for", line[0])
+                logging.warning(f"Error: no match found for {line[0]}")
 
     return variant_list
 

@@ -1,240 +1,518 @@
 #!/usr/bin/env Rscript
 
-# Set up logging
-# Output will be redicted to the log file
-log_file <- snakemake@log[[1]]
+# ===========================
+#        INITIALIZATION
+# ===========================
+init_logging <- function() {
+  # Set up logging via snakemake
+  log_file <- snakemake@log[[1]]
 
-# Open connection to log file
-con <- file(log_file, open = "wt")
+  # Open connection to log file
+  con <- file(log_file, open = "wt")
+  sink(con, append = FALSE, split = FALSE, type = "message")
+  sink(con, append = FALSE, split = FALSE, type = "output")
 
-sink(con, append = FALSE, split = FALSE, type = "message")
-sink(con, append = FALSE, split = FALSE, type = "output")
+  # Optionally return the connection if you want to do something with it later
+  return(invisible(con))
+}
+
+stop_logging <- function(con) {
+  # Close the sink connections so logs are properly flushed
+  sink(type = "message")
+  sink(type = "output")
+  close(con)
+}
+
+log_and_rethrow <- function(script_name, err) {
+  message(sprintf("%s failed: %s", script_name, conditionMessage(err)))
+  calls <- vapply(
+    sys.calls(),
+    function(call) paste(deparse(call), collapse = " "),
+    character(1)
+  )
+  if (length(calls) > 0) {
+    message("Call stack:")
+    message(paste(calls, collapse = "\n"))
+  }
+  stop(err)
+}
 
 
-renv::activate()
+# ===========================
+#   LOAD EXPERIMENT DEFINITION
+# ===========================
+load_experiment_definition <- function(experiment_file) {
+  # In case you need some validation or transformations in the future
+  experiment_definition <- read_csv(experiment_file)
+  return(experiment_definition)
+}
 
-library("readr")
-library("stringr")
-library("dplyr")
-library("cmdstanr")
-library("rosace")
 
-# This metadata is provided by the snakemake invocation.
-
-experiment_name <- snakemake@config[["experiment"]]
-experiment_file <- snakemake@config[["experiment_file"]]
-baseline_condition <- snakemake@config[["baseline_condition"]]
-
-# Parses an HGVS string minus surrounding "p()",
-# outputs a vector with variant info
-
+# ===========================
+#   HELPER: PARSE HGVS STRING
+# ===========================
 parse_stripped_hgvs <- function(hgvs_string) {
+  # Returns c(variant, pos, len, mutation_type, WT)
   variant <- ""
   pos <- -1
   len <- -1
   mutation_type <- ""
+  WT <- ""
+
   WT <- substr(hgvs_string, 1, 1)
 
   # WT case, as in enrich2 format
-  if (str_detect(hgvs_string, "_wt")) {
-    variant <- "Z"
-    pos <- -1
-    len <- -1
+  if (hgvs_string == "_wt") {
+    variant <- "WT"
+    pos <- 0
+    len <- 0
     mutation_type <- "X"
+    return(c(
+      variant = variant, pos = as.character(pos), len = as.character(len),
+      mutation_type = mutation_type, WT = WT
+    ))
   }
 
-  # M/S/N
-  if (str_detect(hgvs_string, "[A-Z][0-9]+[A-Z]+")) {
-    len <- 1
-    match <- str_match(hgvs_string, "([A-Z])([0-9]+)([A-Z]+)")
-    pos <- match[3]
-    if (match[2] == match[4]) {
-      mutation_type <- "synonymous"
-      variant <- match[4]
-    } else if (match[4] == "X") {
-      mutation_type <- "nonsense"
-      variant <- match[4]
-    } else {
-      mutation_type <- "missense"
-      variant <- match[4]
-    }
-  }
-
-  # D
-  if (str_detect(hgvs_string, ".*del")) {
-    mutation_type <- "deletion"
-    if (str_detect(hgvs_string, "[A-Z][0-9]+_[A-Z][0-9]+del")) {
-      # D_2, D_3
-      match <- str_match(hgvs_string, "[A-Z]([0-9]+)_[A-Z]([0-9]+)del")
-      pos <- match[2]
-      len <- strtoi(match[3]) - strtoi(match[2]) + 1
-      variant <- paste("D_", as.character(len), sep = "")
-    } else {
-      # D_1
-      len <- 1
-      match <- str_match(hgvs_string, "([A-Z])([0-9]+)del")
+  # S (synonymous) - format: X1=
+  if (str_detect(hgvs_string, ".*=$")) {
+    mutation_type <- "synonymous"
+    match <- str_match(hgvs_string, "([A-Z])([0-9]+)=")
+    if (!is.na(match[1])) {
+      WT <- match[2]
       pos <- match[3]
-      variant <- "D_1"
+      len <- 1
+      variant <- "S"
     }
   }
 
-  # I
-  if (str_detect(hgvs_string, ".*ins.*")) {
-    mutation_type <- "insertion"
-    match <- str_match(hgvs_string, "[A-Z]([0-9]+)_[A-Z][0-9]+ins([A-Z]+)")
-    len <- nchar(match[3])
-    pos <- match[2]
-    variant <- paste("I_", as.character(len), sep = "")
-  }
-  return(c(variant, pos, len, mutation_type, WT))
-}
-
-# Read in the experiment definition
-experiment_definition <- read_csv(experiment_file)
-
-# Create the results directories, if they don't exist
-
-rosace_dir <- file.path(
-  "./results",
-  experiment_name,
-  "rosace",
-  sep = ""
-)
-rosace_assayset_dir <- file.path(
-  "./results",
-  experiment_name,
-  "rosace/assayset",
-  sep = ""
-)
-
-dir.create(rosace_assayset_dir, recursive = TRUE)
-
-# To create the rosace object, iterate over conditions and
-# replicates to fill the assays from counts files. The set of "key" values
-# is the unique set of experimental conditions, and the set of replicates
-# is determined within each condition.
-
-conditions <- unique(experiment_definition$condition)
-
-for (expt_condition in conditions[conditions != baseline_condition]) {
-  experimental_condition_df <- experiment_definition %>%
-    filter(condition == expt_condition)
-  for (expt_replicate in unique(experimental_condition_df$replicate)) {
-    experimental_replicate_df <- experimental_condition_df %>%
-      filter(replicate == expt_replicate)
-    counts <- tibble(
-      hgvs = character()
-    )
-    for (expt_time in unique(experimental_replicate_df$time)) {
-      experimental_time_df <- experimental_replicate_df %>%
-        filter(time == expt_time)
-      for (tile in unique(experimental_time_df$tile)) {
-        experimental_tile_df <- experimental_time_df %>% filter(tile == tile)
-        if (dim(experimental_time_df)[1] > 1) {
-          stop(sprintf(
-            paste(
-              "More than one row in the experiment",
-              "definition for condition %s, replicate %s,",
-              "tile %s, time %s."
-            ), expt_condition,
-            expt_replicate, tile, expt_time
-          ))
-        }
-        if (dim(experimental_time_df)[1] == 0) {
-          warning(sprintf(paste(
-            "No rows in the experiment definition for",
-            "condition %s, replicate %s, tile %s, time %s.",
-            expt_condition, expt_replicate, tile, expt_time
-          )))
-        }
-
-        file_name <- paste("results/",
-          experiment_name,
-          "/processed_counts/enrich_format/",
-          experimental_tile_df$sample, ".tsv",
-          sep = ""
-        )
-        file <- file.path(file_name)
-
-        count <- read_tsv(file)
-
-        col_name <- paste("c_", expt_time, sep = "")
-
-        counts <- full_join(counts, count) %>% rename(!!col_name := count)
+  # M (missense) or S (synonymous via GATK/dimple format: X1X where letters match)
+  if (str_detect(hgvs_string, "^[A-Z][0-9]+[A-Z]$")) {
+    match <- str_match(hgvs_string, "([A-Z])([0-9]+)([A-Z])")
+    if (!is.na(match[1])) {
+      WT <- match[2]
+      pos <- match[3]
+      len <- 1
+      if (match[2] == match[4]) {
+        # Same amino acid = synonymous (GATK/dimple notation, e.g. A10A)
+        mutation_type <- "synonymous"
+        variant <- "S"
+      } else {
+        mutation_type <- "missense"
+        variant <- match[4]
       }
     }
-    assay <- CreateAssayObject(
-      counts = as.matrix(counts[2:ncol(counts)]),
-      var.names = count$hgvs,
-      key = expt_condition, rep = expt_replicate, type = "growth"
-    )
-    if (exists("rosace")) {
-      rosace <- AddAssayData(object = rosace, assay = assay)
+  }
+
+  # N (nonsense) - format: X1*
+  if (str_detect(hgvs_string, ".*\\*$")) {
+    mutation_type <- "nonsense"
+    match <- str_match(hgvs_string, "([A-Z])([0-9]+)\\*")
+    if (!is.na(match[1])) {
+      WT <- match[2]
+      pos <- match[3]
+      len <- 1
+      variant <- "X"
+    }
+  }
+
+  # D (deletions)
+  if (str_detect(hgvs_string, ".*del$")) {
+    mutation_type <- "deletion"
+    if (str_detect(hgvs_string, "[A-Z][0-9]+_[A-Z][0-9]+del")) {
+      # Multi-codon deletion: e.g., A1_A3del
+      match <- str_match(hgvs_string, "([A-Z])([0-9]+)_[A-Z]([0-9]+)del")
+      if (!is.na(match[1])) {
+        WT <- match[2]
+        pos <- match[3]
+        len <- as.integer(match[4]) - as.integer(match[3]) + 1
+        variant <- paste0("D_", as.character(len))
+      }
     } else {
-      rosace <- CreateRosaceObject(object = assay)
+      # Single-codon deletion: e.g., A1del
+      len <- 1
+      match <- str_match(hgvs_string, "([A-Z])([0-9]+)del")
+      if (!is.na(match[1])) {
+        WT <- match[2]
+        pos <- match[3]
+        variant <- "D_1"
+      }
+    }
+  }
+
+  # I (insertions)
+  if (str_detect(hgvs_string, ".*ins[A-Z]+$")) {
+    mutation_type <- "insertion"
+    match <- str_match(hgvs_string, "([A-Z])([0-9]+)_[A-Z]([0-9]+)ins([A-Z]+)")
+    if (!is.na(match[1])) {
+      WT <- match[2]
+      pos <- match[3]
+      inserted <- match[5]
+      len <- nchar(inserted)
+      variant <- paste0("I_", as.character(len))
+    }
+  }
+
+  return(c(
+    variant = variant, pos = as.character(pos), len = as.character(len),
+    mutation_type = mutation_type, WT = WT
+  ))
+}
+
+
+# ===========================
+#   BUILD COUNTS FOR REPLICATE
+# ===========================
+build_counts_for_replicate <- function(df_subset, experiment_name) {
+  # df_subset should be the subset of experiment_definition
+  # filtered by condition, replicate, etc.
+
+  # We'll accumulate data in a tibble called `counts`.
+  # If tile is present, we may loop over times & tile. Otherwise just times.
+
+  # Initialize an empty tibble
+  counts <- tibble::tibble(hgvs = character())
+  message(sprintf("Building counts for condition=%s, replicate=%s", df_subset$condition[1], df_subset$replicate[1]))
+
+  for (expt_time in unique(df_subset$time)) {
+    message(sprintf("Processing time=%s", expt_time))
+    # Filter by time
+    experimental_time_df <- filter(df_subset, time == expt_time)
+
+    # If 'tile' column does not exist, treat as single group
+    has_tile <- "tile" %in% colnames(experimental_time_df)
+    tile_values <- if (has_tile) {
+      unique(experimental_time_df$tile)
+    } else {
+      NA # Just one iteration
     }
 
-    # Having generated an object, perform initial filtering,
-    # imputation of missing values, and normalization
-    rosace <- FilterData(rosace, key = expt_condition, na.rmax = 0.5)
+    # Accumulate counts across tiles for this time point, then join once
+    time_count <- tibble::tibble(hgvs = character(), count = integer())
 
-    rosace <- ImputeData(
-      rosace,
-      key = expt_condition,
-      impute.method = "knn",
-      na.rmax = 0.5
-    )
+    for (tile_val in tile_values) {
+      if (is.na(tile_val) || !has_tile) {
+        # If tile is missing or no tile column, use entire time subset
+        experimental_tile_df <- experimental_time_df
+      } else {
+        # Filter by tile
+        experimental_tile_df <- filter(experimental_time_df, tile == tile_val)
+        message(sprintf("Processing tile=%s", tile_val))
+      }
 
-    rosace <- NormalizeData(rosace,
-      key = expt_condition,
-      normalization.method = "wt",
-      wt.var.names = c("_wt"), wt.rm = TRUE
-    )
+      if (nrow(experimental_tile_df) > 1) {
+        stop(sprintf(
+          paste(
+            "More than one row in the experiment definition for condition %s,",
+            "replicate %s, tile %s, time %s."
+          ),
+          experimental_tile_df$condition[1],
+          experimental_tile_df$replicate[1],
+          tile_val,
+          expt_time
+        ))
+      }
+      if (nrow(experimental_tile_df) == 0) {
+        warning(sprintf(
+          paste(
+            "No rows in the experiment definition for condition %s,",
+            "replicate %s, tile %s, time %s."
+          ),
+          df_subset$condition[1],
+          df_subset$replicate[1],
+          tile_val,
+          expt_time
+        ))
+        next
+      }
 
-    # These can now be combined into a single rosace object
-    rosace <- IntegrateData(object = rosace, key = expt_condition)
+      sample_name <- experimental_tile_df$sample[1]
+      file_name <- paste0(
+        "results/", experiment_name, "/processed_counts/enrich_format/",
+        sample_name, ".tsv"
+      )
+      this_count <- read_tsv(file_name)
+
+      if (anyDuplicated(this_count$hgvs) > 0) {
+        stop(sprintf(
+          "Duplicate HGVS entries found in %s. Each variant must appear at most once per sample.",
+          file_name
+        ))
+      }
+
+      # Combine tile counts (tiles cover disjoint variants)
+      overlap <- intersect(time_count$hgvs, this_count$hgvs)
+      if (length(overlap) > 0) {
+        stop(sprintf(
+          "Overlapping HGVS variants across tiles at time %s: %s. Tiles must cover disjoint variants.",
+          expt_time, paste(head(overlap, 5), collapse = ", ")
+        ))
+      }
+      time_count <- bind_rows(time_count, this_count)
+    }
+
+    if (nrow(time_count) > 0) {
+      col_name <- paste0("c_", expt_time)
+      counts <- full_join(counts, time_count, by = "hgvs") %>%
+        rename(!!col_name := count)
+    }
   }
+
+  return(counts)
 }
 
-# The specific variant information now needs to be parsed
 
-rosace@var.data <- rosace@var.data %>%
-  rowwise() %>%
-  mutate(
-    tmp_n = substr(variants, 4, nchar(variants) - 1),
-    tmp = list(parse_stripped_hgvs(tmp_n)),
-    position = as.numeric(tmp[2]),
-    wildtype = tmp[5],
-    mutation = tmp[1],
-    type = tmp[4]
-  ) %>%
-  dplyr::select(-tmp, -tmp_n)
+# ===========================
+#   BUILD ROSACE OBJECT
+# ===========================
+build_rosace_object <- function(experiment_definition, experiment_name, baseline_condition, noprocess) {
+  # This function:
+  #   - Loops over conditions (excluding baseline)
+  #   - Loops over replicates
+  #   - Builds an assay object from the combined counts
+  #   - Adds the assay to a global or local 'rosace' object
+  #   - Returns the Rosace object
 
-# Finally, run rosace on each condition and write the output to a csv.
+  conditions <- unique(experiment_definition$condition)
+  conditions <- conditions[conditions != baseline_condition]
 
-for (expt_condition in conditions[conditions != baseline_condition]) {
-  rosace <- RunRosace(
-    object = rosace,
-    name = expt_condition,
-    type = "AssaySet",
-    savedir = rosace_dir,
-    pos.col = "position",
-    ctrl.col = "type",
-    ctrl.name = "synonymous",
-    install = FALSE
-  )
+  rosace_created <- FALSE
+  rosace_obj <- NULL # We'll return this at the end
 
-  scores.data <- OutputScore(
-    rosace,
-    name = paste(expt_condition, "_ROSACE", sep = "")
-  )
+  for (expt_condition in conditions) {
+    # Subset by condition
+    condition_df <- filter(experiment_definition, condition == expt_condition)
+    for (expt_replicate in unique(condition_df$replicate)) {
+      replicate_df <- filter(condition_df, replicate == expt_replicate)
 
-  output_file_name <- paste(expt_condition, "_scores.csv", sep = "")
-  output_file <- file.path(rosace_dir, output_file_name)
+      # Build the counts for this replicate
+      counts <- build_counts_for_replicate(replicate_df, experiment_name)
+      if (nrow(counts) == 0) {
+        # Possibly no data
+        warning(sprintf("No valid data for condition=%s replicate=%s", expt_condition, expt_replicate))
+        next
+      }
 
-  write.csv(scores.data, file = output_file)
+      # Build an assay
+      # The first column in 'counts' is 'hgvs'; the rest are numeric
+      assay <- CreateAssayObject(
+        counts = as.matrix(counts[, 2:ncol(counts)]),
+        var.names = counts$hgvs,
+        key = expt_condition,
+        rep = expt_replicate,
+        type = "growth"
+      )
+
+      # If rosace isn't created, create a new object
+      if (!rosace_created) {
+        rosace_obj <- CreateRosaceObject(object = assay)
+        rosace_created <- TRUE
+      } else {
+        # else add to the existing object
+        rosace_obj <- AddAssayData(object = rosace_obj, assay = assay)
+      }
+
+      # Filter, impute, normalize, integrate
+      rosace_obj <- FilterData(rosace_obj, key = expt_condition, na.rmax = 0.5)
+      rosace_obj <- ImputeData(
+        rosace_obj,
+        key = expt_condition,
+        impute.method = "knn",
+        na.rmax = 0.5
+      )
+      if (noprocess) {
+        message(sprintf("Normalizing by total counts since noprocess flag is set."))
+        rosace_obj <- NormalizeData(
+          rosace_obj,
+          key = expt_condition,
+          normalization.method = "total"
+        )
+      } else {
+        message(sprintf("Normalizing data by variant names and WT."))
+        rosace_obj <- NormalizeData(
+          rosace_obj,
+          key = expt_condition,
+          normalization.method = "wt",
+          wt.var.names = c("_wt"),
+          wt.rm = TRUE
+        )
+      }
+
+      message(sprintf("Integrated data for condition: %s", expt_condition))
+      rosace_obj <- IntegrateData(object = rosace_obj, key = expt_condition)
+    }
+  }
+
+  if (!rosace_created) {
+    warning("No Rosace object was created; possibly no valid data rows were found.")
+  }
+
+  return(rosace_obj)
 }
 
-# Close connection to log file
-sink(type = "message")
-sink(type = "output")
+
+# ===========================
+#   FINALIZE VARIANT METADATA
+# ===========================
+finalize_variants_in_rosace <- function(rosace_obj, noprocess) {
+  # Parse the variant strings, storing them in new columns
+  # e.g., rosace_obj@var.data
+  if (is.null(rosace_obj)) {
+    # No data to finalize
+    return(NULL)
+  }
+
+  # The var.data data frame has a column 'variants' that looks like "p.(...)"?
+  # We strip that substring and parse
+
+  if (noprocess) {
+    message("Skipping variant parsing since noprocess flag is set.")
+    return(rosace_obj)
+  }
+
+
+  rosace_obj@var.data <- rosace_obj@var.data %>%
+    mutate(tmp_n = substr(variants, 4, nchar(variants) - 1)) %>%
+    # Apply parse_stripped_hgvs() to each row's tmp_n, store as list column
+    mutate(parsed = map(tmp_n, parse_stripped_hgvs)) %>%
+    # Extract each piece of parsed info into its own column
+    mutate(
+      position = map_chr(parsed, 2) |> as.numeric(),
+      wildtype = map_chr(parsed, 5),
+      mutation = map_chr(parsed, 1),
+      type     = map_chr(parsed, 4)
+    ) %>%
+    select(-tmp_n, -parsed)
+
+  message("Parsed variant strings in var.data")
+  return(rosace_obj)
+}
+
+
+# ===========================
+#   RUN ROSACE ANALYSIS
+# ===========================
+run_rosace_for_conditions <- function(rosace_obj, experiment_definition, experiment_name, baseline_condition, noprocess) {
+  # Run Rosace for each condition except baseline, writing results
+  if (is.null(rosace_obj)) {
+    warning("Rosace object is NULL; skipping run_rosace_for_conditions.")
+    return(invisible(NULL))
+  }
+
+  rosace_dir <- file.path("results", experiment_name, "rosace")
+  all_conditions <- unique(experiment_definition$condition)
+  conditions <- all_conditions[all_conditions != baseline_condition]
+
+  for (expt_condition in conditions) {
+    message(sprintf("Running ROSACE for condition: %s", expt_condition))
+
+    # If we are using the noprocess flag, variant data will not be parsed.
+    # Therefore we cannot use the type or position as controls.
+    if (noprocess) {
+      rosace_obj <- RunRosace(
+        object = rosace_obj,
+        name = expt_condition,
+        type = "AssaySet",
+        savedir = rosace_dir,
+        install = FALSE
+      )
+    } else {
+      rosace_obj <- RunRosace(
+        object = rosace_obj,
+        name = expt_condition,
+        type = "AssaySet",
+        savedir = rosace_dir,
+        pos.col = "position",
+        ctrl.col = "type",
+        ctrl.name = "synonymous",
+        install = FALSE
+      )
+    }
+
+    scores.data <- OutputScore(
+      rosace_obj,
+      name = paste0(expt_condition, "_ROSACE")
+    )
+
+    output_file_name <- paste0(expt_condition, "_scores.csv")
+    output_file <- file.path(rosace_dir, output_file_name)
+
+    utils::write.csv(scores.data, file = output_file, row.names = FALSE)
+    message(sprintf("Results written to: %s", output_file))
+  }
+
+  # Return the updated rosace object (in case it changed)
+  return(rosace_obj)
+}
+
+
+# ===========================
+#           MAIN
+# ===========================
+main <- function() {
+  # Logging setup
+
+  # Read configs
+  experiment_name <- snakemake@config[["experiment"]]
+  experiment_file <- snakemake@config[["experiment_file"]]
+  baseline_condition <- snakemake@config[["baseline_condition"]]
+
+  tiled <- snakemake@config[["tiled"]]
+  noprocess <- snakemake@config[["noprocess"]]
+
+  # Create directories
+  rosace_dir <- file.path("results", experiment_name, "rosace")
+  rosace_assayset_dir <- file.path(rosace_dir, "assayset")
+  message(sprintf("Creating directories: %s, %s", rosace_dir, rosace_assayset_dir))
+  dir.create(rosace_assayset_dir, recursive = TRUE, showWarnings = FALSE)
+
+  # Load experiment definition
+  experiment_definition <- load_experiment_definition(experiment_file)
+
+  # Build the Rosace object (including filter/impute/normalize/integrate)
+  rosace_obj <- build_rosace_object(experiment_definition, experiment_name, baseline_condition, noprocess)
+
+  # Parse the variant strings in var.data
+  rosace_obj <- finalize_variants_in_rosace(rosace_obj, noprocess)
+
+  # Run the Rosace analysis on each condition
+  print("Running ROSACE")
+
+  rosace_obj <- run_rosace_for_conditions(
+    rosace_obj,
+    experiment_definition,
+    experiment_name,
+    baseline_condition,
+    noprocess
+  )
+}
+
+con <- init_logging()
+on.exit(
+  {
+    stop_logging(con)
+  },
+  add = TRUE
+)
+
+# Enable renv if not using user-manged rosace
+
+if (!snakemake@config[["rosace_local"]]) {
+  # Activate environment if using renv
+  message(sprintf("Activating renv environment"))
+  renv::activate()
+}
+library("readr")
+library("stringr")
+library("dplyr")
+library("purrr")
+library("cmdstanr")
+library("rosace")
+
+
+# Run main
+tryCatch(
+  main(),
+  error = function(err) {
+    log_and_rethrow("run_rosace", err)
+  }
+)

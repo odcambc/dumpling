@@ -19,6 +19,14 @@ properties:
   reference:
     type: string
     description: reference file name
+  variants_file:
+    type: string
+    default: None
+    description: designed variants file name
+  oligo_file:
+    type: string
+    default: None
+    description: oligo list file name
   orf:
     type: string
     description: "ORF coordinates in reference file. Format: start-stop"
@@ -29,7 +37,11 @@ properties:
   min_q:
     type: integer
     default: 30
-    description: minimum Q score for bases to be analyzed by GATK
+    description: minimum Q score for bases to be analyzed by GATK ASM
+  min_variant_obs:
+    type: integer
+    default: 3
+    description: minimum number of variant observations for GATK ASM to include
   sam:
     type: string
     default: "1.3"
@@ -38,6 +50,14 @@ properties:
     type: boolean
     default: false
     description: Flag for whether to use local samtools or wrapper version.
+  rosace_local:
+    type: boolean
+    default: false
+    description: Flag for whether to use ROSACE installed on system-wide R or through a conda-controlled R environment.
+  bbtools_use_bgzip:
+    type: boolean
+    default: true
+    description: Flag for whether BBTools should use bgzip for compressed IO. Set to false to fall back to pigz/unpigz on systems where BBTools hangs with bgzip.
   adapters:
     type:
       - string
@@ -56,6 +76,10 @@ properties:
     type: integer
     default: 1024
     description: memory for bbtools (in Mb)
+  mem_rosace:
+    type: integer
+    default: 16000
+    description: memory for Rosace (in Mb)
   enrich2:
     type: boolean
     default: false
@@ -64,15 +88,15 @@ properties:
     type: boolean
     default: false
     description: Flag for whether to remove unobserved and zero-count variants before processing with Enrich.
-  regenerate_variants: 
+  regenerate_variants:
     type: boolean
     default: false
     description: Flag for whether to regenerate the designed variants file from an oligo list.
-  noprocess: 
+  noprocess:
     type: boolean
     default: false
     description: Flag for whether called variants are filtered or not.
-  run_qc: 
+  run_qc:
     type: boolean
     default: true
     description: Flag for whether QC should be performed.

@@ -2,7 +2,10 @@ rule multiqc_baseline:
     """Rule for generating baseline QC report with MultiQC.
     """
     input:
-        expand("results/{{experiment}}/processed_counts/{samples}.csv", samples=samples),
+        expand(
+            "results/{{experiment}}/processed_counts/enrich_format/{samples}.tsv",
+            samples=samples,
+        ),
         expand(
             "stats/{{experiment}}/processing/{samples}_total_processing.tsv",
             samples=samples,
@@ -34,6 +37,8 @@ rule multiqc_baseline:
 
 rule generate_baseline_configs:
     """Rule for generating a multiQC config file for baseline QC."""
+    input:
+        multiqc_config="config/multiqc_config.yaml",
     output:
         temp("config/{experiment}_multiqc_baseline_config.yaml"),
     log:

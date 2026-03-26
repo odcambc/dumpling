@@ -15,6 +15,7 @@ rule bbduk_trim_adapters:
     params:
         adapters=adapters_ref,
         mem=config["mem"],
+        compression_flags=bbtools_compression_flags,
     benchmark:
         "benchmarks/{experiment}/{sample_prefix}.bbduk_trim.benchmark.txt"
     log:
@@ -33,7 +34,8 @@ rule bbduk_trim_adapters:
         "aqhist={output.aqhist} "
         "lhist={output.lhist} "
         "stats={output.stats} "
-        "overwrite=true "
+        "{params.compression_flags}"
+        "overwrite=false "
         "t={threads} "
         "gcbins=auto 2> {log}"
 
@@ -51,6 +53,7 @@ rule remove_contaminants:
     params:
         contaminants=contaminants_ref,
         mem=config["mem"],
+        compression_flags=bbtools_compression_flags,
     benchmark:
         "benchmarks/{experiment}/{sample_prefix}.bbduk_clean.benchmark.txt"
     log:
@@ -64,7 +67,8 @@ rule remove_contaminants:
         "out={output.R1_clean} "
         "out2={output.R2_clean} "
         "stats={output.stats} "
-        "overwrite=true "
+        "{params.compression_flags}"
+        "overwrite=false "
         "k=31 "
         "t={threads} "
         "ref={params.contaminants} 2> {log}"
@@ -82,6 +86,7 @@ rule error_correct_bbmerge:
         ihist="stats/{experiment}/{sample_prefix}_merge.ihist",
     params:
         mem=config["mem"],
+        compression_flags=bbtools_compression_flags,
     benchmark:
         "benchmarks/{experiment}/{sample_prefix}.bbmerge.benchmark.txt"
     log:
@@ -94,7 +99,8 @@ rule error_correct_bbmerge:
         "in2={input.R2_clean} "
         "out={output.R1_ec} "
         "out2={output.R2_ec} "
-        "overwrite=true "
+        "{params.compression_flags}"
+        "overwrite=false "
         "ihist={output.ihist} "
         "t={threads} "
         "ecco mix showhiststats=t 2> {log}"

@@ -14,9 +14,10 @@ rule prepare_dict_GATK:
 
 
 if samtools_local:
+
     rule prepare_index_nowrapper:
         """Index the reference sequence using samtools. Necessary for GATK.
-        
+
         This uses the samtools in the path rather than the wrapper.
         This can be useful if conda does not have a samtools version for the platform.
         """
@@ -28,7 +29,9 @@ if samtools_local:
             "logs/gatk/{reference}.create_index.log",
         shell:
             "samtools faidx {input} 2> {log}"
+
 else:
+
     rule prepare_index:
         """Index the reference sequence using samtools. Necessary for GATK."""
         input:
@@ -50,7 +53,11 @@ rule prepare_bbmap_index:
             reference=config["reference"],
         ),
     output:
-        "ref/genome/1/chr1.chrom.gz",
+        index_dir=temp(directory(f"ref/bbmap/{experiment}")),
+    params:
+        mem=config["mem"],
+        kmers=config["kmers"],
+        compression_flags=bbtools_compression_flags,
     threads: 16
     log:
         expand(
@@ -59,5 +66,15 @@ rule prepare_bbmap_index:
             reference=config["reference"],
         ),
     shell:
+        "rm -rf {output.index_dir} "
+        "&& mkdir -p {output.index_dir} "
+        "&& "
         "bbmap.sh "
-        "ref={input}"
+        "-Xmx{params.mem}g "
+        "ref={input} "
+        "path={output.index_dir} "
+        "build=1 "
+        "{params.compression_flags}"
+        "k={params.kmers} "
+        "rebuild=t "
+        "2> {log}"

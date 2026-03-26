@@ -18,6 +18,7 @@ rule gatk_ASM:
     params:
         orf=config["orf"],
         min_q=config["min_q"],
+        min_variant_obs=config["min_variant_obs"],
         ref=expand(
             "{ref_dir}/{ref_name}.fasta",
             ref_dir=config["ref_dir"],
@@ -35,5 +36,6 @@ rule gatk_ASM:
         "--orf {params.orf} "
         "--sequence-dictionary {input.ref_dict} "
         "--min-q {params.min_q} "
+        "--min-variant-obs {params.min_variant_obs} "
         "--dont-ignore-disjoint-pairs "
         "-O results/{wildcards.experiment}/gatk/{wildcards.sample_prefix} 2>{log}"

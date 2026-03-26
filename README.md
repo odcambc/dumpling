@@ -137,6 +137,10 @@ The following are the dependencies required to run the pipeline:
 - [Enrich2](https://enrich2.readthedocs.io/en/latest/)
 - [Rosace](https://github.com/pimentellab/rosace)
 
+BBTools compressed IO defaults to `bgzip` in this pipeline. If your environment hangs in
+`bbduk.sh`, `bbmerge.sh`, or `bbmap.sh`, set `bbtools_use_bgzip: false` in the config to
+fall back to `pigz`/`unpigz`.
+
 ## Configuration
 
 ### Configuration files
@@ -265,6 +269,7 @@ its functionality. However, there are currently several known limitations.
 - The designed variant generation step is currently optimized for DIMPLE libraries. Other protocols may require the user to generate the designed variants CSV themself.
 - Rosace is designed for growth-based experiments. It is not optimized for FACS-seq experiments.
 - This pipeline may not work properly if the data is in a cloud server (i.e., a Box drive) or other non-standard file system.
+- This pipeline currently only accepts fastq.gz files. It does not accept fastq files.
 
 ## Citations
 

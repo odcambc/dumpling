@@ -3,9 +3,11 @@ channels:
   - bioconda
   - nodefaults
 dependencies:
-  - multiqc>=1.19
-  - python=3
+  - python<3.14
+  - numpy
   - pandas
   - pip
   - pip:
+    - polars
+    - multiqc
     - multiqc-dumpling>=0.3
