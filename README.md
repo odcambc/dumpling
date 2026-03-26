@@ -269,6 +269,7 @@ its functionality. However, there are currently several known limitations.
 - The designed variant generation step is currently optimized for DIMPLE libraries. Other protocols may require the user to generate the designed variants CSV themself.
 - Rosace is designed for growth-based experiments. It is not optimized for FACS-seq experiments.
 - This pipeline may not work properly if the data is in a cloud server (i.e., a Box drive) or other non-standard file system.
+- This pipeline currently only accepts fastq.gz files. It does not accept fastq files.
 
 ## Citations
 
