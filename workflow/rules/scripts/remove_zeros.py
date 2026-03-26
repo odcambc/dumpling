@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from script_utils import run_script
+from script_utils import run_script, set_index_with_unique_check
 
 
 def remove_zeros_enrich(enrich_file_list, output_dir):
@@ -103,11 +103,12 @@ def _run(snakemake):
     output_dir = f"results/{experiment_name}/processed_counts/removed_zeros/"
 
     # Read experiments
-    experiments = (
-        pd.read_csv(experiment_file, header=0)
-        .dropna(how="all")
-        .set_index("sample", drop=False, verify_integrity=True)
+    experiments = set_index_with_unique_check(
+        pd.read_csv(experiment_file, header=0).dropna(how="all"),
+        "sample",
+        drop=False,
     )
+
 
     # Check if 'tile' column exists
     has_tile = "tile" in experiments.columns

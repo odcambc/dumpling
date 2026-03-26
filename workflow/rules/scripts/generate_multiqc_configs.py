@@ -2,6 +2,7 @@ import pandas as pd
 import logging
 
 from snakemake.script import snakemake
+from script_utils import set_index_with_unique_check
 
 
 output_file = snakemake.output[0]
@@ -20,10 +21,10 @@ baseline_condition = snakemake.config["baseline_condition"]
 
 output_directory = "results" + "/" + experiment_name + "/enrich/"
 
-experiments = (
-    pd.read_csv(snakemake.config["experiment_file"], header=0)
-    .dropna(how="all")
-    .set_index("sample", drop=False, verify_integrity=True)
+experiments = set_index_with_unique_check(
+    pd.read_csv(snakemake.config["experiment_file"], header=0).dropna(how="all"),
+    "sample",
+    drop=False,
 )
 
 enrich2_config = ["{", '\t"conditions": [']

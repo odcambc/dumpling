@@ -6,7 +6,7 @@ import pandas as pd
 from Bio import SeqIO
 
 import process_variants
-from script_utils import run_script
+from script_utils import run_script, set_index_with_unique_check
 
 
 order: list[str] = [
@@ -225,10 +225,10 @@ def _run(snakemake):
 
     # Read experiments DataFrame
     with open(experiment_file) as f:
-        samples = (
-            pd.read_csv(f, header=0)
-            .dropna(how="all")
-            .set_index("sample", drop=False, verify_integrity=True)
+        samples = set_index_with_unique_check(
+            pd.read_csv(f, header=0).dropna(how="all"),
+            "sample",
+            drop=False,
         )
 
     # Loop over conditions, tiles, replicates
