@@ -94,12 +94,12 @@ def get_input(wildcards):
     if experiment_samples:
         input_list.extend(
             expand(
-                "results/{experiment_name}/rosace/{conditions}_scores.csv",
+                f"results/{{experiment_name}}/{scoring_backend}/{{conditions}}_scores.csv",
                 experiment_name=config["experiment"],
                 conditions=experimental_conditions,
             )
             + expand(
-                "results/{experiment_name}/rosace/rosace_installed.txt",
+                f"results/{{experiment_name}}/{scoring_backend}/{scoring_backend}_installed.txt",
                 experiment_name=config["experiment"],
             ),
         )
@@ -198,6 +198,8 @@ def validate_config(config):
 
 # Validate config and experiment files
 config.setdefault("bbtools_use_bgzip", True)
+config.setdefault("scoring_backend", "rosace")
+config.setdefault("lilace_local", False)
 validate(config, "../schemas/config.schema.yaml")
 
 experiments = load_experiments(config["experiment_file"])
@@ -212,7 +214,8 @@ baseline_samples, baseline_files = get_baseline_samples(experiments, samples)
 experiment_samples = get_experiment_samples(experiments, samples)
 files = experiments["file"]
 conditions = set(experiments["condition"])
-experimental_conditions = conditions - set([config["baseline_condition"]])
+experimental_conditions = sorted(conditions - set([config["baseline_condition"]]))
+scoring_backend = config["scoring_backend"]
 
 
 # Load additional files

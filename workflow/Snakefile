@@ -19,6 +19,7 @@ include: "rules/baseline_qc.smk"
 include: "rules/qc.smk"
 include: "rules/ref.smk"
 include: "rules/rosace.smk"
+include: "rules/lilace.smk"
 
 
 # Pseudo-rule for running analysis
