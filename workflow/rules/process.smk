@@ -20,7 +20,10 @@ rule process_counts:
     as is required for running Enrich2 and Rosace."""
     input:
         expand("results/{{experiment}}/gatk/{samples}.variantCounts", samples=samples),
-        expand("{variants_file}", variants_file=config["variants_file"]),
+        # The designed variants file is only consumed when noprocess=False (i.e.
+        # when we're filtering observed variants against the designed library).
+        # Under noprocess=True it's neither read nor required to exist.
+        *([config["variants_file"]] if not config["noprocess"] else []),
     output:
         expand(
             "results/{{experiment}}/processed_counts/enrich_format/{samples}.tsv",
@@ -52,7 +55,9 @@ rule remove_zeros:
             "results/{{experiment}}/processed_counts/enrich_format/{samples}.tsv",
             samples=samples,
         ),
-        variants_file=variants_file,
+        # variants_file is not read by remove_zeros.py; it was declared as an
+        # input by mistake. Dropping the declaration so the rule doesn't require
+        # the designed-variants CSV when noprocess=True.
     output:
         expand(
             "results/{{experiment}}/processed_counts/removed_zeros/{samples}.tsv",

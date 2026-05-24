@@ -134,14 +134,21 @@ def process_experiment(
     orf_start, orf_end = map(int, orf_range.split("-"))
     ref_AA_sequence = ref_sequence[orf_start - 1 : orf_end].translate()
 
-    # Read the designed variants file
-    logging.info("Processing designed variants file: %s", variants_file)
-    if not os.path.exists(variants_file):
-        raise FileNotFoundError(
-            f"Variants file not found: '{variants_file}'. Check 'variants_file' path in config YAML."
-        )
-    designed_df = pd.read_csv(variants_file, encoding="utf-8-sig")
-    logging.info("Designed variants length: %d", len(designed_df))
+    # Read the designed variants file. When noprocess=True the GATK output is
+    # used as-is (no filtering against a designed library), so the variants
+    # CSV is neither required to exist nor consulted; pass an empty frame
+    # through to process_variants_file, which already handles that case.
+    if noprocess:
+        logging.info("noprocess=True: skipping designed variants file load.")
+        designed_df = pd.DataFrame()
+    else:
+        logging.info("Processing designed variants file: %s", variants_file)
+        if not os.path.exists(variants_file):
+            raise FileNotFoundError(
+                f"Variants file not found: '{variants_file}'. Check 'variants_file' path in config YAML."
+            )
+        designed_df = pd.read_csv(variants_file, encoding="utf-8-sig")
+        logging.info("Designed variants length: %d", len(designed_df))
 
     # Process each sample in the experiment list
     for sample_name in sample_list:
