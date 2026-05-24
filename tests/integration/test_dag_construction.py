@@ -47,6 +47,7 @@ class TestDAGConstruction:
             "process.smk",
             "qc.smk",
             "rosace.smk",
+            "lilace.smk",
             "enrich.smk",
         ]
 
@@ -133,6 +134,86 @@ contaminants:
             # Check if it's a missing file error (expected) vs syntax error (not expected)
             assert "SyntaxError" not in result.stderr, f"Syntax error: {result.stderr}"
             assert "NameError" not in result.stderr, f"Name error: {result.stderr}"
+
+    def test_dry_run_with_lilace_backend(self, repo_root, fixtures_dir, tmp_path):
+        """Dry-run with scoring_backend=lilace should construct the DAG without crashing
+        and schedule lilace rules instead of rosace."""
+        test_dir = tmp_path / "test_run_lilace"
+        test_dir.mkdir()
+
+        config_content = f"""
+experiment: 'test_experiment'
+data_dir: '{fixtures_dir}'
+ref_dir: '{fixtures_dir}'
+experiment_file: '{fixtures_dir / "mock_experiment.csv"}'
+reference: 'mock_reference.fasta'
+variants_file: '{fixtures_dir / "mock_variants.csv"}'
+oligo_file: '{fixtures_dir / "mock_oligos.csv"}'
+orf: "1-300"
+scoring_backend: 'lilace'
+enrich2: false
+noprocess: true
+run_qc: false
+baseline_condition: 'baseline'
+remove_zeros: false
+regenerate_variants: false
+kmers: 15
+sam: "1.3"
+mem: 4
+min_q: 30
+min_variant_obs: 3
+max_deletion_length: 3
+samtools_local: false
+rosace_local: false
+lilace_local: false
+adapters: 'resources/adapters.fa'
+contaminants:
+  - 'resources/sequencing_artifacts.fa.gz'
+"""
+        config_file = test_dir / "test_config.yaml"
+        config_file.write_text(config_content)
+
+        result = subprocess.run(
+            [
+                "snakemake",
+                "-s",
+                str(repo_root / "workflow" / "Snakefile"),
+                "--configfile",
+                str(config_file),
+                "--dry-run",
+                "-p",
+                "--cores",
+                "1",
+            ],
+            capture_output=True,
+            text=True,
+            cwd=str(repo_root),
+        )
+
+        # As with the rosace dry-run, fixtures are incomplete so a non-zero exit
+        # is acceptable — what we care about is that config parsing and rule
+        # construction succeed for the lilace path.
+        if result.returncode != 0:
+            assert "SyntaxError" not in result.stderr, f"Syntax error: {result.stderr}"
+            assert "NameError" not in result.stderr, f"Name error: {result.stderr}"
+            # KeyError on a config key (e.g. mem_lilace) means the setdefault /
+            # schema-default path is broken and would prevent any lilace run.
+            assert "KeyError" not in result.stderr, (
+                f"Missing config key in lilace path: {result.stderr}"
+            )
+
+        # If anything got printed at all, the DAG should mention lilace rather
+        # than rosace. Don't fail on empty output (missing-file errors abort early).
+        combined = result.stdout + result.stderr
+        if "rule " in combined:
+            assert "lilace" in combined.lower(), (
+                "Lilace backend selected but no lilace rule scheduled:\n"
+                f"STDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
+            )
+            assert "run_rosace" not in combined, (
+                "Lilace backend selected but run_rosace was also scheduled:\n"
+                f"STDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
+            )
 
     def test_script_rule_executes_with_runtime_injection(
         self, repo_root, fixtures_dir, tmp_path
@@ -252,3 +333,27 @@ class TestConditionalRules:
         # Check for rosace-related rules
         assert "rosace" in content.lower()
         assert "rule" in content
+
+    def test_lilace_rules_exist(self, repo_root):
+        """Test that lilace rules exist."""
+        lilace_file = repo_root / "workflow" / "rules" / "lilace.smk"
+        content = lilace_file.read_text()
+
+        assert "lilace" in content.lower()
+        assert "rule run_lilace" in content
+        assert "rule install_lilace" in content
+
+    def test_get_input_branches_on_scoring_backend(self, repo_root):
+        """get_input must interpolate the scoring_backend into its output targets,
+        so flipping config['scoring_backend'] actually switches the requested rules."""
+        common_smk = (repo_root / "workflow" / "rules" / "common.smk").read_text()
+
+        # The f-string forms used in get_input — these are the exact templates
+        # that drive backend selection. If they're refactored, this test should
+        # be updated deliberately, not silently broken.
+        assert "{scoring_backend}/{{conditions}}_scores.csv" in common_smk, (
+            "get_input no longer interpolates scoring_backend into the scores target"
+        )
+        assert "{scoring_backend}/{scoring_backend}_installed.txt" in common_smk, (
+            "get_input no longer interpolates scoring_backend into the install marker"
+        )
