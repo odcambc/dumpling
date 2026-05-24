@@ -1,48 +1,15 @@
 from pathlib import Path
 import logging
 import re
+import sys
 
-# Regex patterns for identifying paired-end read files.
-# Matches common conventions: _R1_001, _R1, _1 with .fastq.gz, .fq.gz, .fastq, .fq extensions
-_FASTQ_R1_PATTERN = re.compile(r"[._](?:R1|1)(?:_\d+)?\.(?:fastq|fq)(?:\.gz)?$")
-_FASTQ_R2_PATTERN = re.compile(r"[._](?:R2|2)(?:_\d+)?\.(?:fastq|fq)(?:\.gz)?$")
+# Make the scripts directory importable so this file can use the same
+# helpers Snakemake script-rules use.
+_SCRIPTS_DIR = Path(workflow.basedir) / "rules" / "scripts"
+if str(_SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS_DIR))
 
-
-def resolve_fastq_pair(data_dir, filename):
-    """Resolve a file prefix to a paired-end R1/R2 fastq pair.
-
-    Handles common naming conventions:
-      - Illumina standard: {prefix}_R1_001.fastq.gz
-      - Simplified: {prefix}_R1.fastq.gz
-      - Numeric: {prefix}_1.fastq.gz
-      - Any of the above with .fq.gz, .fastq, or .fq extensions
-    """
-    data_dir = Path(data_dir).resolve()
-    R1, R2 = None, None
-
-    for file in data_dir.glob(f"{filename}*"):
-        name = file.name
-        if _FASTQ_R1_PATTERN.search(name):
-            if R1 is not None:
-                raise ValueError(
-                    f"Multiple R1 files found for prefix '{filename}': {R1.name} and {name}"
-                )
-            R1 = file
-        elif _FASTQ_R2_PATTERN.search(name):
-            if R2 is not None:
-                raise ValueError(
-                    f"Multiple R2 files found for prefix '{filename}': {R2.name} and {name}"
-                )
-            R2 = file
-
-    if not R1 or not R2:
-        raise FileNotFoundError(
-            f"Could not find matching R1 and R2 fastq files for prefix '{filename}' in {data_dir}. "
-            f"Expected files matching patterns like {filename}_R1_001.fastq.gz, {filename}_R1.fq.gz, "
-            f"{filename}_1.fastq, etc."
-        )
-
-    return R1, R2
+from script_utils import file_digest, resolve_fastq_pair  # noqa: E402
 
 
 def get_file_from_sample(wildcards):
@@ -232,7 +199,7 @@ config.setdefault("bbtools_use_bgzip", True)
 validate(config, "../schemas/config.schema.yaml")
 
 experiments = (
-    pd.read_csv(config["experiment_file"], header=0)
+    pd.read_csv(config["experiment_file"], header=0, encoding="utf-8-sig")
     .dropna(how="all")
     .set_index("sample", drop=False, verify_integrity=True)
 )
@@ -325,3 +292,11 @@ for file_prefix, paths in fastq_map.items():
 
 # Validate the configuration
 validate_config(config)
+
+# Hash the reference file so the bbmap index path varies by reference content.
+# A changed reference produces a different output path, which avoids the
+# scenario where bbmap is pointed at a directory containing artifacts from
+# a previous build against a different reference. Computed here (after
+# validate_config) so a missing reference fails with the clearer validation
+# error rather than a raw FileNotFoundError from the hash read.
+ref_digest = file_digest(reference_file)

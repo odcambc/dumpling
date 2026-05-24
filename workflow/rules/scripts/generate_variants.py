@@ -153,9 +153,13 @@ def designed_variants(oligo_csv, ref, offset, is_circular=False):
                     variant_data["chunk"] = chunk
 
                 # Deletions
-                # Updated regex to better handle deletion format variations
+                # DIMPLE emits names as `<gene>_delete-<chunk>_<length>-<position>`
+                # (see DIMPLE/DIMPLE.py); all three numeric components are required.
+                # Non-matching lines (e.g. malformed entries or non-DIMPLE oligo
+                # libraries) fall through silently — same as for substitutions and
+                # insertions above.
                 variant_del = regex.search(
-                    r".*_delete-([0-9]+)_([0-9]+)(?:-([0-9]+))?", line[0]
+                    r".*_delete-([0-9]+)_([0-9]+)-([0-9]+)", line[0]
                 )
                 if variant_del and not variant_data:
                     mutation_type = "D"

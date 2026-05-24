@@ -76,7 +76,7 @@ def variants_file(tmp_path):
 def oligo_file(tmp_path):
     """
     If you're testing the 'regenerate_variants' logic, create a mock oligo file
-    for process_oligo_list. If not, we can skip this or provide an empty file.
+    for generate_variants. If not, we can skip this or provide an empty file.
     """
     oligo_file = tmp_path / "oligos.txt"
     oligo_file.write_text("Mock oligo data\n")
@@ -233,13 +233,16 @@ def test_process_experiment_minimal(
     # But you can parse or do line-by-line checks if needed.
 
 
-def test_process_experiment_missing_variants_file(
+def test_process_experiment_missing_variants_file_when_filtering(
     mock_ref_dir,
     reference_fasta,
     oligo_file,
     gatk_dir,
     output_dir,
 ):
+    """When variant filtering is active (noprocess=False), a missing
+    variants CSV is a hard error — we can't filter against what isn't
+    there."""
     missing_variants_file = str(Path(output_dir) / "does_not_exist.csv")
 
     with pytest.raises(FileNotFoundError, match="Variants file not found"):
@@ -252,8 +255,49 @@ def test_process_experiment_missing_variants_file(
             variants_file=missing_variants_file,
             orf_range="1-12",
             max_deletion_length=3,
-            noprocess=True,
+            noprocess=False,
             gatk_dir=gatk_dir,
             output_dir=output_dir,
             regenerate_variants=False,
         )
+
+
+def test_process_experiment_noprocess_does_not_require_variants_file(
+    mock_ref_dir,
+    reference_fasta,
+    oligo_file,
+    gatk_dir,
+    output_dir,
+    mock_process_variants,
+):
+    """noprocess=True means the GATK output is passed through without
+    filtering against a designed library. The variants file is not
+    consulted and is not required to exist."""
+    missing_variants_file = str(Path(output_dir) / "does_not_exist.csv")
+
+    # Write a minimal GATK file the mocked process_variants will read.
+    sample_name = "sampleA"
+    gatk_csv = os.path.join(gatk_dir, f"{sample_name}.variantCounts")
+    with open(gatk_csv, "w") as f:
+        f.write("mock\ttsv\tlines")
+
+    # Should not raise.
+    process_experiment(
+        sample_list=[sample_name],
+        experiment_name="experiment",
+        ref_dir=mock_ref_dir,
+        reference_fasta=os.path.basename(reference_fasta),
+        oligo_file=oligo_file,
+        variants_file=missing_variants_file,
+        orf_range="1-12",
+        max_deletion_length=3,
+        noprocess=True,
+        gatk_dir=gatk_dir,
+        output_dir=output_dir,
+        regenerate_variants=False,
+    )
+
+    # And the per-sample outputs that don't depend on the variants file
+    # should still have been produced.
+    assert (Path(output_dir) / f"{sample_name}.csv").exists()
+    assert (Path(output_dir) / "enrich_format" / f"{sample_name}.tsv").exists()

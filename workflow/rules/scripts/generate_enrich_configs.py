@@ -17,9 +17,14 @@ def remove_truncated_replicates(experiments, conditions, tiled):
     """
     Remove replicates with fewer than two timepoints/bins.
 
+    Enrich2 needs at least two timepoints per replicate (a T0 and at least
+    one later sample) to compute a ratio, so replicates with strictly fewer
+    than two are dropped. Replicates with exactly two timepoints are valid
+    and retained.
+
     Accepts as input a dataframe of experiment metadata.
-    Returns a dataframe of experiment metadata with all replicates
-    that have two or fewer timepoints removed.
+    Returns a dataframe of experiment metadata with all replicates that
+    have fewer than two timepoints removed.
     """
     has_tile_column = "tile" in experiments.columns
 
@@ -53,7 +58,7 @@ def remove_truncated_replicates(experiments, conditions, tiled):
                 ]
                 timepoints = rep_subset["time"].unique()
 
-                if len(timepoints) <= 2:
+                if len(timepoints) < 2:
                     # Remove all rows matching this condition+replicate (+tile if present)
                     if tile is None or not (tiled and has_tile_column):
                         experiments = experiments.loc[
@@ -264,7 +269,9 @@ def _run(snakemake):
 
     # Read in the experiments file
     experiments = set_index_with_unique_check(
-        pd.read_csv(snakemake.config["experiment_file"], header=0).dropna(how="all"),
+        pd.read_csv(
+            snakemake.config["experiment_file"], header=0, encoding="utf-8-sig"
+        ).dropna(how="all"),
         "sample",
         drop=False,
     )
@@ -285,6 +292,24 @@ def _run(snakemake):
     experiments_filtered = remove_truncated_replicates(
         experiments_filtered, conditions, tiled
     )
+
+    # Re-derive the condition list from the filtered df: any condition whose
+    # replicates were all dropped above would otherwise still produce a config
+    # stanza with an empty "selections" array (and break trailing-comma logic).
+    surviving = set(experiments_filtered["condition"].unique())
+    dropped = [c for c in conditions if c not in surviving]
+    if dropped:
+        logging.warning(
+            "Conditions dropped entirely after replicate filtering: %s",
+            ", ".join(dropped),
+        )
+    conditions = [c for c in conditions if c in surviving]
+    if not conditions:
+        raise ValueError(
+            "No conditions remain after replicate filtering. Check the experiment "
+            "file: at least one condition must have a replicate with both a T0 "
+            "sample and >=2 timepoints."
+        )
 
     # Generate the Enrich2 config
     enrich2_config_lines = generate_config(

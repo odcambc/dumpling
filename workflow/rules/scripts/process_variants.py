@@ -520,12 +520,22 @@ def process_variants_file(
     # Otherwise we will populate a copy of the designed variants dataframe.
     variants_noprocess_dict: Dict[str, VariantDict] = {}
 
+    # Per-variant observed-count accumulator for the filtering (noprocess=False)
+    # path. The hot loop below previously updated variants_df with a boolean-mask
+    # `.loc[mask, "count"] += counts` once per GATK row, which is O(reads × designed
+    # variants) — the dominant runtime cost on 100s-of-GB fastq inputs. Accumulate
+    # into a dict here, then do a single vectorized join after the loop.
+    observed_counts: Dict[str, int] = {}
+
     if noprocess:
         variants_df = pd.DataFrame()
-        variant_names_array = []
+        # `variant_names` is a set for O(1) membership checks in the hot loop;
+        # under noprocess we don't filter against a designed library at all, so
+        # an empty set is fine.
+        variant_names: set = set()
     else:
         variants_df = designed_variants_df.copy(deep=True)
-        variant_names_array = sorted(variants_df["name"].array)
+        variant_names = set(variants_df["name"])
 
     for line in gatk_list:
         counts = int(line[0])
@@ -598,7 +608,7 @@ def process_variants_file(
         # designed variants dataframe. If it is not, we will reject it.
         else:
             try:
-                if variant_dict["name"] in variant_names_array:
+                if variant_dict["name"] in variant_names:
                     variant_dict["rejected"] = False
                 else:
                     variant_dict["rejected"] = True
@@ -618,16 +628,10 @@ def process_variants_file(
                 accepted_stats, rejected_stats, variant_dict
             )
 
-            try:
-                variants_df.loc[
-                    variants_df.name == variant_dict["name"], "count"
-                ] += int(counts)
-            except KeyError:
-                rejected = True
-                rejected_list = rejected_list + [line]
-                rejected_stats["wrong_variant_counts"] = (
-                    rejected_stats["wrong_variant_counts"] + counts
-                )
+            # Accept: accumulate counts under the variant's name. A single
+            # vectorized merge into variants_df happens after the loop.
+            name = variant_dict["name"]
+            observed_counts[name] = observed_counts.get(name, 0) + int(counts)
 
     total_stats["total_rejected_counts"] = (
         rejected_stats["outside_orf_counts"]
@@ -654,6 +658,17 @@ def process_variants_file(
         variants_df["count"] = variants_df["count"].astype(int)
         # rename mutation column to mutant
         variants_df.rename(columns={"mutation": "mutant"}, inplace=True)
+    else:
+        # Vectorized merge: replace the boolean-mask-per-row update with a
+        # single .map() + add. variants_df["name"] looks each name up in the
+        # accumulator dict (O(N) total); names not in the dict get NaN, which
+        # we fill with 0 before adding. This collapses what was an
+        # O(reads × designed variants) hot path to O(reads + designed variants).
+        if observed_counts:
+            additions = (
+                variants_df["name"].map(observed_counts).fillna(0).astype(int)
+            )
+            variants_df["count"] = variants_df["count"] + additions
 
     return variants_df, rejected_list, rejected_stats, accepted_stats, total_stats
 

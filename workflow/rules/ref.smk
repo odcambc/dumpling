@@ -45,11 +45,18 @@ else:
 
 
 rule prepare_bbmap_index:
-    """Generate the index for mapping with bbmap. This must be run once before mapping."""
+    """Generate the index for mapping with bbmap. This must be run once before mapping.
+
+    The output directory is keyed on a hash of the reference contents
+    (`{experiment}_{ref_digest}`), so a changed reference produces a fresh
+    directory and bbmap is never pointed at an index built from a different
+    reference. No pre-build cleanup is needed: a different reference goes
+    somewhere else by construction, and a re-run against the same reference
+    rebuilds via `rebuild=t`."""
     input:
         str(reference_file),
     output:
-        index_dir=temp(directory(f"ref/bbmap/{experiment}")),
+        index_dir=temp(directory(f"ref/bbmap/{experiment}_{ref_digest}")),
     params:
         mem=config["mem"],
         kmers=config["kmers"],
@@ -58,9 +65,6 @@ rule prepare_bbmap_index:
     log:
         f"logs/{experiment}/bbmap/{reference_name}.bbmap_index.log",
     shell:
-        "rm -rf {output.index_dir} "
-        "&& mkdir -p {output.index_dir} "
-        "&& "
         "bbmap.sh "
         "-Xmx{params.mem}g "
         "ref={input} "
