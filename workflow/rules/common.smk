@@ -1,6 +1,15 @@
 from pathlib import Path
 import logging
 import re
+import sys
+
+# Make the scripts directory importable so this file can use the same
+# helpers Snakemake script-rules use.
+_SCRIPTS_DIR = Path(workflow.basedir) / "rules" / "scripts"
+if str(_SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS_DIR))
+
+from script_utils import file_digest  # noqa: E402
 
 # Regex patterns for identifying paired-end read files.
 # Matches common conventions: _R1_001, _R1, _1 with .fastq.gz, .fq.gz, .fastq, .fq extensions
@@ -325,3 +334,11 @@ for file_prefix, paths in fastq_map.items():
 
 # Validate the configuration
 validate_config(config)
+
+# Hash the reference file so the bbmap index path varies by reference content.
+# A changed reference produces a different output path, which avoids the
+# scenario where bbmap is pointed at a directory containing artifacts from
+# a previous build against a different reference. Computed here (after
+# validate_config) so a missing reference fails with the clearer validation
+# error rather than a raw FileNotFoundError from the hash read.
+ref_digest = file_digest(reference_file)

@@ -1,7 +1,7 @@
 rule map_to_reference_bbmap:
     """Map reads to reference sequence using BBMap. covhist output is currently disabled as it causes MultiQC bloat."""
     input:
-        index_dir=f"ref/bbmap/{experiment}",
+        index_dir=f"ref/bbmap/{experiment}_{ref_digest}",
         R1_ec="results/{experiment}/{sample_prefix}_R1.ec.clean.trim.fastq.gz",
         R2_ec="results/{experiment}/{sample_prefix}_R2.ec.clean.trim.fastq.gz",
     output:
