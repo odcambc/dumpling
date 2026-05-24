@@ -140,7 +140,7 @@ def process_experiment(
         raise FileNotFoundError(
             f"Variants file not found: '{variants_file}'. Check 'variants_file' path in config YAML."
         )
-    designed_df = pd.read_csv(variants_file)
+    designed_df = pd.read_csv(variants_file, encoding="utf-8-sig")
     logging.info("Designed variants length: %d", len(designed_df))
 
     # Process each sample in the experiment list
@@ -224,7 +224,7 @@ def _run(snakemake):
     logging.debug("Loading experiment file: %s", experiment_file)
 
     # Read experiments DataFrame
-    with open(experiment_file) as f:
+    with open(experiment_file, encoding="utf-8-sig") as f:
         samples = set_index_with_unique_check(
             pd.read_csv(f, header=0).dropna(how="all"),
             "sample",

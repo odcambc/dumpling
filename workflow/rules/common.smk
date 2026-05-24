@@ -232,7 +232,7 @@ config.setdefault("bbtools_use_bgzip", True)
 validate(config, "../schemas/config.schema.yaml")
 
 experiments = (
-    pd.read_csv(config["experiment_file"], header=0)
+    pd.read_csv(config["experiment_file"], header=0, encoding="utf-8-sig")
     .dropna(how="all")
     .set_index("sample", drop=False, verify_integrity=True)
 )

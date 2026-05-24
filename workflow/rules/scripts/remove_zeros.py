@@ -104,7 +104,7 @@ def _run(snakemake):
 
     # Read experiments
     experiments = set_index_with_unique_check(
-        pd.read_csv(experiment_file, header=0).dropna(how="all"),
+        pd.read_csv(experiment_file, header=0, encoding="utf-8-sig").dropna(how="all"),
         "sample",
         drop=False,
     )
