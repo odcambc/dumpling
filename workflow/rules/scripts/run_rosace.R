@@ -263,12 +263,17 @@ build_counts_for_replicate <- function(df_subset, experiment_name) {
 #   BUILD ROSACE OBJECT
 # ===========================
 build_rosace_object <- function(experiment_definition, experiment_name, baseline_condition, noprocess) {
-  # This function:
-  #   - Loops over conditions (excluding baseline)
-  #   - Loops over replicates
-  #   - Builds an assay object from the combined counts
-  #   - Adds the assay to a global or local 'rosace' object
-  #   - Returns the Rosace object
+  # For each non-baseline condition:
+  #   1. Add every replicate's assay to the Rosace object.
+  #   2. Once all replicates for the condition are present, run
+  #      FilterData / ImputeData / NormalizeData / IntegrateData ONCE
+  #      against that condition's key.
+  #
+  # IntegrateData consolidates all replicates sharing a key into a single
+  # AssaySet, and NormalizeData (wt-relative) needs visibility across all
+  # replicates to compute a meaningful WT baseline — so both must run after
+  # the full replicate set for a condition is loaded, not after each
+  # individual replicate.
 
   conditions <- unique(experiment_definition$condition)
   conditions <- conditions[conditions != baseline_condition]
@@ -279,6 +284,9 @@ build_rosace_object <- function(experiment_definition, experiment_name, baseline
   for (expt_condition in conditions) {
     # Subset by condition
     condition_df <- filter(experiment_definition, condition == expt_condition)
+    condition_has_data <- FALSE
+
+    # Pass 1: add every valid replicate's assay to the object.
     for (expt_replicate in unique(condition_df$replicate)) {
       replicate_df <- filter(condition_df, replicate == expt_replicate)
 
@@ -308,36 +316,45 @@ build_rosace_object <- function(experiment_definition, experiment_name, baseline
         # else add to the existing object
         rosace_obj <- AddAssayData(object = rosace_obj, assay = assay)
       }
+      condition_has_data <- TRUE
+    }
 
-      # Filter, impute, normalize, integrate
-      rosace_obj <- FilterData(rosace_obj, key = expt_condition, na.rmax = 0.5)
-      rosace_obj <- ImputeData(
+    if (!condition_has_data) {
+      warning(sprintf(
+        "No valid replicates for condition=%s; skipping Filter/Impute/Normalize/Integrate.",
+        expt_condition
+      ))
+      next
+    }
+
+    # Pass 2: filter, impute, normalize, integrate ONCE per condition,
+    # after all of its replicates are loaded.
+    message(sprintf("Filter/impute/normalize/integrate for condition: %s", expt_condition))
+    rosace_obj <- FilterData(rosace_obj, key = expt_condition, na.rmax = 0.5)
+    rosace_obj <- ImputeData(
+      rosace_obj,
+      key = expt_condition,
+      impute.method = "knn",
+      na.rmax = 0.5
+    )
+    if (noprocess) {
+      message(sprintf("Normalizing by total counts since noprocess flag is set."))
+      rosace_obj <- NormalizeData(
         rosace_obj,
         key = expt_condition,
-        impute.method = "knn",
-        na.rmax = 0.5
+        normalization.method = "total"
       )
-      if (noprocess) {
-        message(sprintf("Normalizing by total counts since noprocess flag is set."))
-        rosace_obj <- NormalizeData(
-          rosace_obj,
-          key = expt_condition,
-          normalization.method = "total"
-        )
-      } else {
-        message(sprintf("Normalizing data by variant names and WT."))
-        rosace_obj <- NormalizeData(
-          rosace_obj,
-          key = expt_condition,
-          normalization.method = "wt",
-          wt.var.names = c("_wt"),
-          wt.rm = TRUE
-        )
-      }
-
-      message(sprintf("Integrated data for condition: %s", expt_condition))
-      rosace_obj <- IntegrateData(object = rosace_obj, key = expt_condition)
+    } else {
+      message(sprintf("Normalizing data by variant names and WT."))
+      rosace_obj <- NormalizeData(
+        rosace_obj,
+        key = expt_condition,
+        normalization.method = "wt",
+        wt.var.names = c("_wt"),
+        wt.rm = TRUE
+      )
     }
+    rosace_obj <- IntegrateData(object = rosace_obj, key = expt_condition)
   }
 
   if (!rosace_created) {
