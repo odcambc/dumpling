@@ -38,7 +38,6 @@ aa_3to1_dict: Dict[str, str] = {
     "Val": "V",
     "Stp": "X",
 }
-aa_1to3_dict: Dict[str, str] = {v: k for k, v in aa_3to1_dict.items()}
 
 variantCounts_colnames: List[str] = [
     "counts",
