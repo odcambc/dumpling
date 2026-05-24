@@ -252,3 +252,74 @@ def test_process_variants_file_normal(designed_variants_df, ref_aa_sequence):
     assert total_stats["total_counts"] == 17  # 5 + 2 + 10
     # You can check sub-counters in accepted_stats / rejected_stats if needed:
     # e.g., accepted_stats["accepted_sub_counts"] == 5, etc.
+
+
+# -------------------------
+#  H2: vectorized accumulator regression coverage
+# -------------------------
+
+
+def _gatk_g10a(counts):
+    """Build a GATK row that should be recognized as the G10A variant."""
+    return [str(counts), "0", "0.1", "1", "1774:A>C", "1", "10:CAA>AAG", "M:G>A", "G10A"]
+
+
+def test_process_variants_file_sums_duplicate_observations(
+    designed_variants_df, ref_aa_sequence
+):
+    """The hot path used to do `variants_df.loc[mask, "count"] += counts` once
+    per GATK row. The vectorized rewrite accumulates into a dict and merges
+    once at the end. This guards the invariant that K duplicate observations
+    of the same variant produce a count of sum(K), not the most recent K."""
+    gatk_list = [_gatk_g10a(3), _gatk_g10a(7), _gatk_g10a(2)]
+    variants_df, *_ = process_variants_file(
+        gatk_list,
+        designed_variants_df,
+        ref_aa_sequence,
+        max_deletion_length=3,
+        noprocess=False,
+    )
+    g10a = variants_df.loc[variants_df["name"] == "G10A", "count"].iloc[0]
+    assert g10a == 12  # 3 + 7 + 2
+
+
+def test_process_variants_file_unobserved_variants_have_count_zero(
+    designed_variants_df, ref_aa_sequence
+):
+    """A designed variant that's never observed must keep its initial count
+    of 0 — the vectorized merge should not perturb rows whose names don't
+    appear in the GATK list."""
+    gatk_list = [_gatk_g10a(5)]
+    variants_df, *_ = process_variants_file(
+        gatk_list,
+        designed_variants_df,
+        ref_aa_sequence,
+        max_deletion_length=3,
+        noprocess=False,
+    )
+    # G10A observed, R11R / P12del not observed.
+    assert variants_df.loc[variants_df["name"] == "G10A", "count"].iloc[0] == 5
+    assert variants_df.loc[variants_df["name"] == "R11R", "count"].iloc[0] == 0
+    assert variants_df.loc[variants_df["name"] == "P12del", "count"].iloc[0] == 0
+
+
+def test_process_variants_file_order_independent(
+    designed_variants_df, ref_aa_sequence
+):
+    """Shuffling the GATK row order must not change the final counts."""
+    rows = [_gatk_g10a(c) for c in (1, 5, 9, 2, 4)]
+
+    def run(gatk_list):
+        df, *_ = process_variants_file(
+            gatk_list,
+            designed_variants_df,
+            ref_aa_sequence,
+            max_deletion_length=3,
+            noprocess=False,
+        )
+        return df.loc[df["name"] == "G10A", "count"].iloc[0]
+
+    forward = run(rows)
+    reverse = run(list(reversed(rows)))
+    shuffled = run([rows[2], rows[0], rows[4], rows[1], rows[3]])
+    assert forward == reverse == shuffled == 21  # 1 + 5 + 9 + 2 + 4
