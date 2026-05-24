@@ -79,6 +79,34 @@ class TestOligoProcessing(unittest.TestCase):
         # Test with no matches
         self.assertEqual(extract_codon("ACTG", "XXX", "YYY", 0, "ZZZZ", 0, 1), "")
 
+    def test_extract_codon_flanks_with_regex_metacharacters(self):
+        """Flanking sequences must be escaped before re.split.
+
+        A pre_codon containing a regex metacharacter (e.g. `*`, `.`, `(`)
+        would either crash with re.error or match the wrong bases. The
+        characters here aren't legal IUPAC, but a user-supplied reference
+        FASTA can plausibly contain any of them (alignment gaps, stop-codon
+        annotations, ambiguity notations like `(A/G)`), so the function
+        must not assume clean ACGT input.
+        """
+        oligo = "AAA.BBBTATCCC"
+        # `.` is the regex wildcard; without escaping, `re.split("AAA.BBB", ...)`
+        # would split anywhere AAA + any-char + BBB appears, which here happens
+        # to match but in general gives the wrong answer or fails to anchor.
+        pre_codon = "AAA.BBB"
+        self.assertEqual(
+            extract_codon(oligo, pre_codon, "", 0, "", 0, 1),
+            "TAT",
+        )
+
+        # `(` is unbalanced and would raise re.error("missing ), unterminated subpattern")
+        # without escaping.
+        oligo_with_paren = "AAA(GROUP)TATCCC"
+        self.assertEqual(
+            extract_codon(oligo_with_paren, "AAA(GROUP)", "", 0, "", 0, 1),
+            "TAT",
+        )
+
     def test_designed_variants_substitution(self):
         """Test processing substitution variants."""
         with tempfile.NamedTemporaryFile(delete=False) as temp_file:

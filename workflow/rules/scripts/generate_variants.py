@@ -408,12 +408,14 @@ def extract_codon(
         return ""
 
     if pre_codon:
-        pre_split = re.split(pre_codon, oligo_sequence, flags=re.IGNORECASE)
+        pre_split = re.split(re.escape(pre_codon), oligo_sequence, flags=re.IGNORECASE)
         if len(pre_split) == 2:
             return pre_split[1][0:3]
 
     if post_codon:
-        post_split = re.split(post_codon, oligo_sequence, flags=re.IGNORECASE)
+        post_split = re.split(
+            re.escape(post_codon), oligo_sequence, flags=re.IGNORECASE
+        )
         if len(post_split) == 2:
             return post_split[0][-3:]
 
@@ -432,11 +434,11 @@ def extract_codon(
     logging.warning(f"pre_codon: {pre_codon}, post_codon: {post_codon}")
     if pre_codon:
         logging.warning(
-            f"pre_split: {re.split(pre_codon, oligo_sequence, flags=re.IGNORECASE)}"
+            f"pre_split: {re.split(re.escape(pre_codon), oligo_sequence, flags=re.IGNORECASE)}"
         )
     if post_codon:
         logging.warning(
-            f"post_split: {re.split(post_codon, oligo_sequence, flags=re.IGNORECASE)}"
+            f"post_split: {re.split(re.escape(post_codon), oligo_sequence, flags=re.IGNORECASE)}"
         )
     return ""
 
