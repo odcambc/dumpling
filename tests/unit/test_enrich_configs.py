@@ -1,8 +1,13 @@
+import json
+
 import pandas as pd
+import pytest
+
 from workflow.rules.scripts.generate_enrich_configs import (
     remove_truncated_replicates,
     generate_config,
     remove_missing_t0,
+    _run,
 )
 
 
@@ -96,3 +101,76 @@ def test_generate_config_untiled():
     assert any('"name": "A"' in line for line in config)
     assert any(f'"counts file": "{tsv_path}s1.tsv"' in line for line in config)
     assert any(f'"output directory": "{output_directory}"' in line for line in config)
+
+
+# ---------------------------------------------------------------------------
+# Empty-condition handling end-to-end via _run.
+#
+# remove_truncated_replicates / remove_missing_t0 can drop every replicate of
+# a condition. Before this fix, _run still passed the *original* conditions
+# list into generate_config, so the dropped condition would appear as a
+# stanza with an empty "selections": [] — and the trailing-comma logic could
+# emit invalid JSON if the empty condition happened to be last.
+# ---------------------------------------------------------------------------
+
+
+def _write_experiment_csv(tmp_path, rows):
+    csv = tmp_path / "experiment.csv"
+    pd.DataFrame(rows).to_csv(csv, index=False)
+    return csv
+
+
+def _make_snakemake(mock_snakemake, experiment_csv, output_path, *, remove_zeros=False):
+    return mock_snakemake(
+        config={
+            "experiment": "test_exp",
+            "experiment_file": str(experiment_csv),
+            "tiled": False,
+            "baseline_condition": "",
+        },
+        params={"remove_zeros": remove_zeros},
+        output=[str(output_path)],
+        log=["/dev/null"],
+    )
+
+
+def test_run_drops_condition_filtered_out_by_replicate_pruning(tmp_path, mock_snakemake):
+    """Condition B's only replicate has <2 timepoints; after filtering it
+    must not appear in the generated config, and the surviving JSON must
+    parse cleanly."""
+    rows = [
+        # Condition A: valid (T0, T1, T2)
+        {"sample": "A_T0", "condition": "A", "replicate": 1, "time": 0},
+        {"sample": "A_T1", "condition": "A", "replicate": 1, "time": 1},
+        {"sample": "A_T2", "condition": "A", "replicate": 1, "time": 2},
+        # Condition B: only one timepoint — gets dropped by remove_truncated_replicates
+        {"sample": "B_T0", "condition": "B", "replicate": 1, "time": 0},
+    ]
+    csv = _write_experiment_csv(tmp_path, rows)
+    out = tmp_path / "config.json"
+
+    _run(_make_snakemake(mock_snakemake, csv, out))
+
+    text = out.read_text()
+    parsed = json.loads(text)  # must be valid JSON
+
+    names = {c["name"] for c in parsed["conditions"]}
+    assert names == {"A"}, f"Condition B should have been dropped; got {names}"
+    # And the surviving condition has a non-empty selections list.
+    assert len(parsed["conditions"][0]["selections"]) > 0
+
+
+def test_run_raises_when_all_conditions_dropped(tmp_path, mock_snakemake):
+    """If filtering removes every replicate of every condition, _run must
+    fail loudly rather than emit an empty `conditions: []` config that
+    Enrich2 will choke on later."""
+    rows = [
+        # Both conditions have only a single timepoint — both get dropped.
+        {"sample": "A_T0", "condition": "A", "replicate": 1, "time": 0},
+        {"sample": "B_T0", "condition": "B", "replicate": 1, "time": 0},
+    ]
+    csv = _write_experiment_csv(tmp_path, rows)
+    out = tmp_path / "config.json"
+
+    with pytest.raises(ValueError, match="No conditions remain"):
+        _run(_make_snakemake(mock_snakemake, csv, out))

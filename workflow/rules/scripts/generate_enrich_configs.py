@@ -288,6 +288,24 @@ def _run(snakemake):
         experiments_filtered, conditions, tiled
     )
 
+    # Re-derive the condition list from the filtered df: any condition whose
+    # replicates were all dropped above would otherwise still produce a config
+    # stanza with an empty "selections" array (and break trailing-comma logic).
+    surviving = set(experiments_filtered["condition"].unique())
+    dropped = [c for c in conditions if c not in surviving]
+    if dropped:
+        logging.warning(
+            "Conditions dropped entirely after replicate filtering: %s",
+            ", ".join(dropped),
+        )
+    conditions = [c for c in conditions if c in surviving]
+    if not conditions:
+        raise ValueError(
+            "No conditions remain after replicate filtering. Check the experiment "
+            "file: at least one condition must have a replicate with both a T0 "
+            "sample and >=2 timepoints."
+        )
+
     # Generate the Enrich2 config
     enrich2_config_lines = generate_config(
         conditions,
