@@ -146,11 +146,23 @@ contaminants:
             "extra_fn_clean_exts:\n  - \".txt\"\n"
         )
 
+        # Stub fastq files matching the mock experiment's `file: mock_reads`
+        # column. The rule under test (generate_baseline_configs) doesn't
+        # consume them, but common.smk performs fastq pair resolution at
+        # parse time for every sample in the experiment CSV, and baseline_qc
+        # then indexes fastqc_names[<prefix>] — a KeyError here would block
+        # parse before the requested rule could run. Empty files are
+        # sufficient: resolve_fastq_pair only matches on filename pattern.
+        data_dir = test_dir / "data"
+        data_dir.mkdir()
+        (data_dir / "mock_reads_R1.fastq.gz").touch()
+        (data_dir / "mock_reads_R2.fastq.gz").touch()
+
         resources_dir = repo_root / "resources"
         config_file = test_dir / "test_config.yaml"
         config_content = f"""
 experiment: 'smoke'
-data_dir: '{fixtures_dir}'
+data_dir: '{data_dir}'
 ref_dir: '{fixtures_dir}'
 experiment_file: '{fixtures_dir / "mock_experiment.csv"}'
 reference: 'mock_reference.fasta'
