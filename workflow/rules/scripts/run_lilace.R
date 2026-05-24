@@ -152,6 +152,12 @@ build_counts_for_replicate <- function(df_subset, experiment_name) {
       file_name <- file.path(
         "results", experiment_name, "processed_counts", "enrich_format", paste0(sample_name, ".tsv")
       )
+      if (!file.exists(file_name)) {
+        stop(sprintf(
+          "Expected per-sample count file is missing: %s. Did upstream GATK / process_counts fail for sample '%s'?",
+          file_name, sample_name
+        ))
+      }
       this_count <- readr::read_tsv(file_name, show_col_types = FALSE)
 
       if (anyDuplicated(this_count$hgvs) > 0) {
@@ -223,6 +229,7 @@ run_lilace_for_condition <- function(experiment_definition, experiment_name, con
   )
 
   output_dir <- file.path("results", experiment_name, "lilace", condition_name)
+  dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
   lilace_obj <- lilace::lilace_fit_model(
     lilace_obj,
     output_dir = output_dir,

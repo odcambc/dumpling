@@ -94,7 +94,7 @@ properties:
   enrich2:
     type: boolean
     default: false
-    description: Flag for whether to run Enrich2 in addition to Rosace.
+    description: Flag for whether to run Enrich2 in addition to the chosen scoring backend.
   remove_zeros:
     type: boolean
     default: false

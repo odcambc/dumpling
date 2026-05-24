@@ -200,6 +200,7 @@ def validate_config(config):
 config.setdefault("bbtools_use_bgzip", True)
 config.setdefault("scoring_backend", "rosace")
 config.setdefault("lilace_local", False)
+config.setdefault("mem_lilace", 16000)
 validate(config, "../schemas/config.schema.yaml")
 
 experiments = load_experiments(config["experiment_file"])
