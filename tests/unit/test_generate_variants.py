@@ -170,6 +170,9 @@ class TestOligoProcessing(unittest.TestCase):
         self.assertEqual(variants[0]["mutation_type"], "I")  # Insertion
         self.assertTrue("ins" in variants[0]["name"])
         self.assertEqual(variants[0]["codon"], "ATGGCG")
+        self.assertEqual(variants[0]["mutant"], "I_2")  # 2 codon insertion
+
+        os.unlink(temp_name)
 
     # ------------------------------------------------------------------
     # Insertion length-consistency check.
@@ -181,6 +184,13 @@ class TestOligoProcessing(unittest.TestCase):
     # library's name and content disagree (replaces the prior dead
     # `if insertion_length != len(inserted_seq)` self-comparison).
     # ------------------------------------------------------------------
+
+    # A reference with distinct codons so the script's flanking-window
+    # anchors aren't ambiguous (the more-realistic-looking
+    # "ATGGCTAGCATGGCTAGC..." reference used by the other tests has a
+    # tandem repeat that makes pre_window match in multiple positions —
+    # fine for those tests, but it would mask the length-check logic).
+    _NONREPEATING_REF = "AAACCCGGGTTTAATCATCAGTACAAGTGGAGCAGTGAACGTTCC"
 
     def _build_insertion_oligo(self, ref, offset, pos, actual_inserted):
         """Construct an oligo whose actual inserted region equals
@@ -196,7 +206,7 @@ class TestOligoProcessing(unittest.TestCase):
     def test_designed_variants_insertion_length_mismatch_warns(self):
         """Oligo NAME declares a different number of inserted bases than the
         oligo SEQUENCE actually contains — emit a length-mismatch warning."""
-        ref = "ATGGCTAGCATGGCTAGCATGGCTAGCATGGCTAGCATGGCTAGC"
+        ref = self._NONREPEATING_REF
         offset = 1
         pos = 5
 
@@ -221,7 +231,7 @@ class TestOligoProcessing(unittest.TestCase):
 
     def test_designed_variants_insertion_length_match_no_warning(self):
         """When the name and the oligo sequence agree, no mismatch warning."""
-        ref = "ATGGCTAGCATGGCTAGCATGGCTAGCATGGCTAGCATGGCTAGC"
+        ref = self._NONREPEATING_REF
         offset = 1
         pos = 5
         inserted = "TGCATG"  # 6 bases
@@ -272,7 +282,6 @@ class TestOligoProcessing(unittest.TestCase):
         )
 
         os.unlink(temp_name)
-        self.assertEqual(variants[0]["mutant"], "I_2")  # 2 codon insertion
 
         os.unlink(temp_name)
 
