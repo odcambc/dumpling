@@ -1,8 +1,58 @@
 import hashlib
 import logging
+import re
 from pathlib import Path
 
 import pandas as pd
+
+# Match the trailing R1/R2 marker in a fastq filename. Anchored at the right
+# end of the filename so e.g. `_1` in `1_S1_R1_001.fastq.gz` doesn't trip
+# the R1 detector before `_R1` does. `[._]` covers both Illumina-style
+# `_R1_001.fastq.gz` and dot-separated `prefix.R1.fastq.gz`.
+_FASTQ_R1_PATTERN = re.compile(r"[._](?:R1|1)(?:_\d+)?\.(?:fastq|fq)(?:\.gz)?$")
+_FASTQ_R2_PATTERN = re.compile(r"[._](?:R2|2)(?:_\d+)?\.(?:fastq|fq)(?:\.gz)?$")
+
+
+def resolve_fastq_pair(data_dir, filename):
+    """Resolve a file prefix to a paired-end R1/R2 fastq pair.
+
+    Handles common naming conventions:
+      - Illumina standard: {prefix}_R1_001.fastq.gz
+      - Simplified: {prefix}_R1.fastq.gz
+      - Numeric: {prefix}_1.fastq.gz
+      - Any of the above with .fq.gz, .fastq, or .fq extensions
+
+    The glob is anchored on a `.` or `_` boundary immediately after `filename`
+    so that a prefix like `1_S1` does not match `1_S10*` / `1_S100*` etc.
+    Without the anchor, two samples sharing a numeric prefix would silently
+    cross-pair (or trip the "Multiple R1 files found" error path).
+    """
+    data_dir = Path(data_dir).resolve()
+    R1, R2 = None, None
+
+    for file in data_dir.glob(f"{filename}[._]*"):
+        name = file.name
+        if _FASTQ_R1_PATTERN.search(name):
+            if R1 is not None:
+                raise ValueError(
+                    f"Multiple R1 files found for prefix '{filename}': {R1.name} and {name}"
+                )
+            R1 = file
+        elif _FASTQ_R2_PATTERN.search(name):
+            if R2 is not None:
+                raise ValueError(
+                    f"Multiple R2 files found for prefix '{filename}': {R2.name} and {name}"
+                )
+            R2 = file
+
+    if not R1 or not R2:
+        raise FileNotFoundError(
+            f"Could not find matching R1 and R2 fastq files for prefix '{filename}' in {data_dir}. "
+            f"Expected files matching patterns like {filename}_R1_001.fastq.gz, {filename}_R1.fq.gz, "
+            f"{filename}_1.fastq, etc."
+        )
+
+    return R1, R2
 
 
 def file_digest(path, length=12):
