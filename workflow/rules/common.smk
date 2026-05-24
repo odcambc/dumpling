@@ -9,7 +9,11 @@ _SCRIPTS_DIR = Path(workflow.basedir) / "rules" / "scripts"
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
-from script_utils import file_digest, resolve_fastq_pair  # noqa: E402
+from script_utils import (  # noqa: E402
+    file_digest,
+    resolve_fastq_pair,
+    validate_experiment_time_or_bin,
+)
 
 
 def get_file_from_sample(wildcards):
@@ -205,6 +209,7 @@ experiments = (
 )
 
 validate(experiments, "../schemas/experiments.schema.yaml")
+validate_experiment_time_or_bin(experiments)
 
 # Determine experiments, samples, and files by parsing config and experiment input
 experiment = config["experiment"]

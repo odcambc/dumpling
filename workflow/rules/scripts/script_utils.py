@@ -103,3 +103,35 @@ def set_index_with_unique_check(
             f"Duplicate values found in '{index_column}': {duplicate_values}"
         )
     return dataframe.set_index(index_column, drop=drop)
+
+
+def validate_experiment_time_or_bin(experiments: pd.DataFrame) -> None:
+    """Each experiment row must set exactly one of ``time`` (timecourse) or
+    ``bin`` (FACS-type). The JSON-Schema ``oneOf`` enforcing this raised
+    "is not valid under any of the given schemas" without naming the offending
+    sample, which was effectively unactionable for users with a 100-row CSV.
+    """
+    has_time_col = "time" in experiments.columns
+    has_bin_col = "bin" in experiments.columns
+
+    problems = []
+    for idx, row in experiments.iterrows():
+        time_set = has_time_col and pd.notnull(row.get("time"))
+        bin_set = has_bin_col and pd.notnull(row.get("bin"))
+        sample = row.get("sample", f"<row {idx}>")
+        if not time_set and not bin_set:
+            problems.append(
+                f"sample {sample!r}: missing 'time' or 'bin' — set 'time' "
+                f"for timecourse experiments or 'bin' for FACS-type experiments"
+            )
+        elif time_set and bin_set:
+            problems.append(
+                f"sample {sample!r}: 'time' and 'bin' are both set — pick "
+                f"one (timecourse uses 'time', FACS-type uses 'bin')"
+            )
+
+    if problems:
+        details = "\n  - ".join(problems)
+        raise ValueError(
+            "Invalid experiment definitions:\n  - " + details
+        )

@@ -1,6 +1,11 @@
+import pandas as pd
 import pytest
 
-from workflow.rules.scripts.script_utils import file_digest, run_script
+from workflow.rules.scripts.script_utils import (
+    file_digest,
+    run_script,
+    validate_experiment_time_or_bin,
+)
 
 
 def test_run_script_logs_and_reraises(mock_snakemake, mocker):
@@ -64,3 +69,79 @@ class TestFileDigest:
         f.write_bytes(content)
         expected = hashlib.sha1(content).hexdigest()[:12]
         assert file_digest(f) == expected
+
+
+class TestValidateExperimentTimeOrBin:
+    """Replaces the schema-level `oneOf` so error messages name the offending sample."""
+
+    def test_pure_timecourse_passes(self):
+        df = pd.DataFrame({
+            "sample": ["a", "b"],
+            "time": [0, 1],
+        })
+        validate_experiment_time_or_bin(df)
+
+    def test_pure_facs_passes(self):
+        df = pd.DataFrame({
+            "sample": ["a", "b"],
+            "bin": [1, 2],
+        })
+        validate_experiment_time_or_bin(df)
+
+    def test_mixed_rows_pass_when_each_row_picks_one(self):
+        df = pd.DataFrame({
+            "sample": ["timecourse_row", "facs_row"],
+            "time": [0, None],
+            "bin": [None, 2],
+        })
+        validate_experiment_time_or_bin(df)
+
+    def test_row_with_neither_fails_with_sample_name(self):
+        df = pd.DataFrame({
+            "sample": ["s_ok", "s_bad"],
+            "time": [0, None],
+        })
+        with pytest.raises(ValueError, match="'s_bad'.*missing 'time' or 'bin'"):
+            validate_experiment_time_or_bin(df)
+
+    def test_row_with_both_fails_with_sample_name(self):
+        df = pd.DataFrame({
+            "sample": ["s_ok", "s_both"],
+            "time": [0, 5],
+            "bin": [None, 3],
+        })
+        with pytest.raises(ValueError, match="'s_both'.*both set"):
+            validate_experiment_time_or_bin(df)
+
+    def test_missing_columns_entirely_fails_listing_every_sample(self):
+        df = pd.DataFrame({
+            "sample": ["s1", "s2", "s3"],
+            "condition": ["c", "c", "c"],
+        })
+        with pytest.raises(ValueError) as excinfo:
+            validate_experiment_time_or_bin(df)
+        msg = str(excinfo.value)
+        for s in ["s1", "s2", "s3"]:
+            assert f"'{s}'" in msg
+
+    def test_time_zero_is_valid_not_treated_as_missing(self):
+        """time=0 is the standard T0 timepoint, not a null value."""
+        df = pd.DataFrame({
+            "sample": ["a"],
+            "time": [0],
+        })
+        validate_experiment_time_or_bin(df)
+
+    def test_all_problems_reported_at_once(self):
+        """User shouldn't have to fix one row, re-run, fix the next."""
+        df = pd.DataFrame({
+            "sample": ["bad1", "ok", "bad2"],
+            "time": [None, 0, 5],
+            "bin": [None, None, 3],
+        })
+        with pytest.raises(ValueError) as excinfo:
+            validate_experiment_time_or_bin(df)
+        msg = str(excinfo.value)
+        assert "'bad1'" in msg
+        assert "'bad2'" in msg
+        assert "'ok'" not in msg
