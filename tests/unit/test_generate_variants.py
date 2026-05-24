@@ -283,8 +283,6 @@ class TestOligoProcessing(unittest.TestCase):
 
         os.unlink(temp_name)
 
-        os.unlink(temp_name)
-
     def test_write_designed_csv(self):
         """Test writing variants to a CSV file."""
         # Create sample variants
