@@ -11,12 +11,15 @@ from workflow.rules.scripts.generate_enrich_configs import (
 )
 
 
-def test_remove_truncated_replicates():
+def test_remove_truncated_replicates_keeps_two_timepoint_replicates():
+    """Enrich2 needs T0 + at least one later sample (2 timepoints total) to
+    compute a ratio. A replicate with exactly 2 timepoints is valid and must
+    be preserved — the prior `<= 2` check removed it incorrectly."""
     data = {
         "condition": ["A", "A", "A", "B", "B"],
         "tile": [1, 1, 1, 2, 2],
         "replicate": [1, 1, 1, 1, 1],
-        "time": [0, 1, 2, 0, 1],  # Condition B has fewer than 2 timepoints
+        "time": [0, 1, 2, 0, 1],  # B has 2 timepoints — valid.
         "sample": ["s1", "s2", "s3", "s4", "s5"],
     }
     df = pd.DataFrame(data)
@@ -24,7 +27,27 @@ def test_remove_truncated_replicates():
 
     filtered_df = remove_truncated_replicates(df, conditions, tiled=False)
 
-    assert len(filtered_df) == 3  # Only condition A should remain
+    # Both A and B survive: A has 3 timepoints, B has 2.
+    assert len(filtered_df) == 5
+    assert set(filtered_df["condition"].unique()) == {"A", "B"}
+
+
+def test_remove_truncated_replicates_drops_single_timepoint_replicates():
+    """A replicate with only 1 timepoint can't form a ratio and must be
+    dropped."""
+    data = {
+        "condition": ["A", "A", "A", "B"],
+        "tile": [1, 1, 1, 2],
+        "replicate": [1, 1, 1, 1],
+        "time": [0, 1, 2, 0],  # B has only T0 — truly truncated.
+        "sample": ["s1", "s2", "s3", "s4"],
+    }
+    df = pd.DataFrame(data)
+    conditions = ["A", "B"]
+
+    filtered_df = remove_truncated_replicates(df, conditions, tiled=False)
+
+    assert len(filtered_df) == 3
     assert "B" not in filtered_df["condition"].unique()
 
 

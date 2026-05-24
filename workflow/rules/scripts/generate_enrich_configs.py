@@ -17,9 +17,14 @@ def remove_truncated_replicates(experiments, conditions, tiled):
     """
     Remove replicates with fewer than two timepoints/bins.
 
+    Enrich2 needs at least two timepoints per replicate (a T0 and at least
+    one later sample) to compute a ratio, so replicates with strictly fewer
+    than two are dropped. Replicates with exactly two timepoints are valid
+    and retained.
+
     Accepts as input a dataframe of experiment metadata.
-    Returns a dataframe of experiment metadata with all replicates
-    that have two or fewer timepoints removed.
+    Returns a dataframe of experiment metadata with all replicates that
+    have fewer than two timepoints removed.
     """
     has_tile_column = "tile" in experiments.columns
 
@@ -53,7 +58,7 @@ def remove_truncated_replicates(experiments, conditions, tiled):
                 ]
                 timepoints = rep_subset["time"].unique()
 
-                if len(timepoints) <= 2:
+                if len(timepoints) < 2:
                     # Remove all rows matching this condition+replicate (+tile if present)
                     if tile is None or not (tiled and has_tile_column):
                         experiments = experiments.loc[
