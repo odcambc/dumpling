@@ -76,7 +76,7 @@ def variants_file(tmp_path):
 def oligo_file(tmp_path):
     """
     If you're testing the 'regenerate_variants' logic, create a mock oligo file
-    for process_oligo_list. If not, we can skip this or provide an empty file.
+    for generate_variants. If not, we can skip this or provide an empty file.
     """
     oligo_file = tmp_path / "oligos.txt"
     oligo_file.write_text("Mock oligo data\n")
