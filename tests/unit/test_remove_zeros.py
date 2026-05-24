@@ -93,8 +93,11 @@ def test_remove_zeros(tmp_path, mock_data_dir):
     experiment_list = ["sample1", "sample2"]
     input_dir = f"{mock_data_dir.as_posix()}/"
     experiment_name = "mock_experiment"
+    group_id = "condA_rep1"
 
-    remove_zeros(experiment_list, input_dir, output_dir.as_posix(), experiment_name)
+    remove_zeros(
+        experiment_list, input_dir, output_dir.as_posix(), experiment_name, group_id
+    )
 
     # Check output files
     filtered1 = output_dir / "sample1.tsv"
@@ -106,8 +109,43 @@ def test_remove_zeros(tmp_path, mock_data_dir):
     rejected_dir = output_dir / "rejected"
     assert rejected_dir.exists()
 
-    unobserved_file = rejected_dir / "mock_experiment_unobserved_variants.csv"
+    unobserved_file = (
+        rejected_dir / f"mock_experiment_{group_id}_unobserved_variants.csv"
+    )
     assert unobserved_file.exists()
     lines = unobserved_file.read_text().strip().split("\n")
     # We expect "varB" and "varD" as in previous test
     assert set(lines) == {"varB", "varD"}
+
+
+def test_remove_zeros_per_group_files_dont_collide(tmp_path):
+    """Two calls to remove_zeros with different group_ids must produce two
+    distinct unobserved log files. Prior to the group_id argument, the
+    second call silently overwrote the first."""
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    output_dir = tmp_path / "filtered"
+    output_dir.mkdir()
+
+    # Group A: varB unobserved.
+    (data_dir / "A1.tsv").write_text("hgvs\tcount\nvarA\t10\nvarB\t0\n")
+    (data_dir / "A2.tsv").write_text("hgvs\tcount\nvarA\t5\nvarB\t0\n")
+    # Group B: varA unobserved (disjoint from A's unobserved set).
+    (data_dir / "B1.tsv").write_text("hgvs\tcount\nvarA\t0\nvarB\t7\n")
+    (data_dir / "B2.tsv").write_text("hgvs\tcount\nvarA\t0\nvarB\t3\n")
+
+    input_dir = f"{data_dir.as_posix()}/"
+    out = output_dir.as_posix()
+
+    remove_zeros(["A1", "A2"], input_dir, out, "exp", "condA_rep1")
+    remove_zeros(["B1", "B2"], input_dir, out, "exp", "condB_rep1")
+
+    rejected = output_dir / "rejected"
+    a_log = rejected / "exp_condA_rep1_unobserved_variants.csv"
+    b_log = rejected / "exp_condB_rep1_unobserved_variants.csv"
+
+    assert a_log.exists(), "Group A's unobserved log must survive the second call"
+    assert b_log.exists()
+
+    assert a_log.read_text().strip().split("\n") == ["varB"]
+    assert b_log.read_text().strip().split("\n") == ["varA"]
