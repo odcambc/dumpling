@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from script_utils import run_script, set_index_with_unique_check
+from script_utils import load_experiments, run_script
 
 
 def remove_zeros_enrich(enrich_file_list, output_dir):
@@ -104,17 +104,10 @@ def _run(snakemake):
     logging.debug("Performing unobserved variant removal.")
 
     experiment_name = snakemake.config["experiment"]
-    experiment_file = snakemake.config["experiment_file"]
     input_dir = f"results/{experiment_name}/processed_counts/enrich_format/"
     output_dir = f"results/{experiment_name}/processed_counts/removed_zeros/"
 
-    # Read experiments
-    experiments = set_index_with_unique_check(
-        pd.read_csv(experiment_file, header=0, encoding="utf-8-sig").dropna(how="all"),
-        "sample",
-        drop=False,
-    )
-
+    experiments = load_experiments(snakemake.config["experiment_file"])
 
     # Check if 'tile' column exists
     has_tile = "tile" in experiments.columns

@@ -6,7 +6,7 @@ import pandas as pd
 from Bio import SeqIO
 
 import process_variants
-from script_utils import run_script, set_index_with_unique_check
+from script_utils import load_experiments, run_script
 
 
 order: list[str] = [
@@ -186,7 +186,6 @@ def main():
 def _run(snakemake):
     # Read from Snakemake config
     experiment_name = snakemake.config["experiment"]
-    experiment_file = snakemake.config["experiment_file"]
     ref_dir = snakemake.config["ref_dir"]
     reference_fasta = snakemake.config["reference"]
     orf_range = snakemake.config["orf"]  # e.g. "100-500"
@@ -199,15 +198,7 @@ def _run(snakemake):
     # Determine output directory
     output_dir = os.path.join("results", experiment_name, "processed_counts")
 
-    logging.debug("Loading experiment file: %s", experiment_file)
-
-    # Read experiments DataFrame
-    with open(experiment_file, encoding="utf-8-sig") as f:
-        samples = set_index_with_unique_check(
-            pd.read_csv(f, header=0).dropna(how="all"),
-            "sample",
-            drop=False,
-        )
+    samples = load_experiments(snakemake.config["experiment_file"])
 
     # Parse reference FASTA + translate ORF region once, then reuse across
     # every (condition × tile × replicate) call below. Audit item M7:

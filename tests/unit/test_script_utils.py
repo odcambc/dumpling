@@ -3,6 +3,7 @@ import pytest
 
 from workflow.rules.scripts.script_utils import (
     file_digest,
+    load_experiments,
     run_script,
     validate_experiment_time_or_bin,
 )
@@ -69,6 +70,42 @@ class TestFileDigest:
         f.write_bytes(content)
         expected = hashlib.sha1(content).hexdigest()[:12]
         assert file_digest(f) == expected
+
+
+class TestLoadExperiments:
+    """Canonical experiment-CSV loader shared by every rule that touches the file."""
+
+    def test_indexed_by_sample_with_sample_column_retained(self, tmp_path):
+        csv = tmp_path / "exp.csv"
+        csv.write_text("sample,condition,time,file\ns1,c,0,f1\ns2,c,1,f2\n")
+        df = load_experiments(csv)
+        assert list(df.index) == ["s1", "s2"]
+        assert "sample" in df.columns
+
+    def test_strips_utf8_bom(self, tmp_path):
+        """Excel-exported CSVs ship with a BOM; the loader must transparently
+        eat it so downstream columns are not renamed to '\\ufeffsample'."""
+        csv = tmp_path / "exp_bom.csv"
+        csv.write_bytes(
+            b"\xef\xbb\xbfsample,condition,time,file\ns1,c,0,f1\n"
+        )
+        df = load_experiments(csv)
+        assert "sample" in df.columns
+        assert df.loc["s1", "condition"] == "c"
+
+    def test_drops_blank_rows(self, tmp_path):
+        csv = tmp_path / "exp_blanks.csv"
+        csv.write_text(
+            "sample,condition,time,file\ns1,c,0,f1\n,,,\ns2,c,1,f2\n,,,\n"
+        )
+        df = load_experiments(csv)
+        assert list(df.index) == ["s1", "s2"]
+
+    def test_duplicate_sample_raises(self, tmp_path):
+        csv = tmp_path / "exp_dup.csv"
+        csv.write_text("sample,condition,time,file\ns1,c,0,f1\ns1,c,1,f2\n")
+        with pytest.raises(ValueError, match="Duplicate values found in 'sample'"):
+            load_experiments(csv)
 
 
 class TestValidateExperimentTimeOrBin:

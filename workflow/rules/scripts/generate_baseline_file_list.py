@@ -1,7 +1,6 @@
 import logging
-import pandas as pd
 from snakemake.script import snakemake
-from script_utils import run_script, set_index_with_unique_check
+from script_utils import load_experiments, run_script
 
 
 """Generate a list of files specific to baseline conditionsto be used as input for MultiQC.
@@ -27,13 +26,7 @@ def _run(snakemake):
 
     baseline_condition = snakemake.config["baseline_condition"]
 
-    experiments = set_index_with_unique_check(
-        pd.read_csv(
-            snakemake.config["experiment_file"], header=0, encoding="utf-8-sig"
-        ).dropna(how="all"),
-        "sample",
-        drop=False,
-    )
+    experiments = load_experiments(snakemake.config["experiment_file"])
 
     baseline_samples = experiments.loc[
         experiments["condition"] == baseline_condition, "sample"

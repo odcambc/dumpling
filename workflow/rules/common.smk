@@ -11,6 +11,7 @@ if str(_SCRIPTS_DIR) not in sys.path:
 
 from script_utils import (  # noqa: E402
     file_digest,
+    load_experiments,
     resolve_fastq_pair,
     validate_experiment_time_or_bin,
 )
@@ -202,11 +203,7 @@ def validate_config(config):
 config.setdefault("bbtools_use_bgzip", True)
 validate(config, "../schemas/config.schema.yaml")
 
-experiments = (
-    pd.read_csv(config["experiment_file"], header=0, encoding="utf-8-sig")
-    .dropna(how="all")
-    .set_index("sample", drop=False, verify_integrity=True)
-)
+experiments = load_experiments(config["experiment_file"])
 
 validate(experiments, "../schemas/experiments.schema.yaml")
 validate_experiment_time_or_bin(experiments)

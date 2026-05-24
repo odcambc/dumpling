@@ -105,6 +105,21 @@ def set_index_with_unique_check(
     return dataframe.set_index(index_column, drop=drop)
 
 
+def load_experiments(experiment_file) -> pd.DataFrame:
+    """Load the experiment-definition CSV with the canonical encoding and
+    indexing the rest of the pipeline expects.
+
+    Every script that needs to look up samples calls this so the read
+    semantics (utf-8-sig BOM tolerance, blank-row drop, unique-sample
+    enforcement) stay identical across rules. Drift between callers
+    previously meant a CSV that worked for one script could break another.
+    """
+    df = pd.read_csv(experiment_file, header=0, encoding="utf-8-sig").dropna(
+        how="all"
+    )
+    return set_index_with_unique_check(df, "sample", drop=False)
+
+
 def validate_experiment_time_or_bin(experiments: pd.DataFrame) -> None:
     """Each experiment row must set exactly one of ``time`` (timecourse) or
     ``bin`` (FACS-type). The JSON-Schema ``oneOf`` enforcing this raised

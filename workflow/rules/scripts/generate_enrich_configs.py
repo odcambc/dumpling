@@ -1,8 +1,7 @@
-import pandas as pd
 import logging
 from snakemake.script import snakemake
 
-from script_utils import run_script, set_index_with_unique_check
+from script_utils import load_experiments, run_script
 
 
 # The hierarchy of the enrich2 config file elements is as follows:
@@ -267,14 +266,7 @@ def _run(snakemake):
     output_directory = f"results/{experiment_name}/enrich/"
     output_file = snakemake.output[0]
 
-    # Read in the experiments file
-    experiments = set_index_with_unique_check(
-        pd.read_csv(
-            snakemake.config["experiment_file"], header=0, encoding="utf-8-sig"
-        ).dropna(how="all"),
-        "sample",
-        drop=False,
-    )
+    experiments = load_experiments(snakemake.config["experiment_file"])
 
     # List of condition names, ignoring baseline condition if present
     conditions = experiments["condition"].unique().tolist()
