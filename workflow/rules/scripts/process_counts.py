@@ -99,56 +99,29 @@ def write_counts_output(counts_file, counts):
 def process_experiment(
     sample_list,
     experiment_name,
-    ref_dir,
-    reference_fasta,
-    oligo_file,
-    variants_file,
-    orf_range,
+    ref_AA_sequence,
+    designed_df,
     max_deletion_length,
     noprocess,
     gatk_dir,
     output_dir,
-    regenerate_variants=False,
 ):
     """
-    Process the experiment given a list of sample names (experiment_list).
-    * Load reference sequence from FASTA.
-    * Possibly regenerate variants file from oligo definitions.
-    * Read the designed variants file.
-    * For each sample in experiment_list:
-       - Read GATK csv
-       - Process variants
-       - Write Enrich2-readable file, processed CSV, and stats.
+    Process one replicate-group's worth of samples.
+
+    The reference AA sequence and designed-variants DataFrame are passed in
+    by `_run` rather than loaded here. Both are identical across every
+    (condition × tile × replicate) call, so the FASTA parse + ORF translate
+    and the variants CSV read happen once per pipeline invocation instead
+    of once per replicate group (audit item M7).
+
+    For each sample in `sample_list`:
+      - Read GATK csv
+      - Process variants
+      - Write Enrich2-readable file, processed CSV, and stats.
     """
 
     logging.debug("Processing files: %s", sample_list)
-
-    # Load reference sequence from FASTA
-    ref_path = os.path.join(ref_dir, reference_fasta)
-    with open(ref_path, "r") as f:
-        ref_list = list(SeqIO.parse(f, "fasta"))
-        ref_sequence = ref_list[0].seq
-
-    # Parse ORF range
-    #    e.g. if orf_range == "100-500", orf_start=100, orf_end=500
-    orf_start, orf_end = map(int, orf_range.split("-"))
-    ref_AA_sequence = ref_sequence[orf_start - 1 : orf_end].translate()
-
-    # Read the designed variants file. When noprocess=True the GATK output is
-    # used as-is (no filtering against a designed library), so the variants
-    # CSV is neither required to exist nor consulted; pass an empty frame
-    # through to process_variants_file, which already handles that case.
-    if noprocess:
-        logging.info("noprocess=True: skipping designed variants file load.")
-        designed_df = pd.DataFrame()
-    else:
-        logging.info("Processing designed variants file: %s", variants_file)
-        if not os.path.exists(variants_file):
-            raise FileNotFoundError(
-                f"Variants file not found: '{variants_file}'. Check 'variants_file' path in config YAML."
-            )
-        designed_df = pd.read_csv(variants_file, encoding="utf-8-sig")
-        logging.info("Designed variants length: %d", len(designed_df))
 
     # Process each sample in the experiment list
     for sample_name in sample_list:
@@ -217,12 +190,10 @@ def _run(snakemake):
     ref_dir = snakemake.config["ref_dir"]
     reference_fasta = snakemake.config["reference"]
     orf_range = snakemake.config["orf"]  # e.g. "100-500"
-    oligo_file = snakemake.config["oligo_file"]
     designed_variants_file = snakemake.config["variants_file"]
     gatk_dir = snakemake.params["gatk_dir"]
     noprocess = snakemake.config["noprocess"]
     max_deletion_length = snakemake.config["max_deletion_length"]
-    regenerate_variants = snakemake.config["regenerate_variants"]
     tiled = snakemake.config["tiled"]
 
     # Determine output directory
@@ -237,6 +208,32 @@ def _run(snakemake):
             "sample",
             drop=False,
         )
+
+    # Parse reference FASTA + translate ORF region once, then reuse across
+    # every (condition × tile × replicate) call below. Audit item M7:
+    # these were previously redone per-call inside process_experiment.
+    ref_path = os.path.join(ref_dir, reference_fasta)
+    with open(ref_path, "r") as f:
+        ref_list = list(SeqIO.parse(f, "fasta"))
+        ref_sequence = ref_list[0].seq
+    orf_start, orf_end = map(int, orf_range.split("-"))
+    ref_AA_sequence = ref_sequence[orf_start - 1 : orf_end].translate()
+
+    # Read designed variants file once. When noprocess=True the GATK output
+    # is used as-is (no filtering); pass an empty frame through and skip
+    # the file existence check.
+    if noprocess:
+        logging.info("noprocess=True: skipping designed variants file load.")
+        designed_df = pd.DataFrame()
+    else:
+        logging.info("Loading designed variants file: %s", designed_variants_file)
+        if not os.path.exists(designed_variants_file):
+            raise FileNotFoundError(
+                f"Variants file not found: '{designed_variants_file}'. "
+                "Check 'variants_file' path in config YAML."
+            )
+        designed_df = pd.read_csv(designed_variants_file, encoding="utf-8-sig")
+        logging.info("Designed variants length: %d", len(designed_df))
 
     # Loop over conditions, tiles, replicates
     for condition in samples["condition"].unique():
@@ -282,16 +279,12 @@ def _run(snakemake):
                 process_experiment(
                     sample_list=sample_name_list,
                     experiment_name=experiment_name,
-                    ref_dir=ref_dir,
-                    reference_fasta=reference_fasta,
-                    oligo_file=oligo_file,
-                    variants_file=designed_variants_file,
-                    orf_range=orf_range,
+                    ref_AA_sequence=ref_AA_sequence,
+                    designed_df=designed_df,
                     max_deletion_length=max_deletion_length,
                     noprocess=noprocess,
                     gatk_dir=gatk_dir,
                     output_dir=output_dir,
-                    regenerate_variants=regenerate_variants,
                 )
 
 
