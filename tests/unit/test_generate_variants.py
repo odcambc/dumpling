@@ -1,5 +1,6 @@
 import unittest
 from unittest.mock import patch
+import logging
 import os
 import tempfile
 import csv
@@ -169,6 +170,59 @@ class TestOligoProcessing(unittest.TestCase):
         self.assertEqual(variants[0]["mutation_type"], "I")  # Insertion
         self.assertTrue("ins" in variants[0]["name"])
         self.assertEqual(variants[0]["codon"], "ATGGCG")
+
+    def test_designed_variants_insertion_non_dna_warns(self):
+        """The insertion regex permits any letters in the inserted sequence,
+        but downstream translation needs DNA. A non-DNA sequence (e.g. a
+        typo'd oligo name like `..._insert-1_HELLO-3`) must produce a
+        warning so the user can spot nonsense entries — replaces the prior
+        dead `if insertion_length != len(inserted_seq)` self-comparison."""
+        with tempfile.NamedTemporaryFile(delete=False) as temp_file:
+            temp_name = temp_file.name
+            temp_file.write(
+                b"name,sequence\ntest_insert-1_HELLO-3,ACTAGCTAGCGCTAGCTAGCT\n"
+            )
+
+        ref = "ATGGCTAGCATGGCTAGCATGGCTAGCATGGCTAGCATGGCTAGC"
+        offset = 1
+
+        with self.assertLogs(level="WARNING") as cm:
+            designed_variants(temp_name, ref, offset)
+
+        self.assertTrue(
+            any("non-DNA" in msg for msg in cm.output),
+            f"Expected a non-DNA warning. Got: {cm.output}",
+        )
+
+        os.unlink(temp_name)
+
+    def test_designed_variants_insertion_valid_dna_does_not_warn(self):
+        """Valid DNA in an insertion oligo must NOT trigger the non-DNA
+        warning. Otherwise every well-formed insertion would noise the log."""
+        with tempfile.NamedTemporaryFile(delete=False) as temp_file:
+            temp_name = temp_file.name
+            temp_file.write(
+                b"name,sequence\ntest_insert-1_ATGGCG-5,ACTAGCTAGCGCTAGCTAGCT\n"
+            )
+
+        ref = "ATGGCTAGCATGGCTAGCATGGCTAGCATGGCTAGCATGGCTAGC"
+        offset = 1
+
+        with self.assertLogs(level="WARNING") as cm:
+            designed_variants(temp_name, ref, offset)
+            # Always emit at least one record so assertLogs doesn't fail
+            # the "no logs captured" check when the function correctly
+            # stays quiet.
+            logging.warning("__sentinel__")
+
+        non_dna_warnings = [
+            msg for msg in cm.output if "non-DNA" in msg
+        ]
+        self.assertEqual(
+            non_dna_warnings, [], f"Unexpected non-DNA warning: {non_dna_warnings}"
+        )
+
+        os.unlink(temp_name)
         self.assertEqual(variants[0]["mutant"], "I_2")  # 2 codon insertion
 
         os.unlink(temp_name)

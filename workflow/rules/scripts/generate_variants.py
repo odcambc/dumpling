@@ -237,13 +237,19 @@ def designed_variants(oligo_csv, ref, offset, is_circular=False):
                     mutation_type = "I"
                     insertion_chunk = int(variant_ins.group(1))
                     inserted_seq = variant_ins.group(2)
-                    insertion_length = len(inserted_seq)
                     pos = int(variant_ins.group(3))
 
-                    # Verify insertion length matches sequence
-                    if insertion_length != len(inserted_seq):
+                    # The regex permits any letters in the inserted sequence
+                    # (`[a-zA-Z]+`), but downstream Bio.Seq.translate() silently
+                    # produces 'X' codons for non-DNA characters — so a typo'd
+                    # oligo like `..._insert-1_HELLO-5` would produce a
+                    # nonsense variant without complaint. Warn if the captured
+                    # sequence isn't pure DNA.
+                    if not regex.fullmatch(r"[ACGTacgt]+", inserted_seq):
                         logging.warning(
-                            f"Insertion length {insertion_length} does not match sequence length {len(inserted_seq)} for {line[0]}"
+                            f"Inserted sequence {inserted_seq!r} for {line[0]} "
+                            "contains non-DNA characters; downstream translation "
+                            "will produce 'X' codons."
                         )
 
                     length = len(inserted_seq) // 3
