@@ -122,7 +122,7 @@ def test_process_deletion():
     assert result["mutation_type"] == "D"
     assert result["count"] == 5
     assert result["length"] == 1
-    assert result["rejected"] == 0
+    assert result["rejected"] is False
 
 
 def test_process_insdel():
@@ -143,7 +143,7 @@ def test_process_insdel():
     assert result["count"] == 7
     assert result["mutation_type"] in ["ID", "D", "Z"], "Depending on your logic"
     assert "insdel" in result["mutation"] or "ID_" in result["mutation"]
-    assert result["rejected"] == 0  # In your example code, you set it to 0 eventually
+    assert result["rejected"] is False
 
 
 def test_process_single_site_no_mutation(ref_aa_sequence):
