@@ -129,6 +129,27 @@ class TestOligoProcessing(unittest.TestCase):
 
         os.unlink(temp_name)
 
+    def test_designed_variants_deletion_missing_position_is_skipped(self):
+        """Malformed deletion oligo (missing trailing -POSITION) must not crash
+        the pipeline. DIMPLE always emits all three components, so we treat the
+        two-component form as a non-match rather than raising on int(None)."""
+        with tempfile.NamedTemporaryFile(delete=False) as temp_file:
+            temp_name = temp_file.name
+            # Note: no trailing "-<pos>" — would previously crash with
+            # TypeError: int() argument must be a string ... not 'NoneType'
+            temp_file.write(
+                b"name,sequence\ntest_delete-1_3,ACTAGCTAGCGCTAGCTAGCT\n"
+            )
+
+        ref = "ATGGCTAGCATGGCTAGCATGGCTAGCATGGCTAGCATGGCTAGC"
+        offset = 1
+
+        # Should return cleanly with no matched variant, not raise.
+        variants = designed_variants(temp_name, ref, offset)
+        self.assertEqual(variants, [])
+
+        os.unlink(temp_name)
+
     def test_designed_variants_insertion(self):
         """Test processing insertion variants."""
         with tempfile.NamedTemporaryFile(delete=False) as temp_file:
