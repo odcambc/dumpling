@@ -171,55 +171,104 @@ class TestOligoProcessing(unittest.TestCase):
         self.assertTrue("ins" in variants[0]["name"])
         self.assertEqual(variants[0]["codon"], "ATGGCG")
 
-    def test_designed_variants_insertion_non_dna_warns(self):
-        """The insertion regex permits any letters in the inserted sequence,
-        but downstream translation needs DNA. A non-DNA sequence (e.g. a
-        typo'd oligo name like `..._insert-1_HELLO-3`) must produce a
-        warning so the user can spot nonsense entries — replaces the prior
-        dead `if insertion_length != len(inserted_seq)` self-comparison."""
+    # ------------------------------------------------------------------
+    # Insertion length-consistency check.
+    #
+    # The oligo name declares the inserted sequence; the actual oligo
+    # nucleotide sequence is the ground truth. Anchored on flanking
+    # reference codons, the bases between the flanks in the oligo are
+    # the actual inserted region. A length mismatch indicates the
+    # library's name and content disagree (replaces the prior dead
+    # `if insertion_length != len(inserted_seq)` self-comparison).
+    # ------------------------------------------------------------------
+
+    def _build_insertion_oligo(self, ref, offset, pos, actual_inserted):
+        """Construct an oligo whose actual inserted region equals
+        `actual_inserted`, with flanking taken from `ref` around `pos`."""
+        start_codon_pos = offset + (3 * (pos - 1))
+        end_codon_pos = offset + (3 * pos)
+        # PRE_SPAN is 15 in the script; we use the full available flank
+        # so the script's re.split anchors find a unique match.
+        pre = ref[max(0, start_codon_pos - 15) : start_codon_pos + 3]
+        post = ref[end_codon_pos : end_codon_pos + 3 + 15]
+        return pre + actual_inserted + post
+
+    def test_designed_variants_insertion_length_mismatch_warns(self):
+        """Oligo NAME declares a different number of inserted bases than the
+        oligo SEQUENCE actually contains — emit a length-mismatch warning."""
+        ref = "ATGGCTAGCATGGCTAGCATGGCTAGCATGGCTAGCATGGCTAGC"
+        offset = 1
+        pos = 5
+
+        # Oligo contains a 3-base insertion ("TGC") but the name declares
+        # a 9-base inserted sequence ("AAATTTGGG").
+        oligo_seq = self._build_insertion_oligo(ref, offset, pos, "TGC")
         with tempfile.NamedTemporaryFile(delete=False) as temp_file:
             temp_name = temp_file.name
             temp_file.write(
-                b"name,sequence\ntest_insert-1_HELLO-3,ACTAGCTAGCGCTAGCTAGCT\n"
+                f"name,sequence\ntest_insert-1_AAATTTGGG-{pos},{oligo_seq}\n".encode()
             )
-
-        ref = "ATGGCTAGCATGGCTAGCATGGCTAGCATGGCTAGCATGGCTAGC"
-        offset = 1
 
         with self.assertLogs(level="WARNING") as cm:
             designed_variants(temp_name, ref, offset)
 
         self.assertTrue(
-            any("non-DNA" in msg for msg in cm.output),
-            f"Expected a non-DNA warning. Got: {cm.output}",
+            any("length mismatch" in msg.lower() for msg in cm.output),
+            f"Expected an insertion length mismatch warning. Got: {cm.output}",
         )
 
         os.unlink(temp_name)
 
-    def test_designed_variants_insertion_valid_dna_does_not_warn(self):
-        """Valid DNA in an insertion oligo must NOT trigger the non-DNA
-        warning. Otherwise every well-formed insertion would noise the log."""
+    def test_designed_variants_insertion_length_match_no_warning(self):
+        """When the name and the oligo sequence agree, no mismatch warning."""
+        ref = "ATGGCTAGCATGGCTAGCATGGCTAGCATGGCTAGCATGGCTAGC"
+        offset = 1
+        pos = 5
+        inserted = "TGCATG"  # 6 bases
+
+        oligo_seq = self._build_insertion_oligo(ref, offset, pos, inserted)
         with tempfile.NamedTemporaryFile(delete=False) as temp_file:
             temp_name = temp_file.name
             temp_file.write(
-                b"name,sequence\ntest_insert-1_ATGGCG-5,ACTAGCTAGCGCTAGCTAGCT\n"
+                f"name,sequence\ntest_insert-1_{inserted}-{pos},{oligo_seq}\n".encode()
             )
-
-        ref = "ATGGCTAGCATGGCTAGCATGGCTAGCATGGCTAGCATGGCTAGC"
-        offset = 1
 
         with self.assertLogs(level="WARNING") as cm:
             designed_variants(temp_name, ref, offset)
-            # Always emit at least one record so assertLogs doesn't fail
-            # the "no logs captured" check when the function correctly
-            # stays quiet.
+            # Sentinel so assertLogs doesn't fail when the function is silent.
             logging.warning("__sentinel__")
 
-        non_dna_warnings = [
-            msg for msg in cm.output if "non-DNA" in msg
+        mismatch_warnings = [
+            msg for msg in cm.output if "length mismatch" in msg.lower()
         ]
         self.assertEqual(
-            non_dna_warnings, [], f"Unexpected non-DNA warning: {non_dna_warnings}"
+            mismatch_warnings,
+            [],
+            f"Unexpected length-mismatch warning: {mismatch_warnings}",
+        )
+
+        os.unlink(temp_name)
+
+    def test_designed_variants_insertion_unfindable_flank_warns(self):
+        """If the oligo doesn't contain the expected flanking ref codons,
+        the script can't locate the insertion and must say so explicitly
+        rather than silently skipping the length check."""
+        ref = "ATGGCTAGCATGGCTAGCATGGCTAGCATGGCTAGCATGGCTAGC"
+        offset = 1
+        # Oligo sequence completely unrelated to the reference.
+        oligo_seq = "NNNNNNNNNNNNNNNNNN"
+        with tempfile.NamedTemporaryFile(delete=False) as temp_file:
+            temp_name = temp_file.name
+            temp_file.write(
+                f"name,sequence\ntest_insert-1_ATGGCG-5,{oligo_seq}\n".encode()
+            )
+
+        with self.assertLogs(level="WARNING") as cm:
+            designed_variants(temp_name, ref, offset)
+
+        self.assertTrue(
+            any("anchor" in msg.lower() and "flank" in msg.lower() for msg in cm.output),
+            f"Expected a flank-anchoring warning. Got: {cm.output}",
         )
 
         os.unlink(temp_name)

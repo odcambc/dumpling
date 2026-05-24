@@ -239,19 +239,6 @@ def designed_variants(oligo_csv, ref, offset, is_circular=False):
                     inserted_seq = variant_ins.group(2)
                     pos = int(variant_ins.group(3))
 
-                    # The regex permits any letters in the inserted sequence
-                    # (`[a-zA-Z]+`), but downstream Bio.Seq.translate() silently
-                    # produces 'X' codons for non-DNA characters — so a typo'd
-                    # oligo like `..._insert-1_HELLO-5` would produce a
-                    # nonsense variant without complaint. Warn if the captured
-                    # sequence isn't pure DNA.
-                    if not regex.fullmatch(r"[ACGTacgt]+", inserted_seq):
-                        logging.warning(
-                            f"Inserted sequence {inserted_seq!r} for {line[0]} "
-                            "contains non-DNA characters; downstream translation "
-                            "will produce 'X' codons."
-                        )
-
                     length = len(inserted_seq) // 3
                     if len(inserted_seq) % 3 != 0:
                         logging.warning(
@@ -284,6 +271,60 @@ def designed_variants(oligo_csv, ref, offset, is_circular=False):
                             f"End codon incomplete ({len(end_codon)} bases) for {line[0]}"
                         )
                         end = "X"
+
+                    # Insertion-length consistency check: the oligo name
+                    # declares the inserted sequence, but the actual oligo
+                    # (line[1]) is the ground truth for what the library will
+                    # synthesize. Anchor on flanking reference codons around
+                    # the insertion site (same pattern extract_codon uses for
+                    # substitutions); the bases between the two flanks in the
+                    # oligo are the *actual* inserted region. A length
+                    # mismatch indicates a bookkeeping error in the library
+                    # design — usually a typo in the oligo name.
+                    pre_window = get_sequence_segment(
+                        ref,
+                        max(0, start_codon_pos - PRE_SPAN),
+                        start_codon_pos + 3,
+                        is_circular,
+                    )
+                    post_window = get_sequence_segment(
+                        ref,
+                        end_codon_pos,
+                        end_codon_pos + 3 + PRE_SPAN,
+                        is_circular,
+                    )
+                    # `re.escape` so flanks containing IUPAC ambiguity codes
+                    # (e.g. 'B' → \b) aren't interpreted as regex metachars.
+                    pre_split = re.split(
+                        re.escape(pre_window), line[1], flags=re.IGNORECASE
+                    )
+                    if len(pre_split) == 2:
+                        post_split = re.split(
+                            re.escape(post_window),
+                            pre_split[1],
+                            flags=re.IGNORECASE,
+                        )
+                        if len(post_split) == 2:
+                            actual_inserted = post_split[0]
+                            insertion_length = len(actual_inserted)
+                            if insertion_length != len(inserted_seq):
+                                logging.warning(
+                                    f"Insertion length mismatch for {line[0]}: "
+                                    f"name declares {len(inserted_seq)} bases "
+                                    f"({inserted_seq!r}), oligo contains "
+                                    f"{insertion_length} bases "
+                                    f"({actual_inserted!r})."
+                                )
+                        else:
+                            logging.warning(
+                                f"Could not anchor post-insertion flank in oligo "
+                                f"for {line[0]}; skipping length-consistency check."
+                            )
+                    else:
+                        logging.warning(
+                            f"Could not anchor pre-insertion flank in oligo "
+                            f"for {line[0]}; skipping length-consistency check."
+                        )
 
                     codon = inserted_seq
                     aa_string = ""
