@@ -21,6 +21,7 @@ Essentially, it does not continue to Enrich2, since we don't run that on baselin
 def _run(snakemake):
     output_file = snakemake.output[0]
     experiment_name = snakemake.config["experiment"]
+    fastqc_names = snakemake.params["fastqc_names"]
 
     logging.debug("Writing to file: %s", output_file)
 
@@ -38,55 +39,52 @@ def _run(snakemake):
         experiments["condition"] == baseline_condition, "sample"
     ]
 
+    stats_prefix = f"./stats/{experiment_name}"
+    results_prefix = f"./results/{experiment_name}"
+
     with open(output_file, "w+") as f:
         logging.debug("Writing to file: %s", output_file)
 
         for sample in baseline_samples.index:
-            # Write fastqc output (Assuming paired-end reads)
-            f.write(
-                "./stats/" + experiment_name + "/fastqc/" + sample + "R1_001_fastqc.html\n"
-            )
-            f.write(
-                "./stats/" + experiment_name + "/fastqc/" + sample + "R2_001_fastqc.html\n"
-            )
-            # Write bbduk output
-            f.write("./stats/" + experiment_name + "/" + sample + "_trim.qhist\n")
-            f.write("./stats/" + experiment_name + "/" + sample + "_trim.bhist\n")
-            f.write("./stats/" + experiment_name + "/" + sample + "_trim.gchist\n")
-            f.write("./stats/" + experiment_name + "/" + sample + "_trim.aqhist\n")
-            f.write("./stats/" + experiment_name + "/" + sample + "_trim.lhist\n")
-            f.write("./stats/" + experiment_name + "/" + sample + "_trim.stats.txt\n")
-            f.write(
-                "./stats/" + experiment_name + "/" + sample + "_trim_contam.stats.txt\n"
-            )
-            # Write bbmerge output
-            f.write("./stats/" + experiment_name + "/" + sample + "_merge.ihist\n")
-            # Write bbmap output
-            f.write("./stats/" + experiment_name + "/" + sample + "_map.covstats\n")
-            f.write("./stats/" + experiment_name + "/" + sample + "_map.basecov\n")
-            f.write("./stats/" + experiment_name + "/" + sample + "_map.bincov\n")
-            f.write("./stats/" + experiment_name + "/" + sample + "_map.ehist\n")
-            f.write("./stats/" + experiment_name + "/" + sample + "_map.indelhist\n")
-            f.write("./stats/" + experiment_name + "/" + sample + "_map.mhist\n")
-            f.write("./stats/" + experiment_name + "/" + sample + "_map.idhist\n")
-            # Write GATK ASM output
-            f.write(
-                "./results/"
-                + experiment_name
-                + "/gatk/"
-                + sample
-                + ".coverageLengthCounts\n"
-            )
-            f.write("./results/" + experiment_name + "/gatk/" + sample + ".readCounts\n")
-            f.write("./results/" + experiment_name + "/gatk/" + sample + ".refCoverage\n")
-            # Write count processing script output
-            f.write(
-                "./results/"
-                + experiment_name
-                + "/processed_counts/counts/"
-                + sample
-                + ".csv\n"
-            )
+            # FastQC output is named from the *fastq filename*, not the
+            # sample name from the experiment CSV. Look up the resolved
+            # base names via the same fastqc_names map the producing rule
+            # uses (computed in common.smk).
+            file_prefix = experiments.loc[sample, "file"]
+            fastqc_R1 = fastqc_names[file_prefix]["R1"]
+            fastqc_R2 = fastqc_names[file_prefix]["R2"]
+            f.write(f"{stats_prefix}/fastqc/{fastqc_R1}_fastqc.html\n")
+            f.write(f"{stats_prefix}/fastqc/{fastqc_R2}_fastqc.html\n")
+
+            # BBDuk / BBMerge / BBMap / GATK rules emit per-sample-name
+            # outputs (rule wildcards are `{sample_prefix}` = the sample
+            # name), so these path templates are correct as-is.
+            for ext in (
+                "_trim.qhist",
+                "_trim.bhist",
+                "_trim.gchist",
+                "_trim.aqhist",
+                "_trim.lhist",
+                "_trim.stats.txt",
+                "_trim_contam.stats.txt",
+                "_merge.ihist",
+                "_map.covstats",
+                "_map.basecov",
+                "_map.bincov",
+                "_map.ehist",
+                "_map.indelhist",
+                "_map.mhist",
+                "_map.idhist",
+            ):
+                f.write(f"{stats_prefix}/{sample}{ext}\n")
+
+            # GATK ASM side-output stats files (live next to the .variantCounts).
+            for ext in (".coverageLengthCounts", ".readCounts", ".refCoverage"):
+                f.write(f"{results_prefix}/gatk/{sample}{ext}\n")
+
+            # Processed counts CSV. process_counts.py writes to
+            # `processed_counts/{sample}.csv` — no `counts/` subdirectory.
+            f.write(f"{results_prefix}/processed_counts/{sample}.csv\n")
 
     logging.debug("Done")
 

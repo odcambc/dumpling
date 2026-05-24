@@ -58,6 +58,11 @@ rule generate_baseline_file_list:
         ),
     output:
         temp("stats/{experiment}/baseline_file_list.txt"),
+    params:
+        # FastQC names a sample's outputs after its fastq filename, not after
+        # the sample name from the experiment CSV. Pass the resolved map so
+        # the script can look up the right name per sample.
+        fastqc_names=fastqc_names,
     log:
         "logs/{experiment}/multiqc_baseline_file_list.log",
     script:
