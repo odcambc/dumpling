@@ -2,11 +2,13 @@
 Regression tests for UTF-8 BOM tolerance on user-supplied CSVs.
 
 The pipeline accepts experiment and variants CSVs that may be authored in
-Excel or other tools that prepend a UTF-8 BOM (\\xef\\xbb\\xbf). With the
-default `utf-8` encoding, pandas reads the BOM as part of the first column
-name (e.g. `\\ufeffsample` instead of `sample`), silently breaking every
-downstream `df["sample"]` lookup. Reading with `encoding="utf-8-sig"`
-strips the BOM if present and is a no-op otherwise.
+Excel or other tools that prepend a UTF-8 BOM (\\xef\\xbb\\xbf). Historically,
+pandas read the BOM as part of the first column name (e.g.
+`\\ufeffsample` instead of `sample`), silently breaking every downstream
+`df["sample"]` lookup. Recent pandas (>= 2.x) auto-strips BOM under plain
+utf-8, but we still pass `encoding="utf-8-sig"` explicitly for older
+pandas, other readers, and code clarity — and to be robust if pandas ever
+changes the default back.
 
 These tests verify the encoding contract at the read sites we patched.
 """
@@ -24,16 +26,6 @@ def _write_csv(tmp_path, name, content, with_bom):
 
 
 CSV_CONTENT = "sample,condition,replicate,time\nA_T0,A,1,0\nA_T1,A,1,1\n"
-
-
-def test_default_utf8_preserves_bom_breaking_lookups(tmp_path):
-    """Sanity-check the failure mode: without utf-8-sig, the first column
-    name contains the BOM character and a normal lookup misses."""
-    csv = _write_csv(tmp_path, "bom.csv", CSV_CONTENT, with_bom=True)
-    df = pd.read_csv(csv, header=0)  # no encoding override
-    # The BOM ends up prepended to the first column name.
-    assert "sample" not in df.columns
-    assert "﻿sample" in df.columns
 
 
 def test_utf8_sig_strips_bom(tmp_path):
