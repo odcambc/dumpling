@@ -62,6 +62,13 @@ class TestSchemaShape:
         assert prop["type"] == "integer"
         assert prop["default"] == 16000
 
+    def test_lilace_local_property_present(self):
+        schema = _load_schema()
+        assert "lilace_local" in schema["properties"]
+        prop = schema["properties"]["lilace_local"]
+        assert prop["type"] == "boolean"
+        assert prop["default"] is False
+
 
 # -----------------------------------------------------------------------------
 # Plain jsonschema validation: enum enforcement, type checks. No default
@@ -130,3 +137,9 @@ class TestDefaultInjection:
         assert "mem_lilace" not in config
         self.snakemake_validate(config, str(SCHEMA_PATH))
         assert config.get("mem_lilace") == 16000
+
+    def test_lilace_local_default_is_false(self):
+        config = _minimal_valid_config()
+        assert "lilace_local" not in config
+        self.snakemake_validate(config, str(SCHEMA_PATH))
+        assert config.get("lilace_local") is False

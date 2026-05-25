@@ -61,6 +61,10 @@ properties:
     type: boolean
     default: false
     description: Flag for whether to use ROSACE installed on system-wide R or through a conda-controlled R environment.
+  lilace_local:
+    type: boolean
+    default: false
+    description: Flag for whether to use Lilace installed on system-wide R or through a conda-controlled R environment.
   bbtools_use_bgzip:
     type: boolean
     default: true
