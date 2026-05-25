@@ -1,5 +1,4 @@
 from pathlib import Path
-import logging
 import re
 import sys
 
@@ -249,7 +248,10 @@ else:
 if config["enrich2"]:
     remove_zeros = config["remove_zeros"]
 else:
-    logging.warning("Enrich2 will not be run, so zero counts will not be removed.")
+    print(
+        "WARNING [dumpling]: Enrich2 will not be run, so zero counts will not be removed.",
+        file=sys.stderr,
+    )
     remove_zeros = False
 
 # Resolve fastq file paths for all samples at parse time
@@ -259,7 +261,10 @@ for file_prefix in files:
         r1, r2 = resolve_fastq_pair(config["data_dir"], file_prefix)
         fastq_map[file_prefix] = {"R1": r1, "R2": r2}
     except (FileNotFoundError, ValueError) as e:
-        logging.warning(f"Could not resolve fastq pair for '{file_prefix}': {e}")
+        print(
+            f"WARNING [dumpling]: Could not resolve fastq pair for '{file_prefix}': {e}",
+            file=sys.stderr,
+        )
 
 # Build list of raw fastq paths for QC rules
 raw_fastq_paths = []
