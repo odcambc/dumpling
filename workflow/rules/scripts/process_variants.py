@@ -363,8 +363,14 @@ def process_single_site(
             rejected = False
 
     if name == "":
-        logging.warning("Error in variant parsing")
-        logging.warning(line)
+        logging.warning(
+            "Dropping unexpected mutation row (AA=%r mutation=%r codon=%r counts=%d): "
+            "expected S/M/N at AA[0]",
+            AA, mutation, codon, counts,
+        )
+        count = counts
+        rejected = True
+        mutation_type = "X"
 
     return {
         "count": count,
@@ -499,6 +505,7 @@ def process_variants_file(
     rejected_stats["wrong_variant_counts"] = 0
     rejected_stats["insdel_variant_counts"] = 0
     rejected_stats["multi_variant_counts"] = 0
+    rejected_stats["unexpected_mutation_counts"] = 0
 
     accepted_stats["accepted_syn_counts"] = 0
     accepted_stats["accepted_sub_counts"] = 0
@@ -569,6 +576,10 @@ def process_variants_file(
 
         if len(mutation.split(";")) == 1:
             variant_dict = process_single_site(line, ref_AA_sequence, noprocess)
+            if variant_dict.get("mutation_type") == "X":
+                rejected_list.append(line)
+                rejected_stats["unexpected_mutation_counts"] += counts
+                continue
         else:
             variant_dict = {}
             variant_dict["count"] = counts
@@ -637,6 +648,7 @@ def process_variants_file(
         + rejected_stats["wrong_variant_counts"]
         + rejected_stats["insdel_variant_counts"]
         + rejected_stats["multi_variant_counts"]
+        + rejected_stats["unexpected_mutation_counts"]
     )
     total_stats["total_accepted_counts"] = (
         accepted_stats["accepted_syn_counts"]
@@ -649,12 +661,10 @@ def process_variants_file(
 
     if noprocess:
         variants_df = pd.DataFrame.from_dict(variants_noprocess_dict, orient="index")
-        # Drop the "rejected" column
-        variants_df.drop(columns=["rejected"], inplace=True)
-        # Counts are ints.
-        variants_df["count"] = variants_df["count"].astype(int)
-        # rename mutation column to mutant
-        variants_df.rename(columns={"mutation": "mutant"}, inplace=True)
+        if not variants_df.empty:
+            variants_df.drop(columns=["rejected"], inplace=True)
+            variants_df["count"] = variants_df["count"].astype(int)
+            variants_df.rename(columns={"mutation": "mutant"}, inplace=True)
     else:
         # Vectorized merge: replace the boolean-mask-per-row update with a
         # single .map() + add. variants_df["name"] looks each name up in the

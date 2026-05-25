@@ -303,6 +303,74 @@ def test_process_variants_file_unobserved_variants_have_count_zero(
     assert variants_df.loc[variants_df["name"] == "P12del", "count"].iloc[0] == 0
 
 
+def test_process_single_site_unexpected_aa_is_dropped(ref_aa_sequence):
+    """A row with mutation='' and AA[0] not in {S, M, N} previously fell through
+    process_single_site with count=0, silently discarding the observation. M10:
+    such rows are now flagged with mutation_type='X', rejected=True, and the
+    original count is preserved so the main loop can route them to a dedicated
+    rejected-stats bucket."""
+    line = [
+        "11",  # counts
+        "0", "0", "3", "A", "1",
+        "10:AAA>TTT",
+        "Xstuff",  # AA[0] is 'X', not in {S, M, N}
+        "",  # mutation empty
+    ]
+    out = process_single_site(line, ref_aa_sequence, noprocess=False)
+    assert out["mutation_type"] == "X"
+    assert out["rejected"] is True
+    assert out["count"] == 11
+
+
+def test_process_variants_file_routes_unexpected_to_dedicated_stat(
+    designed_variants_df, ref_aa_sequence
+):
+    """The fall-through case (mutation='' and AA[0] not in {S,M,N}) must be
+    accounted for in rejected_stats['unexpected_mutation_counts'] and rolled
+    into total_rejected_counts, not silently absorbed into wrong_variant_counts
+    or — worse — dropped from the totals entirely. Realistic input: a normal
+    synonymous row alongside two unexpected rows."""
+    mock_gatk_list = [
+        ["3", "0", "0", "3", "A", "1", "11:AAA>AAA", "S:R>R", ""],
+        ["4", "0", "0", "3", "A", "1", "10:AAA>TTT", "Xstuff", ""],
+        ["7", "0", "0", "3", "A", "1", "11:AAA>CCC", "?bogus", ""],
+    ]
+    variants_df, rejected_list, rejected_stats, _, total_stats = process_variants_file(
+        mock_gatk_list,
+        designed_variants_df,
+        ref_aa_sequence,
+        max_deletion_length=3,
+        noprocess=True,
+    )
+    assert rejected_stats["unexpected_mutation_counts"] == 11  # 4 + 7
+    assert len(rejected_list) == 2
+    assert total_stats["total_counts"] == 14  # 3 + 4 + 7
+    assert total_stats["total_rejected_counts"] == 11
+    # The dropped rows must not appear in the noprocess output dataframe;
+    # the synonymous row survives.
+    assert len(variants_df) == 1
+
+
+def test_process_variants_file_all_rejected_under_noprocess_does_not_crash(
+    designed_variants_df, ref_aa_sequence
+):
+    """Defensive: when every GATK row is rejected under noprocess=True the
+    output dataframe is empty. The post-loop column cleanup must tolerate
+    that — previously it raised KeyError because `.drop(columns=['rejected'])`
+    has nothing to drop on a no-columns frame."""
+    mock_gatk_list = [
+        ["4", "0", "0", "3", "A", "1", "10:AAA>TTT", "Xstuff", ""],
+    ]
+    variants_df, *_ = process_variants_file(
+        mock_gatk_list,
+        designed_variants_df,
+        ref_aa_sequence,
+        max_deletion_length=3,
+        noprocess=True,
+    )
+    assert len(variants_df) == 0
+
+
 def test_process_variants_file_order_independent(
     designed_variants_df, ref_aa_sequence
 ):
