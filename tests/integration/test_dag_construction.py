@@ -137,7 +137,12 @@ contaminants:
 
     def test_dry_run_with_lilace_backend(self, repo_root, fixtures_dir, tmp_path):
         """Dry-run with scoring_backend=lilace should construct the DAG without crashing
-        and schedule lilace rules instead of rosace."""
+        and schedule lilace rules instead of rosace.
+
+        noprocess is deliberately false here — lilace requires a synonymous-variant
+        control set and validate_scoring_backend_mode rejects noprocess+lilace at
+        parse time. See test_noprocess_with_lilace_rejected for that path.
+        """
         test_dir = tmp_path / "test_run_lilace"
         test_dir.mkdir()
 
@@ -152,7 +157,7 @@ oligo_file: '{fixtures_dir / "mock_oligos.csv"}'
 orf: "1-300"
 scoring_backend: 'lilace'
 enrich2: false
-noprocess: true
+noprocess: false
 run_qc: false
 baseline_condition: 'baseline'
 remove_zeros: false
@@ -214,6 +219,72 @@ contaminants:
                 "Lilace backend selected but run_rosace was also scheduled:\n"
                 f"STDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
             )
+
+    def test_noprocess_with_lilace_rejected(self, repo_root, fixtures_dir, tmp_path):
+        """noprocess + scoring_backend=lilace must error at parse time, not deep
+        inside R after install_lilace runs. validate_scoring_backend_mode is the
+        gate; this test exercises it through the actual Snakefile."""
+        test_dir = tmp_path / "test_run_noprocess_lilace"
+        test_dir.mkdir()
+
+        config_content = f"""
+experiment: 'test_experiment'
+data_dir: '{fixtures_dir}'
+ref_dir: '{fixtures_dir}'
+experiment_file: '{fixtures_dir / "mock_experiment.csv"}'
+reference: 'mock_reference.fasta'
+variants_file: '{fixtures_dir / "mock_variants.csv"}'
+oligo_file: '{fixtures_dir / "mock_oligos.csv"}'
+orf: "1-300"
+scoring_backend: 'lilace'
+enrich2: false
+noprocess: true
+run_qc: false
+baseline_condition: 'baseline'
+remove_zeros: false
+regenerate_variants: false
+kmers: 15
+sam: "1.3"
+mem: 4
+min_q: 30
+min_variant_obs: 3
+max_deletion_length: 3
+samtools_local: false
+rosace_local: false
+lilace_local: false
+adapters: 'resources/adapters.fa'
+contaminants:
+  - 'resources/sequencing_artifacts.fa.gz'
+"""
+        config_file = test_dir / "test_config.yaml"
+        config_file.write_text(config_content)
+
+        result = subprocess.run(
+            [
+                "snakemake",
+                "-s",
+                str(repo_root / "workflow" / "Snakefile"),
+                "--configfile",
+                str(config_file),
+                "--dry-run",
+                "--cores",
+                "1",
+            ],
+            capture_output=True,
+            text=True,
+            cwd=str(repo_root),
+        )
+
+        assert result.returncode != 0, (
+            "noprocess+lilace should be rejected at parse time, but Snakefile "
+            f"loaded cleanly.\nSTDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
+        )
+        combined = result.stdout + result.stderr
+        assert "lilace" in combined.lower() and "noprocess" in combined.lower(), (
+            "Error message should mention both lilace and noprocess so the user "
+            f"knows the combination is the problem.\nSTDOUT:\n{result.stdout}\n"
+            f"STDERR:\n{result.stderr}"
+        )
 
     def test_script_rule_executes_with_runtime_injection(
         self, repo_root, fixtures_dir, tmp_path

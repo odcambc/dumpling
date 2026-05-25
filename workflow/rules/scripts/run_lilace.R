@@ -185,7 +185,7 @@ build_counts_for_replicate <- function(df_subset, experiment_name) {
   counts
 }
 
-run_lilace_for_condition <- function(experiment_definition, experiment_name, condition_name, noprocess) {
+run_lilace_for_condition <- function(experiment_definition, experiment_name, condition_name) {
   condition_df <- dplyr::filter(experiment_definition, .data$condition == condition_name)
   replicate_frames <- list()
 
@@ -199,10 +199,6 @@ run_lilace_for_condition <- function(experiment_definition, experiment_name, con
     counts <- annotate_variants(counts)
     c_cols <- grep("^c_", colnames(counts), value = TRUE)
     counts[c_cols] <- lapply(counts[c_cols], function(x) ifelse(is.na(x), 0L, as.integer(x)))
-
-    if (noprocess) {
-      counts$type <- ifelse(counts$variant == "_wt", "synonymous", "missense")
-    }
 
     counts$rep <- as.character(expt_replicate)
     replicate_frames[[as.character(expt_replicate)]] <- counts
@@ -234,7 +230,6 @@ run_lilace_for_condition <- function(experiment_definition, experiment_name, con
     lilace_obj,
     output_dir = output_dir,
     control_label = "synonymous",
-    use_positions = !noprocess,
     pseudocount = TRUE,
     n_parallel_chains = snakemake@threads
   )
@@ -249,6 +244,20 @@ main <- function() {
   baseline_condition <- snakemake@config[["baseline_condition"]]
   noprocess <- snakemake@config[["noprocess"]]
 
+  # Backstop: common.smk's validate_scoring_backend_mode rejects this
+  # combination at parse time, but guard here too in case the script is
+  # invoked outside the Snakefile (manual reruns, direct script execution).
+  # Lilace's Stan model requires a synonymous control set and has no
+  # total-counts fallback (see pimentellab/lilace R/input.R:39-45).
+  if (isTRUE(noprocess)) {
+    stop(paste(
+      "scoring_backend='lilace' is incompatible with noprocess=true.",
+      "Lilace requires a synonymous-variant control set and has no",
+      "total-counts fallback. Use scoring_backend='rosace' for noprocess",
+      "runs, or set noprocess=false."
+    ))
+  }
+
   lilace_dir <- file.path("results", experiment_name, "lilace")
   dir.create(lilace_dir, recursive = TRUE, showWarnings = FALSE)
 
@@ -258,7 +267,7 @@ main <- function() {
 
   for (condition_name in conditions) {
     message(sprintf("Running Lilace for condition: %s", condition_name))
-    run_lilace_for_condition(experiment_definition, experiment_name, condition_name, noprocess)
+    run_lilace_for_condition(experiment_definition, experiment_name, condition_name)
   }
 }
 

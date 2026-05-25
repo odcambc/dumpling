@@ -13,6 +13,7 @@ from script_utils import (  # noqa: E402
     load_experiments,
     resolve_fastq_pair,
     validate_experiment_time_or_bin,
+    validate_scoring_backend_mode,
 )
 
 
@@ -202,6 +203,7 @@ config.setdefault("scoring_backend", "rosace")
 config.setdefault("lilace_local", False)
 config.setdefault("mem_lilace", 16000)
 validate(config, "../schemas/config.schema.yaml")
+validate_scoring_backend_mode(config)
 
 experiments = load_experiments(config["experiment_file"])
 

@@ -174,3 +174,23 @@ def validate_experiment_time_or_bin(experiments: pd.DataFrame) -> None:
         raise ValueError(
             "Invalid experiment definitions:\n  - " + details
         )
+
+
+def validate_scoring_backend_mode(config: dict) -> None:
+    """Reject incompatible combinations of scoring_backend and processing mode.
+
+    Lilace's Stan model structurally requires a synonymous-variant control set
+    (`R/input.R:39-45` in pimentellab/lilace raises if `control_label` matches
+    zero rows) and offers no total-counts fallback analogous to Rosace's
+    `normalization.method = "total"`. In noprocess mode the pipeline does not
+    parse HGVS into a trustworthy `synonymous` label, so the control set would
+    be empty and the run would fail deep inside R after a long install step.
+    Catch it here instead.
+    """
+    if config.get("noprocess") and config.get("scoring_backend") == "lilace":
+        raise ValueError(
+            "scoring_backend='lilace' is incompatible with noprocess=true. "
+            "Lilace requires a synonymous-variant control set and has no "
+            "total-counts fallback. Use scoring_backend='rosace' for "
+            "noprocess runs, or set noprocess=false."
+        )
