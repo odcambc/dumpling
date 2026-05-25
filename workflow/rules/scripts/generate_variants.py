@@ -87,7 +87,7 @@ def designed_variants(oligo_csv, ref, offset, is_circular=False):
 
             # Skip header lines
             if line[0] == "name" or line[0] == "\ufeffname":
-                logging.warning(f"Skipping header line {i}: {line[0]}")
+                logging.debug(f"Skipping header line {i}: {line[0]}")
                 continue
 
             try:
