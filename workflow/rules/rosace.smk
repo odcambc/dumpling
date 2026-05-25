@@ -1,4 +1,7 @@
 rule run_rosace:
+    """Run Rosace scoring for a single non-baseline condition. Snakemake
+    fans this out over `experimental_conditions`; one R process per
+    condition lets MCMC sampling overlap on cluster or multi-core local."""
     input:
         expand(
             "results/{{experiment_name}}/processed_counts/enrich_format/{experiments}.tsv",
@@ -6,14 +9,11 @@ rule run_rosace:
         ),
         "results/{experiment_name}/rosace/rosace_installed.txt",
     output:
-        expand(
-            "results/{{experiment_name}}/rosace/{conditions}_scores.csv",
-            conditions=experimental_conditions,
-        ),
+        "results/{experiment_name}/rosace/{condition}_scores.csv",
     benchmark:
-        "benchmarks/{experiment_name}/{experiment_name}.rosace.benchmark.txt"
+        "benchmarks/{experiment_name}/{condition}.rosace.benchmark.txt"
     log:
-        "logs/{experiment_name}/rosace/{experiment_name}.rosace.log",
+        "logs/{experiment_name}/rosace/{condition}.rosace.log",
     threads: 4
     resources:
         mem_mb=config["mem_rosace"],
