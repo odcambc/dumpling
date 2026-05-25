@@ -9,50 +9,6 @@ import process_variants
 from script_utils import load_experiments, run_script
 
 
-order: list[str] = [
-    "A",
-    "C",
-    "D",
-    "E",
-    "F",
-    "G",
-    "H",
-    "I",
-    "J",
-    "K",
-    "L",
-    "M",
-    "N",
-    "P",
-    "Q",
-    "R",
-    "S",
-    "T",
-    "V",
-    "W",
-    "Y",
-    "D_1",
-    "D_2",
-    "D_3",
-    "I_1",
-    "I_2",
-    "I_3",
-    "X",
-]
-
-designed_variant_header: list[str] = [
-    "count",
-    "pos",
-    "mutation_type",
-    "name",
-    "codon",
-    "mutation",
-    "length",
-    "hgvs",
-    "chunk",
-]
-
-
 def process_gatk_file(gatk_output_file, designed_df, ref_AA_sequence, max_deletion_length, noprocess):
     """
     Process a GATK CSV file.
@@ -72,28 +28,6 @@ def process_gatk_file(gatk_output_file, designed_df, ref_AA_sequence, max_deleti
     )
 
     return filtered_df, rejected_df, rejected_stats, accepted_stats, total_stats
-
-
-def write_stats_output(stats_file, stats):
-    """
-    Write stats to a file.
-    """
-
-    with open(stats_file, "w") as f:
-        f.write("Mutation\tCount\n")
-        for mutation in order:
-            f.write(f"{mutation}\t{stats.get(mutation, 0)}\n")
-
-
-def write_counts_output(counts_file, counts):
-    """
-    Write counts to a file.
-    """
-
-    with open(counts_file, "w") as f:
-        f.write("Mutation\tCount\n")
-        for mutation in order:
-            f.write(f"{mutation}\t{counts.get(mutation, 0)}\n")
 
 
 def process_experiment(

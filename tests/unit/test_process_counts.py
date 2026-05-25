@@ -14,8 +14,6 @@ from Bio import SeqIO
 from workflow.rules.scripts.process_counts import (
     _run,
     process_experiment,
-    write_counts_output,
-    write_stats_output,
     process_gatk_file,
 )
 
