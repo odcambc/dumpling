@@ -554,7 +554,7 @@ def process_variants_file(
         total_stats["total_counts"] = total_stats["total_counts"] + counts
 
         if length_NT == 0 or AA == "":
-            rejected_list = rejected_list + [line]
+            rejected_list.append(line)
             rejected_stats["outside_orf_counts"] = (
                 rejected_stats["outside_orf_counts"] + counts
             )
@@ -563,7 +563,7 @@ def process_variants_file(
 
         if "FS" in AA:
             rejected_stats["fs_counts"] = rejected_stats["fs_counts"] + counts
-            rejected_list = rejected_list + [line]
+            rejected_list.append(line)
             rejected = True
             continue
 
@@ -619,7 +619,7 @@ def process_variants_file(
                 continue
 
             if variant_dict["rejected"]:
-                rejected_list = rejected_list + [line]
+                rejected_list.append(line)
                 rejected_stats["wrong_variant_counts"] = (
                     rejected_stats["wrong_variant_counts"] + counts
                 )
