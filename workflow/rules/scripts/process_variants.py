@@ -405,13 +405,6 @@ def parse_multi_synonymous(codon: str) -> str:
     return name
 
 
-def check_expected(variant_dict: VariantDict, variant_names_array: List[str]) -> bool:
-    if variant_dict["name"] in variant_names_array:
-        return False
-    else:
-        return True
-
-
 def update_stats(
     accepted_stats: StatsDict, rejected_stats: StatsDict, variant_dict: VariantDict
 ) -> Tuple[StatsDict, StatsDict]:
