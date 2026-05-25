@@ -61,14 +61,12 @@ def get_baseline_samples(experiments, samples):
 
 
 def get_experiment_samples(experiments, samples):
-    """Returns a list of experiment (i.e., non-baseline) sample and files"""
+    """Returns a list of experiment (i.e., non-baseline) samples."""
     experiment_samples = []
-    experiment_files = []
     for sample in samples:
         if experiments.loc[sample, "condition"] != config["baseline_condition"]:
             experiment_samples.append(sample)
-            experiment_files.append(experiments.loc[sample, "file"])
-    return experiment_samples, experiment_files
+    return experiment_samples
 
 
 def get_enrich2_input(wildcards):
@@ -211,7 +209,7 @@ validate_experiment_time_or_bin(experiments)
 experiment = config["experiment"]
 samples = experiments["sample"]
 baseline_samples, baseline_files = get_baseline_samples(experiments, samples)
-experiment_samples, experiment_files = get_experiment_samples(experiments, samples)
+experiment_samples = get_experiment_samples(experiments, samples)
 files = experiments["file"]
 conditions = set(experiments["condition"])
 experimental_conditions = conditions - set([config["baseline_condition"]])
