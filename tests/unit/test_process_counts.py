@@ -4,7 +4,7 @@ import pytest
 import os
 import csv
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 import pandas as pd
 from Bio.Seq import Seq
@@ -13,7 +13,7 @@ from Bio import SeqIO
 
 from workflow.rules.scripts.process_counts import (
     _run,
-    process_experiment,
+    process_sample,
     process_gatk_file,
 )
 from workflow.rules.scripts.script_utils import translate_orf
@@ -21,11 +21,10 @@ from workflow.rules.scripts.script_utils import translate_orf
 
 def _read_ref_aa(ref_dir, reference_fasta, orf_range="1-12"):
     """Helper: parse a reference FASTA and translate its ORF region.
-    Mirrors what process_counts._run does once per pipeline invocation —
-    tests that exercise process_experiment directly need to do the same
-    parsing themselves now that the responsibility moved out of the
-    per-call function (audit item M7). Uses the shared translate_orf so
-    the test path can't drift from production on the circular case."""
+    Mirrors what process_counts._run does once per rule invocation —
+    tests that exercise process_sample directly need to do the same
+    parsing themselves. Uses the shared translate_orf so the test path
+    can't drift from production."""
     ref_path = os.path.join(ref_dir, reference_fasta)
     with open(ref_path) as f:
         ref_list = list(SeqIO.parse(f, "fasta"))
@@ -87,17 +86,6 @@ def variants_file(tmp_path):
 
 
 @pytest.fixture
-def oligo_file(tmp_path):
-    """
-    If you're testing the 'regenerate_variants' logic, create a mock oligo file
-    for generate_variants. If not, we can skip this or provide an empty file.
-    """
-    oligo_file = tmp_path / "oligos.txt"
-    oligo_file.write_text("Mock oligo data\n")
-    return str(oligo_file)
-
-
-@pytest.fixture
 def gatk_dir(tmp_path):
     """
     A directory to store mock GATK CSV outputs (one per sample).
@@ -111,7 +99,7 @@ def gatk_dir(tmp_path):
 @pytest.fixture
 def output_dir(tmp_path):
     """
-    The output directory where process_experiment writes files.
+    The output directory where process_sample writes files.
     """
     out_dir = tmp_path / "processed_counts"
     out_dir.mkdir()
@@ -122,7 +110,7 @@ def output_dir(tmp_path):
 def mock_process_variants():
     """
     We'll patch the process_variants module to mock read_gatk_csv, process_variants_file,
-    and write_enrich_df. That way we can isolate process_experiment logic.
+    and write_enrich_df. That way we can isolate process_sample logic.
     """
     with patch("workflow.rules.scripts.process_counts.process_variants") as mock_mod:
         # read_gatk_csv will return a small list of lines
@@ -170,7 +158,7 @@ def mock_process_variants():
         yield mock_mod
 
 
-def test_process_experiment_minimal(
+def test_process_sample_minimal(
     mock_ref_dir,
     reference_fasta,
     gatk_dir,
@@ -178,17 +166,16 @@ def test_process_experiment_minimal(
     mock_process_variants,
 ):
     """
-    Test that process_experiment runs end-to-end for a minimal set of samples,
-    verifying certain files are created and we see expected logs.
+    Test that process_sample runs end-to-end for one sample, verifying
+    expected files are created.
     """
-    # We'll create a minimal GATK CSV for one sample named 'sampleA'
     sample_name = "sampleA"
     gatk_csv = os.path.join(gatk_dir, f"{sample_name}.variantCounts")
     with open(gatk_csv, "w") as f:
         f.write("mock\ttsv\tlines")
 
-    process_experiment(
-        sample_list=[sample_name],
+    process_sample(
+        sample_name=sample_name,
         experiment_name="experiment",
         ref_AA_sequence=_read_ref_aa(mock_ref_dir, os.path.basename(reference_fasta)),
         designed_df=pd.DataFrame(),
@@ -198,11 +185,9 @@ def test_process_experiment_minimal(
         output_dir=output_dir,
     )
 
-    # Check that process_experiment wrote some expected files
+    # Check that process_sample wrote some expected files
     # 1) The processed CSV
     processed_csv = Path(output_dir) / f"{sample_name}.csv"
-    # Print the contents of dir
-    print(list(Path(output_dir).rglob("*")))
     assert processed_csv.exists(), "Processed CSV should be created"
     df_processed = pd.read_csv(processed_csv)
     # We expect the patched process_variants_file returned 2 rows:
@@ -217,15 +202,13 @@ def test_process_experiment_minimal(
     # 3) The rejected variants
     rejected_file = Path(output_dir) / "rejected" / f"rejected_{sample_name}.csv"
     assert rejected_file.exists(), "Rejected variants file should be created"
-    # Possibly empty, since we mocked a minimal scenario
     lines = rejected_file.read_text().strip().split("\n")
     assert len(lines) <= 1, "Likely no rejected lines in the mock scenario"
 
     # 4) The stats files
     stats_dir = Path("stats") / "experiment" / "processing"
-    assert stats_dir.exists(), "stats_dir should be created by process_experiment"
+    assert stats_dir.exists(), "stats_dir should be created by process_sample"
 
-    # We'll check for sampleA_rejected_processing.tsv, etc
     rejected_stats_file = stats_dir / f"{sample_name}_rejected_processing.tsv"
     accepted_stats_file = stats_dir / f"{sample_name}_accepted_processing.tsv"
     total_stats_file = stats_dir / f"{sample_name}_total_processing.tsv"
@@ -233,62 +216,47 @@ def test_process_experiment_minimal(
     assert rejected_stats_file.exists(), "Rejected stats should exist"
     assert accepted_stats_file.exists(), "Accepted stats should exist"
     assert total_stats_file.exists(), "Total stats should exist"
-    # Quick check of contents
-    content = rejected_stats_file.read_text()
-    # We'll not do detailed checks here, as we used a patched version.
-    # But you can parse or do line-by-line checks if needed.
 
 
 # -----------------------------------------------------------------------------
-# _run-level tests for behavior hoisted out of process_experiment (M7).
+# _run-level tests for the per-sample rule entry point.
 #
-# The "missing variants_file under filtering" check and the "skip variants
-# load under noprocess" shortcut both used to live inside process_experiment.
-# They moved into _run when the reference + variants-file reads were hoisted
-# out of the per-replicate-group loop. The tests follow.
+# After the per-sample split, _run handles exactly one sample identified by
+# `snakemake.wildcards.sample_prefix`. The "missing variants_file under
+# filtering" and "skip variants load under noprocess" guards still apply
+# per-invocation; the cross-group caching test is no longer applicable
+# (there's no loop to cache against).
 # -----------------------------------------------------------------------------
-
-
-@pytest.fixture
-def experiment_csv(tmp_path):
-    """Tiny experiment CSV with one sample, one condition, one replicate."""
-    csv_file = tmp_path / "experiment.csv"
-    pd.DataFrame(
-        [{"sample": "sampleA", "condition": "A", "replicate": 1, "time": 0}]
-    ).to_csv(csv_file, index=False)
-    return csv_file
 
 
 def _build_run_snakemake(
-    mock_snakemake, *, experiment_csv, ref_dir, reference_fasta, variants_file,
-    gatk_dir, noprocess, tiled=False,
+    mock_snakemake, *, ref_dir, reference_fasta, variants_file,
+    gatk_dir, noprocess, sample_prefix="sampleA",
 ):
     return mock_snakemake(
         config={
             "experiment": "experiment",
-            "experiment_file": str(experiment_csv),
             "ref_dir": str(ref_dir),
             "reference": os.path.basename(reference_fasta),
             "orf": "1-12",
             "variants_file": str(variants_file),
             "noprocess": noprocess,
             "max_deletion_length": 3,
-            "tiled": tiled,
         },
         params={"gatk_dir": str(gatk_dir)},
+        wildcards={"sample_prefix": sample_prefix},
         log=["/dev/null"],
     )
 
 
 def test_run_raises_when_variants_file_missing_and_filtering(
-    mock_snakemake, mock_ref_dir, reference_fasta, experiment_csv, gatk_dir, output_dir,
+    mock_snakemake, mock_ref_dir, reference_fasta, gatk_dir, output_dir,
 ):
     """Variant filtering needs a designed-variants CSV. If filtering is on
     (noprocess=False) but the file is missing, _run must fail loudly."""
     missing = Path(output_dir) / "does_not_exist.csv"
     snakemake = _build_run_snakemake(
         mock_snakemake,
-        experiment_csv=experiment_csv,
         ref_dir=mock_ref_dir,
         reference_fasta=reference_fasta,
         variants_file=missing,
@@ -301,7 +269,7 @@ def test_run_raises_when_variants_file_missing_and_filtering(
 
 
 def test_run_skips_variants_file_load_when_noprocess(
-    mock_snakemake, mock_ref_dir, reference_fasta, experiment_csv, gatk_dir,
+    mock_snakemake, mock_ref_dir, reference_fasta, gatk_dir,
     output_dir, mock_process_variants,
 ):
     """noprocess=True must NOT require the variants CSV to exist — the
@@ -316,46 +284,27 @@ def test_run_skips_variants_file_load_when_noprocess(
 
     snakemake = _build_run_snakemake(
         mock_snakemake,
-        experiment_csv=experiment_csv,
         ref_dir=mock_ref_dir,
         reference_fasta=reference_fasta,
         variants_file=missing,
         gatk_dir=gatk_dir,
         noprocess=True,
+        sample_prefix=sample_name,
     )
 
     # Should not raise.
     _run(snakemake)
 
-    # The per-sample outputs that don't depend on the variants file should
-    # still have been produced. Note: _run writes outputs under
-    # results/{experiment_name}/processed_counts/ in the current working
-    # directory, not under our test output_dir fixture. Don't assert
-    # specific paths — just that _run returned without raising.
 
-
-def test_run_loads_reference_and_variants_once_regardless_of_groups(
+def test_run_reads_inputs_once_per_invocation(
     mock_snakemake, mock_ref_dir, reference_fasta, gatk_dir, output_dir,
     mock_process_variants, mocker, tmp_path,
 ):
-    """M7 regression guard. The reference FASTA parse + ORF translate and
-    the variants-file read should happen once per _run invocation, not
-    once per (condition × tile × replicate) call to process_experiment."""
-    # Build an experiment CSV with multiple replicate groups so the old
-    # implementation would re-read everything per group.
-    csv_file = tmp_path / "multi_group_experiment.csv"
-    pd.DataFrame(
-        [
-            {"sample": "A_T0", "condition": "A", "replicate": 1, "time": 0},
-            {"sample": "A_T1", "condition": "A", "replicate": 1, "time": 1},
-            {"sample": "A_T0_r2", "condition": "A", "replicate": 2, "time": 0},
-            {"sample": "A_T1_r2", "condition": "A", "replicate": 2, "time": 1},
-            {"sample": "B_T0", "condition": "B", "replicate": 1, "time": 0},
-            {"sample": "B_T1", "condition": "B", "replicate": 1, "time": 1},
-        ]
-    ).to_csv(csv_file, index=False)
-
-    # Real variants file (small) so the read actually happens.
+    """_run should parse the reference FASTA and read the variants CSV
+    exactly once per invocation. (Each per-sample rule invocation is its
+    own Python process, so this is a per-rule guarantee, not a cross-
+    sample one.)"""
+    # Real variants file so the read actually happens.
     variants_csv = tmp_path / "variants.csv"
     pd.DataFrame(
         [
@@ -364,20 +313,18 @@ def test_run_loads_reference_and_variants_once_regardless_of_groups(
         ]
     ).to_csv(variants_csv, index=False)
 
-    # Write a GATK file per sample so each replicate group has something
-    # to process.
-    for name in ("A_T0", "A_T1", "A_T0_r2", "A_T1_r2", "B_T0", "B_T1"):
-        with open(os.path.join(gatk_dir, f"{name}.variantCounts"), "w") as f:
-            f.write("mock\ttsv\tlines")
+    sample_name = "sampleA"
+    with open(os.path.join(gatk_dir, f"{sample_name}.variantCounts"), "w") as f:
+        f.write("mock\ttsv\tlines")
 
     snakemake = _build_run_snakemake(
         mock_snakemake,
-        experiment_csv=csv_file,
         ref_dir=mock_ref_dir,
         reference_fasta=reference_fasta,
         variants_file=variants_csv,
         gatk_dir=gatk_dir,
         noprocess=False,
+        sample_prefix=sample_name,
     )
 
     # Spy on the expensive operations.
@@ -391,11 +338,10 @@ def test_run_loads_reference_and_variants_once_regardless_of_groups(
         f"Expected SeqIO.parse called once; got {seqio_parse_spy.call_count}"
     )
 
-    # pd.read_csv is called once for the experiment CSV and once for the
-    # variants CSV — total 2, regardless of replicate-group count. The
-    # buggy pre-M7 version would call it (1 + N) times where N is the
-    # number of replicate groups (3 here: A/1, A/2, B/1).
-    assert read_csv_spy.call_count == 2, (
-        f"Expected pd.read_csv called twice (experiment + variants); "
+    # pd.read_csv is called once for the variants CSV. (The experiment CSV
+    # is no longer loaded per-sample; it's not needed when the wildcard
+    # directly identifies the sample.)
+    assert read_csv_spy.call_count == 1, (
+        f"Expected pd.read_csv called once (variants only); "
         f"got {read_csv_spy.call_count}"
     )
