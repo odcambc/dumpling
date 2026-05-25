@@ -160,8 +160,6 @@ def _run(snakemake):
 
 
 def main():
-    from snakemake.script import snakemake
-
     run_script(snakemake, _run)
 
 

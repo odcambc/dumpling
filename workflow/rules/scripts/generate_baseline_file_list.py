@@ -1,5 +1,4 @@
 import logging
-from snakemake.script import snakemake
 from script_utils import load_experiments, run_script
 
 

@@ -1,7 +1,6 @@
 import pandas as pd
 import logging
 
-from snakemake.script import snakemake
 from script_utils import set_index_with_unique_check
 
 

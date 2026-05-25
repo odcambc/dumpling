@@ -7,8 +7,6 @@ import Bio.Seq
 import pandas as pd
 import regex
 
-from snakemake.script import snakemake
-
 
 # Type aliases
 VariantDict = Dict[str, Union[int, str, bool]]

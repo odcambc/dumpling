@@ -2,7 +2,6 @@ import logging
 
 import yaml
 
-from snakemake.script import snakemake
 from script_utils import run_script
 
 """Generate a MultiQC config file for the baseline samples. This will write the following
