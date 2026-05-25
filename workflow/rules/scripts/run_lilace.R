@@ -217,6 +217,17 @@ run_lilace_for_condition <- function(experiment_definition, experiment_name, con
   c_cols <- grep("^c_", colnames(model_df), value = TRUE)
   c_cols <- c_cols[order(gsub("^c_", "", c_cols))]
 
+  # Per-replicate NA→0 (line 201) only fills gaps within a single
+  # replicate. After bind_rows across replicates with uneven time-point
+  # coverage (e.g. R1 has t=0,1,2,3 but R2 has t=0,1,2), R2's rows pick
+  # up NA in c_3. Lilace's Stan model rejects NA counts. Fill the same
+  # way the per-replicate path does: missing time point → 0 observed,
+  # consistent with how within-replicate gaps are already handled.
+  model_df[c_cols] <- lapply(
+    model_df[c_cols],
+    function(x) ifelse(is.na(x), 0L, as.integer(x))
+  )
+
   lilace_obj <- lilace::lilace_from_counts(
     variant_id = model_df$variant,
     mutation_type = model_df$type,
