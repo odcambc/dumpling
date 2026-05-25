@@ -2,6 +2,11 @@
   "name": "dumpling (canonical)",
   "image": "mcr.microsoft.com/devcontainers/miniconda:1-3",
   "remoteUser": "vscode",
+  "hostRequirements": {
+    "cpus": 4,
+    "memory": "16gb",
+    "storage": "32gb"
+  },
   "features": {
     "ghcr.io/devcontainers-extra/features/apt-packages:1": {
       "packages": "gfortran,cmake,libuv1-dev,libxml2-dev,libcurl4-openssl-dev,libssl-dev,libnlopt-dev,libfontconfig1-dev,libharfbuzz-dev,libfribidi-dev,libtiff-dev,libjpeg-dev,libpng-dev"
