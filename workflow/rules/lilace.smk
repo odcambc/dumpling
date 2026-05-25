@@ -1,4 +1,7 @@
 rule run_lilace:
+    """Run Lilace scoring for a single non-baseline condition. Snakemake
+    fans this out over `experimental_conditions`; one R process per
+    condition lets Stan sampling overlap on cluster or multi-core local."""
     input:
         expand(
             "results/{{experiment_name}}/processed_counts/enrich_format/{experiments}.tsv",
@@ -6,14 +9,11 @@ rule run_lilace:
         ),
         "results/{experiment_name}/lilace/lilace_installed.txt",
     output:
-        expand(
-            "results/{{experiment_name}}/lilace/{conditions}_scores.csv",
-            conditions=experimental_conditions,
-        ),
+        "results/{experiment_name}/lilace/{condition}_scores.csv",
     benchmark:
-        "benchmarks/{experiment_name}/{experiment_name}.lilace.benchmark.txt"
+        "benchmarks/{experiment_name}/{condition}.lilace.benchmark.txt"
     log:
-        "logs/{experiment_name}/lilace/{experiment_name}.lilace.log",
+        "logs/{experiment_name}/lilace/{condition}.lilace.log",
     threads: 4
     resources:
         mem_mb=config["mem_lilace"],
