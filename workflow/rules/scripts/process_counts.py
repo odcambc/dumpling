@@ -6,7 +6,7 @@ import pandas as pd
 from Bio import SeqIO
 
 import process_variants
-from script_utils import load_experiments, run_script
+from script_utils import load_experiments, run_script, translate_orf
 
 
 def process_gatk_file(gatk_output_file, designed_df, ref_AA_sequence, max_deletion_length, noprocess):
@@ -139,8 +139,7 @@ def _run(snakemake):
     with open(ref_path, "r") as f:
         ref_list = list(SeqIO.parse(f, "fasta"))
         ref_sequence = ref_list[0].seq
-    orf_start, orf_end = map(int, orf_range.split("-"))
-    ref_AA_sequence = ref_sequence[orf_start - 1 : orf_end].translate()
+    ref_AA_sequence = translate_orf(ref_sequence, orf_range)
 
     # Read designed variants file once. When noprocess=True the GATK output
     # is used as-is (no filtering); pass an empty frame through and skip

@@ -120,6 +120,30 @@ def load_experiments(experiment_file) -> pd.DataFrame:
     return set_index_with_unique_check(df, "sample", drop=False)
 
 
+def translate_orf(ref_sequence, orf_range: str):
+    """Translate the ORF region of a reference DNA sequence.
+
+    The ``orf_range`` string follows ``"<start>-<end>"`` with 1-based,
+    inclusive positions. Two conventions are supported:
+
+    - **Linear** (``start <= end``): returns ``ref_sequence[start-1:end]`` translated.
+    - **Circular** (``start > end``, i.e. the ORF crosses the origin):
+      returns ``ref_sequence[start-1:] + ref_sequence[:end]`` translated.
+
+    Lives in script_utils so generate_variants.py and process_counts.py
+    produce the same amino-acid reference from the same config — they
+    used to diverge for circular ORFs, with process_counts silently
+    returning an empty translation while generate_variants did the
+    correct concatenation.
+    """
+    orf_start, orf_end = map(int, orf_range.split("-"))
+    if orf_start > orf_end:
+        nt = ref_sequence[orf_start - 1 :] + ref_sequence[:orf_end]
+    else:
+        nt = ref_sequence[orf_start - 1 : orf_end]
+    return nt.translate()
+
+
 def validate_experiment_time_or_bin(experiments: pd.DataFrame) -> None:
     """Each experiment row must set exactly one of ``time`` (timecourse) or
     ``bin`` (FACS-type). The JSON-Schema ``oneOf`` enforcing this raised

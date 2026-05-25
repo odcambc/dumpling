@@ -16,6 +16,7 @@ from workflow.rules.scripts.process_counts import (
     process_experiment,
     process_gatk_file,
 )
+from workflow.rules.scripts.script_utils import translate_orf
 
 
 def _read_ref_aa(ref_dir, reference_fasta, orf_range="1-12"):
@@ -23,13 +24,13 @@ def _read_ref_aa(ref_dir, reference_fasta, orf_range="1-12"):
     Mirrors what process_counts._run does once per pipeline invocation —
     tests that exercise process_experiment directly need to do the same
     parsing themselves now that the responsibility moved out of the
-    per-call function (audit item M7)."""
+    per-call function (audit item M7). Uses the shared translate_orf so
+    the test path can't drift from production on the circular case."""
     ref_path = os.path.join(ref_dir, reference_fasta)
     with open(ref_path) as f:
         ref_list = list(SeqIO.parse(f, "fasta"))
         ref_sequence = ref_list[0].seq
-    start, end = map(int, orf_range.split("-"))
-    return ref_sequence[start - 1 : end].translate()
+    return translate_orf(ref_sequence, orf_range)
 
 
 @pytest.fixture

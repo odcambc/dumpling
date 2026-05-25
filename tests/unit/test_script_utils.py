@@ -1,10 +1,12 @@
 import pandas as pd
 import pytest
+from Bio.Seq import Seq
 
 from workflow.rules.scripts.script_utils import (
     file_digest,
     load_experiments,
     run_script,
+    translate_orf,
     validate_experiment_time_or_bin,
 )
 
@@ -22,6 +24,42 @@ def test_run_script_logs_and_reraises(mock_snakemake, mocker):
 
     basic_config.assert_called_once()
     log_exception.assert_called_once_with("Script failed")
+
+
+class TestTranslateOrf:
+    """One translation helper, shared between generate_variants and
+    process_counts, so the two scripts can't disagree on what the ORF's
+    AA sequence is — especially for circular ORFs that cross the origin."""
+
+    def test_linear_orf_translates_inclusive_1_based_slice(self):
+        # GCT|TTT|... in DNA -> A|F|... in protein
+        ref = Seq("GCTTTT")
+        assert str(translate_orf(ref, "1-6")) == "AF"
+
+    def test_linear_orf_subrange(self):
+        # Skip the first codon: TTT -> F only.
+        ref = Seq("GCTTTT")
+        assert str(translate_orf(ref, "4-6")) == "F"
+
+    def test_circular_orf_wraps_origin(self):
+        # 6 nt ring; ORF from position 5 to position 4 wraps: indexes
+        # 4..5 (CC) + 0..3 (GCTT) = "CCGCTT" = P|L when translated.
+        ref = Seq("GCTTCC")
+        # generate_variants's circular concatenation:
+        # ref[5-1:] + ref[:4] = "CC" + "GCTT" = "CCGCTT" -> "PL"
+        assert str(translate_orf(ref, "5-4")) == "PL"
+
+    def test_circular_and_linear_diverge_when_wrapping(self):
+        # The whole point: a linear slice with start > end is empty in
+        # Python, but the circular interpretation produces the real ORF.
+        # The pre-fix process_counts.py used to return "" for this case
+        # while generate_variants returned the right answer; both should
+        # now agree.
+        ref = Seq("GCTTCC")
+        linear_naive = ref[5 - 1 : 4].translate()
+        circular = translate_orf(ref, "5-4")
+        assert str(linear_naive) == ""
+        assert str(circular) != ""
 
 
 class TestFileDigest:

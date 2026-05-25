@@ -9,7 +9,7 @@ from Bio.SeqUtils import seq1
 
 import pandas as pd
 
-from script_utils import run_script
+from script_utils import run_script, translate_orf
 
 # Define constants
 PRE_SPAN = 15  # Number of bases in window to map
@@ -485,33 +485,18 @@ def _run(snakemake):
         "orf"
     ]  # e.g. "100-500" or "500-100" for circular crossing origin
 
-    orf_parts = orf_range.split("-")
-    orf_start = int(orf_parts[0])
-    orf_end = int(orf_parts[1])
-
-    # Determine if the reference is circular based on the ORF range
+    orf_start, orf_end = map(int, orf_range.split("-"))
     is_circular = orf_start > orf_end
     if is_circular:
         logging.info("Detected circular genome (ORF crosses origin)")
-        offset = orf_start - 4
-    else:
-        offset = orf_start - 4
+    offset = orf_start - 4
 
     # Read in the reference sequence
     with open(ref_file, "r") as f:
         ref_list = list(SeqIO.parse(f, "fasta"))
         ref_sequence = ref_list[0].seq
 
-    # For a circular genome, if ORF crosses the origin, we need to handle the ORF extraction differently
-    if is_circular:
-        first_part = ref_sequence[orf_start - 1 :]
-        second_part = ref_sequence[:orf_end]
-        ref_AA_sequence = (first_part + second_part).translate()
-        logging.info(
-            f"Circular ORF: joined sequence from positions {orf_start-1}:{len(ref_sequence)} and 0:{orf_end}"
-        )
-    else:
-        ref_AA_sequence = ref_sequence[orf_start - 1 : orf_end].translate()
+    ref_AA_sequence = translate_orf(ref_sequence, orf_range)
 
     logging.info(
         f"ORF range: {orf_range}, offset: {offset}, ORF start: {orf_start}, ORF end: {orf_end}, is_circular: {is_circular}"
