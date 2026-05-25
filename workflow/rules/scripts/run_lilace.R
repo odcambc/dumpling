@@ -205,8 +205,10 @@ run_lilace_for_condition <- function(experiment_definition, experiment_name, con
   }
 
   if (length(replicate_frames) == 0) {
-    warning(sprintf("No valid counts found for condition %s", condition_name))
-    return(invisible(NULL))
+    stop(sprintf(
+      "No valid counts found for condition %s. Cannot produce scores.",
+      condition_name
+    ))
   }
 
   model_df <- dplyr::bind_rows(replicate_frames) %>%
@@ -214,6 +216,17 @@ run_lilace_for_condition <- function(experiment_definition, experiment_name, con
 
   c_cols <- grep("^c_", colnames(model_df), value = TRUE)
   c_cols <- c_cols[order(gsub("^c_", "", c_cols))]
+
+  # Per-replicate NA→0 (line 201) only fills gaps within a single
+  # replicate. After bind_rows across replicates with uneven time-point
+  # coverage (e.g. R1 has t=0,1,2,3 but R2 has t=0,1,2), R2's rows pick
+  # up NA in c_3. Lilace's Stan model rejects NA counts. Fill the same
+  # way the per-replicate path does: missing time point → 0 observed,
+  # consistent with how within-replicate gaps are already handled.
+  model_df[c_cols] <- lapply(
+    model_df[c_cols],
+    function(x) ifelse(is.na(x), 0L, as.integer(x))
+  )
 
   lilace_obj <- lilace::lilace_from_counts(
     variant_id = model_df$variant,
@@ -241,8 +254,8 @@ run_lilace_for_condition <- function(experiment_definition, experiment_name, con
 main <- function() {
   experiment_name <- snakemake@config[["experiment"]]
   experiment_file <- snakemake@config[["experiment_file"]]
-  baseline_condition <- snakemake@config[["baseline_condition"]]
   noprocess <- snakemake@config[["noprocess"]]
+  condition_name <- snakemake@wildcards[["condition"]]
 
   # Backstop: common.smk's validate_scoring_backend_mode rejects this
   # combination at parse time, but guard here too in case the script is
@@ -262,13 +275,9 @@ main <- function() {
   dir.create(lilace_dir, recursive = TRUE, showWarnings = FALSE)
 
   experiment_definition <- load_experiment_definition(experiment_file)
-  conditions <- unique(experiment_definition$condition)
-  conditions <- conditions[conditions != baseline_condition]
 
-  for (condition_name in conditions) {
-    message(sprintf("Running Lilace for condition: %s", condition_name))
-    run_lilace_for_condition(experiment_definition, experiment_name, condition_name)
-  }
+  message(sprintf("Running Lilace for condition: %s", condition_name))
+  run_lilace_for_condition(experiment_definition, experiment_name, condition_name)
 }
 
 con <- init_logging()
@@ -276,9 +285,18 @@ on.exit({
   stop_logging(con)
 }, add = TRUE)
 
+# Use the renv project library without going through renv::activate():
+# activate() does a self-backup rename of the renv bootstrap dir on every
+# call, so parallel per-condition invocations race on that rename
+# (see workflow/rules/scripts/run_rosace.R for the same fix in rosace).
+# install_lilace.R is the one place that initializes / populates the
+# project library (via renv::restore()); subsequent runs only need to
+# find it. renv::paths$library() is read-only and concurrency-safe.
+
 if (!snakemake@config[["lilace_local"]]) {
-  message("Activating renv environment")
-  renv::activate()
+  message("Pointing .libPaths() at renv project library")
+  library("renv")
+  .libPaths(c(renv::paths$library(), .libPaths()))
 }
 
 library("readr")
