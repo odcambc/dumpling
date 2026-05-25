@@ -4,7 +4,7 @@ rule gatk_ASM:
     input:
         index=str(reference_file) + ".fai",
         ref_dict=str(reference_file.parent / f"{reference_name}.dict"),
-        sam="results/{experiment}/{sample_prefix}.mapped.sam",
+        bam="results/{experiment}/{sample_prefix}.mapped.bam",
     output:
         "results/{experiment}/gatk/{sample_prefix}.variantCounts",
     params:
@@ -19,7 +19,7 @@ rule gatk_ASM:
     threads: 1
     shell:
         "gatk AnalyzeSaturationMutagenesis "
-        "-I {input.sam} "
+        "-I {input.bam} "
         "-R {params.ref} "
         "--orf {params.orf} "
         "--sequence-dictionary {input.ref_dict} "
