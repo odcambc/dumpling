@@ -1,0 +1,12 @@
+channels:
+  - conda-forge
+  - bioconda
+  - nodefaults
+dependencies:
+  - r-base
+  - r-nloptr
+  - nlopt
+  - libxml2
+  # cmake must be <3.25 for CmdStan compatibility.
+  - cmake <3.25
+  - zlib

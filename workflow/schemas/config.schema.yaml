@@ -50,10 +50,21 @@ properties:
     type: boolean
     default: false
     description: Flag for whether to use local samtools or wrapper version.
+  scoring_backend:
+    type: string
+    default: rosace
+    enum:
+      - rosace
+      - lilace
+    description: Scoring backend to run for variant effect inference.
   rosace_local:
     type: boolean
     default: false
     description: Flag for whether to use ROSACE installed on system-wide R or through a conda-controlled R environment.
+  lilace_local:
+    type: boolean
+    default: false
+    description: Flag for whether to use Lilace installed on system-wide R or through a conda-controlled R environment.
   bbtools_use_bgzip:
     type: boolean
     default: true
@@ -80,10 +91,14 @@ properties:
     type: integer
     default: 16000
     description: memory for Rosace (in Mb)
+  mem_lilace:
+    type: integer
+    default: 16000
+    description: memory for Lilace (in Mb)
   enrich2:
     type: boolean
     default: false
-    description: Flag for whether to run Enrich2 in addition to Rosace.
+    description: Flag for whether to run Enrich2 in addition to the chosen scoring backend.
   remove_zeros:
     type: boolean
     default: false

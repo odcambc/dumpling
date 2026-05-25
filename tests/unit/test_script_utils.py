@@ -8,6 +8,7 @@ from workflow.rules.scripts.script_utils import (
     run_script,
     translate_orf,
     validate_experiment_time_or_bin,
+    validate_scoring_backend_mode,
 )
 
 
@@ -220,3 +221,31 @@ class TestValidateExperimentTimeOrBin:
         assert "'bad1'" in msg
         assert "'bad2'" in msg
         assert "'ok'" not in msg
+
+
+class TestValidateScoringBackendMode:
+    """Lilace's Stan model requires a synonymous control set and has no
+    total-counts fallback. noprocess mode doesn't produce trustworthy
+    synonymous labels, so the combination must be rejected at parse time."""
+
+    def test_lilace_with_noprocess_rejected(self):
+        config = {"scoring_backend": "lilace", "noprocess": True}
+        with pytest.raises(ValueError, match="lilace.*incompatible.*noprocess"):
+            validate_scoring_backend_mode(config)
+
+    def test_lilace_without_noprocess_passes(self):
+        config = {"scoring_backend": "lilace", "noprocess": False}
+        validate_scoring_backend_mode(config)
+
+    def test_rosace_with_noprocess_passes(self):
+        config = {"scoring_backend": "rosace", "noprocess": True}
+        validate_scoring_backend_mode(config)
+
+    def test_rosace_without_noprocess_passes(self):
+        config = {"scoring_backend": "rosace", "noprocess": False}
+        validate_scoring_backend_mode(config)
+
+    def test_missing_keys_treated_as_falsy(self):
+        """Defaults aren't this function's job — schema validation fills
+        them in. An empty config shouldn't crash here."""
+        validate_scoring_backend_mode({})

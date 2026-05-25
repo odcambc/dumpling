@@ -2476,6 +2476,48 @@
       "Maintainer": "Lionel Henry <lionel@posit.co>",
       "Repository": "CRAN"
     },
+    "lilace": {
+      "Package": "lilace",
+      "Version": "1.0.0",
+      "Source": "GitHub",
+      "Title": "Analyze FACS-based Deep Mutational Scanning Data",
+      "Authors@R": "person(\"Jerome\", \"Freudenberg\", email = \"jfreudenberg@ucla.edu\", role = c(\"aut\", \"cre\"), comment=c(ORCID=\"0009-0004-7464-8333\"))",
+      "Description": "A Bayesian hierarchical model for estimating variant effect sizes and uncertainty from FACS-based DMS data.",
+      "License": "MIT + file LICENSE",
+      "Encoding": "UTF-8",
+      "LazyData": "true",
+      "Depends": [
+        "R (>= 3.6)"
+      ],
+      "Suggests": [
+        "knitr",
+        "rmarkdown",
+        "posterior"
+      ],
+      "Imports": [
+        "cmdstanr (>= 0.8.0)",
+        "cowplot",
+        "ggpubr",
+        "colorspace",
+        "dplyr",
+        "ggplot2",
+        "readr",
+        "stringr",
+        "tidyr",
+        "utils",
+        "yaml"
+      ],
+      "RoxygenNote": "7.3.2",
+      "VignetteBuilder": "knitr",
+      "Author": "Jerome Freudenberg [aut, cre] (ORCID: 0009-0004-7464-8333)",
+      "Maintainer": "Jerome Freudenberg <jfreudenberg@ucla.edu>",
+      "RemoteType": "github",
+      "RemoteHost": "api.github.com",
+      "RemoteUsername": "pimentellab",
+      "RemoteRepo": "lilace",
+      "RemoteRef": "main",
+      "RemoteSha": "9a4f6d371cc70e0741da3c88c2c36fc0a1eb46fe"
+    },
     "lme4": {
       "Package": "lme4",
       "Version": "2.0-1",
@@ -3297,7 +3339,7 @@
     },
     "processx": {
       "Package": "processx",
-      "Version": "3.8.6",
+      "Version": "3.9.0",
       "Source": "Repository",
       "Title": "Execute and Control System Processes",
       "Authors@R": "c( person(\"Gábor\", \"Csárdi\", , \"csardi.gabor@gmail.com\", role = c(\"aut\", \"cre\", \"cph\"), comment = c(ORCID = \"0000-0001-7098-9676\")), person(\"Winston\", \"Chang\", role = \"aut\"), person(\"Posit Software, PBC\", role = c(\"cph\", \"fnd\")), person(\"Ascent Digital Services\", role = c(\"cph\", \"fnd\")) )",
@@ -4652,6 +4694,25 @@
       "NeedsCompilation": "no",
       "Author": "Jim Hester [aut], Lionel Henry [aut, cre], Kirill Müller [aut], Kevin Ushey [aut], Hadley Wickham [aut], Winston Chang [aut], Jennifer Bryan [ctb], Richard Cotton [ctb], Posit Software, PBC [cph, fnd]",
       "Maintainer": "Lionel Henry <lionel@posit.co>",
+      "Repository": "CRAN"
+    },
+    "yaml": {
+      "Package": "yaml",
+      "Version": "2.3.10",
+      "Source": "Repository",
+      "Type": "Package",
+      "Title": "Methods to Convert R Data to YAML and Back",
+      "Imports": [
+        "stats"
+      ],
+      "Description": "Implements the libyaml YAML 1.1 parser and emitter (https://pyyaml.org/wiki/LibYAML) for R.",
+      "License": "BSD_3_clause + file LICENSE",
+      "URL": "https://github.com/vubiostat/r-yaml/",
+      "BugReports": "https://github.com/vubiostat/r-yaml/issues",
+      "Encoding": "UTF-8",
+      "NeedsCompilation": "yes",
+      "Author": "Jeremy Stephens [aut, cre], Kirill Simonov [aut], Hadley Wickham [aut], others",
+      "Maintainer": "Shawn Garbett <shawn.garbett@vumc.org>",
       "Repository": "CRAN"
     },
     "zoo": {

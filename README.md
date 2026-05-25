@@ -7,7 +7,7 @@ and [Coyote-Maestas](https://www.wcoyotelab.com/) labs.
 Briefly, this conducts initial QC and mapping using BBTools, followed by the
 AnalyzeSaturationMutagenesis GATK module to call variants in each replicate. After variant calling, the list of observed variants in each read is filtered
 based on the list of designed variants, and the resulting counts are used to
-infer the fitness of each variant using [Rosace](https://github.com/pimentellab/rosace)
+infer the fitness of each variant using [Rosace](https://github.com/pimentellab/rosace), [Lilace](https://github.com/pimentellab/lilace),
 and (optionally) [Enrich2](https://github.com/FowlerLab/Enrich2).
 
 The pipeline is designed to be flexible and modular and should be amenable to use
@@ -18,8 +18,8 @@ with a variety of experimental designs. Please note several current [limitations
     - [Testing the pipeline with example data](#testing-the-pipeline-with-example-data)
   - [Installation](#installation)
     - [Install via GitHub](#install-via-github)
-    - [Installing Rosace](#installing-rosace)
-      - [Issues installing Rosace on OSX](#issues-installing-rosace-on-osx)
+    - [Installing Rosace and Lilace](#installing-rosace-and-lilace)
+      - [Issues installing Rosace and Lilace on OSX](#issues-installing-rosace-and-lilace-on-osx)
     - [Dependencies](#dependencies)
       - [Via conda (recommended)](#via-conda-recommended)
       - [Manually](#manually)
@@ -82,29 +82,33 @@ be used to compare results.
 
 Download or fork this repository and edit the configuration files as needed.
 
-### Installing Rosace
+### Installing Rosace and Lilace
 
-This pipeline uses the [Rosace](https://github.com/pimentellab/rosace) scoring tool.
-Rosace uses [CmdStanR](https://mc-stan.org/cmdstanr/) and R to infer scores.
+This pipeline supports the [Rosace](https://github.com/pimentellab/rosace) and [Lilace](https://github.com/pimentellab/lilace) scoring tools.
+Rosace and Lilace use [CmdStanR](https://mc-stan.org/cmdstanr/) and R to infer scores.
 
 Dumpling uses [renv](https://rstudio.github.io/renv/index.html) to handle R dependencies.
-This pipeline also includes a minimal faculty to install Rosace automatically, but issues are
+This pipeline also includes a minimal faculty to install Rosace and Lilace automatically, but issues are
 possible. This can be invoked by calling the `install_rosace` rule:
 
 ```snakemake --cores 8 install_rosace```
 
-This tries to install renv, restore the renv environment, and install Rosace and CmdStanR. If this fails,
-please try installing Rosace manually.
+or the `install_lilace` rule:
 
-We recommend installing Rosace manually before running the pipeline, or at least
-verifying that the install script works. More details about manually installing Rosace are
+```snakemake --cores 8 install_lilace```
+
+These try to install renv, restore the renv environment, and install Rosace or Lilace with CmdStanR. If this fails,
+please try installing them manually.
+
+We recommend trying to install either package manually before running the pipeline, or at least
+verifying that the install script works. More details about manually installing Rosace and Lilace are
 available in the vignettes of the package and at the repository linked above.
 
-#### Issues installing Rosace on OSX
+#### Issues installing Rosace and Lilace on OSX
 
-Rosace requires a C++ and fortran compiler to install required dependencies.
+Rosace and Lilace require a C++ and fortran compiler to install required dependencies.
 R, by default, requires these to be installed in `/opt/gfortran`. User installs (via Homebrew, for example)
-may not work. If you encounter an error compiling packages for Rosace, you may need to install the gfortran compiler from R.
+may not work. If you encounter an error compiling packages for Rosace or Lilace, you may need to install the gfortran compiler from R.
 
 See https://cran.r-project.org/bin/macosx/tools/ for more details.
 
@@ -136,6 +140,7 @@ The following are the dependencies required to run the pipeline:
 - [MultiQC](http://multiqc.info/)
 - [Enrich2](https://enrich2.readthedocs.io/en/latest/)
 - [Rosace](https://github.com/pimentellab/rosace)
+- [Lilace](https://github.com/pimentellab/lilace)
 
 BBTools compressed IO defaults to `bgzip` in this pipeline. If your environment hangs in
 `bbduk.sh`, `bbmerge.sh`, or `bbmap.sh`, set `bbtools_use_bgzip: false` in the config to
@@ -267,16 +272,19 @@ its functionality. However, there are currently several known limitations.
 - The pipeline is currently designed for direct sequencing. It does not support barcoded sequencing.
 - The pipeline is currently designed for single-site variants (including varying-length indels, however). It largely does not support combinatorial variants.
 - The designed variant generation step is currently optimized for DIMPLE libraries. Other protocols may require the user to generate the designed variants CSV themself.
-- Rosace is designed for growth-based experiments. It is not optimized for FACS-seq experiments.
 - This pipeline may not work properly if the data is in a cloud server (i.e., a Box drive) or other non-standard file system.
 - This pipeline currently only accepts fastq.gz files. It does not accept fastq files.
 
 ## Citations
 
-This workflow is described in the following publication:
+This workflow, along with Rosace, is described in the following publication:
 
 - Preprint: [Rao et al., 2023](https://www.biorxiv.org/content/10.1101/2023.10.24.562292v1)
 - Published: [Rao et al., 2024](https://doi.org/10.1186/s13059-024-03279-7)
+
+The Lilace FACS-based model is described in:
+
+- [Freudenberg et al., 2026](https://doi.org/10.1186/s13059-026-03934-1)
 
 ## License
 

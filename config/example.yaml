@@ -67,8 +67,9 @@ oligo_file: "config/oligos/example_oligos.csv"
 # regenerate_variants: Regenerate the variants file from the oligo file. This is
 #                      only necessary if the variants file is not already present.
 #
-# #### Enrich2-specific parameters ####
-# enrich2: Set to true to run Enrich2 in addition to Rosace.
+# #### Scoring and Enrich2 parameters ####
+# scoring_backend: Variant scoring backend. Options: rosace (default) or lilace.
+# enrich2: Set to true to run Enrich2 in addition to backend scoring.
 # noprocess: Set to True to skip variant filtering based on designed variants.
 # run_qc: Set to False to skip QC steps (fastqc and multiqc)
 #
@@ -82,6 +83,7 @@ oligo_file: "config/oligos/example_oligos.csv"
 #                      Defaults to 3.
 # -----------------------------------------------------------------------------
 orf: "141-1568"
+scoring_backend: rosace
 enrich2: true
 remove_zeros: true
 regenerate_variants: false
@@ -105,6 +107,8 @@ max_deletion_length: 3
 # samtools_local: Flag for whether to use a locally-installed samtools or the wrapper version.
 #                 This is useful for platforms (such as ARM Macs currently) where conda does
 #                 not have a compatible samtools version.
+# rosace_local: Use locally-managed Rosace/cmdstanr instead of renv+conda rule environment.
+# lilace_local: Use locally-managed Lilace/cmdstanr instead of renv+conda rule environment.
 # bbtools_use_bgzip: Keep BBTools on bgzip for compressed IO. Set to false only if
 #                    your environment hangs in BBTools and you need to fall back to pigz/unpigz.
 #
@@ -117,6 +121,7 @@ min_q: 30
 
 samtools_local: false
 rosace_local: false
+lilace_local: false
 bbtools_use_bgzip: true
 
 # -----------------------------------------------------------------------------
