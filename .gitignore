@@ -19,6 +19,12 @@ example/
 *.fastq.gz
 *.dict
 *.fastq
+# bwa / bwa-mem2 index sidecars generated from a .fasta reference.
+*.fasta.amb
+*.fasta.ann
+*.fasta.pac
+*.fasta.0123
+*.fasta.bwt.2bit.64
 .Rproj.user
 .venv*/
 reports/full_e2e/latest.json

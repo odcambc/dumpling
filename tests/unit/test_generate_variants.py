@@ -1,5 +1,6 @@
 import unittest
 from unittest.mock import patch
+import logging
 import os
 import tempfile
 import csv
@@ -78,6 +79,34 @@ class TestOligoProcessing(unittest.TestCase):
         # Test with no matches
         self.assertEqual(extract_codon("ACTG", "XXX", "YYY", 0, "ZZZZ", 0, 1), "")
 
+    def test_extract_codon_flanks_with_regex_metacharacters(self):
+        """Flanking sequences must be escaped before re.split.
+
+        A pre_codon containing a regex metacharacter (e.g. `*`, `.`, `(`)
+        would either crash with re.error or match the wrong bases. The
+        characters here aren't legal IUPAC, but a user-supplied reference
+        FASTA can plausibly contain any of them (alignment gaps, stop-codon
+        annotations, ambiguity notations like `(A/G)`), so the function
+        must not assume clean ACGT input.
+        """
+        oligo = "AAA.BBBTATCCC"
+        # `.` is the regex wildcard; without escaping, `re.split("AAA.BBB", ...)`
+        # would split anywhere AAA + any-char + BBB appears, which here happens
+        # to match but in general gives the wrong answer or fails to anchor.
+        pre_codon = "AAA.BBB"
+        self.assertEqual(
+            extract_codon(oligo, pre_codon, "", 0, "", 0, 1),
+            "TAT",
+        )
+
+        # `(` is unbalanced and would raise re.error("missing ), unterminated subpattern")
+        # without escaping.
+        oligo_with_paren = "AAA(GROUP)TATCCC"
+        self.assertEqual(
+            extract_codon(oligo_with_paren, "AAA(GROUP)", "", 0, "", 0, 1),
+            "TAT",
+        )
+
     def test_designed_variants_substitution(self):
         """Test processing substitution variants."""
         with tempfile.NamedTemporaryFile(delete=False) as temp_file:
@@ -129,6 +158,27 @@ class TestOligoProcessing(unittest.TestCase):
 
         os.unlink(temp_name)
 
+    def test_designed_variants_deletion_missing_position_is_skipped(self):
+        """Malformed deletion oligo (missing trailing -POSITION) must not crash
+        the pipeline. DIMPLE always emits all three components, so we treat the
+        two-component form as a non-match rather than raising on int(None)."""
+        with tempfile.NamedTemporaryFile(delete=False) as temp_file:
+            temp_name = temp_file.name
+            # Note: no trailing "-<pos>" — would previously crash with
+            # TypeError: int() argument must be a string ... not 'NoneType'
+            temp_file.write(
+                b"name,sequence\ntest_delete-1_3,ACTAGCTAGCGCTAGCTAGCT\n"
+            )
+
+        ref = "ATGGCTAGCATGGCTAGCATGGCTAGCATGGCTAGCATGGCTAGC"
+        offset = 1
+
+        # Should return cleanly with no matched variant, not raise.
+        variants = designed_variants(temp_name, ref, offset)
+        self.assertEqual(variants, [])
+
+        os.unlink(temp_name)
+
     def test_designed_variants_insertion(self):
         """Test processing insertion variants."""
         with tempfile.NamedTemporaryFile(delete=False) as temp_file:
@@ -149,6 +199,115 @@ class TestOligoProcessing(unittest.TestCase):
         self.assertTrue("ins" in variants[0]["name"])
         self.assertEqual(variants[0]["codon"], "ATGGCG")
         self.assertEqual(variants[0]["mutant"], "I_2")  # 2 codon insertion
+
+        os.unlink(temp_name)
+
+    # ------------------------------------------------------------------
+    # Insertion length-consistency check.
+    #
+    # The oligo name declares the inserted sequence; the actual oligo
+    # nucleotide sequence is the ground truth. Anchored on flanking
+    # reference codons, the bases between the flanks in the oligo are
+    # the actual inserted region. A length mismatch indicates the
+    # library's name and content disagree (replaces the prior dead
+    # `if insertion_length != len(inserted_seq)` self-comparison).
+    # ------------------------------------------------------------------
+
+    # A reference with distinct codons so the script's flanking-window
+    # anchors aren't ambiguous (the more-realistic-looking
+    # "ATGGCTAGCATGGCTAGC..." reference used by the other tests has a
+    # tandem repeat that makes pre_window match in multiple positions —
+    # fine for those tests, but it would mask the length-check logic).
+    _NONREPEATING_REF = "AAACCCGGGTTTAATCATCAGTACAAGTGGAGCAGTGAACGTTCC"
+
+    def _build_insertion_oligo(self, ref, offset, pos, actual_inserted):
+        """Construct an oligo whose actual inserted region equals
+        `actual_inserted`, with flanking taken from `ref` around `pos`."""
+        start_codon_pos = offset + (3 * (pos - 1))
+        end_codon_pos = offset + (3 * pos)
+        # PRE_SPAN is 15 in the script; we use the full available flank
+        # so the script's re.split anchors find a unique match.
+        pre = ref[max(0, start_codon_pos - 15) : start_codon_pos + 3]
+        post = ref[end_codon_pos : end_codon_pos + 3 + 15]
+        return pre + actual_inserted + post
+
+    def test_designed_variants_insertion_length_mismatch_warns(self):
+        """Oligo NAME declares a different number of inserted bases than the
+        oligo SEQUENCE actually contains — emit a length-mismatch warning."""
+        ref = self._NONREPEATING_REF
+        offset = 1
+        pos = 5
+
+        # Oligo contains a 3-base insertion ("TGC") but the name declares
+        # a 9-base inserted sequence ("AAATTTGGG").
+        oligo_seq = self._build_insertion_oligo(ref, offset, pos, "TGC")
+        with tempfile.NamedTemporaryFile(delete=False) as temp_file:
+            temp_name = temp_file.name
+            temp_file.write(
+                f"name,sequence\ntest_insert-1_AAATTTGGG-{pos},{oligo_seq}\n".encode()
+            )
+
+        with self.assertLogs(level="WARNING") as cm:
+            designed_variants(temp_name, ref, offset)
+
+        self.assertTrue(
+            any("length mismatch" in msg.lower() for msg in cm.output),
+            f"Expected an insertion length mismatch warning. Got: {cm.output}",
+        )
+
+        os.unlink(temp_name)
+
+    def test_designed_variants_insertion_length_match_no_warning(self):
+        """When the name and the oligo sequence agree, no mismatch warning."""
+        ref = self._NONREPEATING_REF
+        offset = 1
+        pos = 5
+        inserted = "TGCATG"  # 6 bases
+
+        oligo_seq = self._build_insertion_oligo(ref, offset, pos, inserted)
+        with tempfile.NamedTemporaryFile(delete=False) as temp_file:
+            temp_name = temp_file.name
+            temp_file.write(
+                f"name,sequence\ntest_insert-1_{inserted}-{pos},{oligo_seq}\n".encode()
+            )
+
+        with self.assertLogs(level="WARNING") as cm:
+            designed_variants(temp_name, ref, offset)
+            # Sentinel so assertLogs doesn't fail when the function is silent.
+            logging.warning("__sentinel__")
+
+        mismatch_warnings = [
+            msg for msg in cm.output if "length mismatch" in msg.lower()
+        ]
+        self.assertEqual(
+            mismatch_warnings,
+            [],
+            f"Unexpected length-mismatch warning: {mismatch_warnings}",
+        )
+
+        os.unlink(temp_name)
+
+    def test_designed_variants_insertion_unfindable_flank_warns(self):
+        """If the oligo doesn't contain the expected flanking ref codons,
+        the script can't locate the insertion and must say so explicitly
+        rather than silently skipping the length check."""
+        ref = "ATGGCTAGCATGGCTAGCATGGCTAGCATGGCTAGCATGGCTAGC"
+        offset = 1
+        # Oligo sequence completely unrelated to the reference.
+        oligo_seq = "NNNNNNNNNNNNNNNNNN"
+        with tempfile.NamedTemporaryFile(delete=False) as temp_file:
+            temp_name = temp_file.name
+            temp_file.write(
+                f"name,sequence\ntest_insert-1_ATGGCG-5,{oligo_seq}\n".encode()
+            )
+
+        with self.assertLogs(level="WARNING") as cm:
+            designed_variants(temp_name, ref, offset)
+
+        self.assertTrue(
+            any("anchor" in msg.lower() and "flank" in msg.lower() for msg in cm.output),
+            f"Expected a flank-anchoring warning. Got: {cm.output}",
+        )
 
         os.unlink(temp_name)
 

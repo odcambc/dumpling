@@ -7,8 +7,6 @@ import Bio.Seq
 import pandas as pd
 import regex
 
-from snakemake.script import snakemake
-
 
 # Type aliases
 VariantDict = Dict[str, Union[int, str, bool]]
@@ -38,7 +36,6 @@ aa_3to1_dict: Dict[str, str] = {
     "Val": "V",
     "Stp": "X",
 }
-aa_1to3_dict: Dict[str, str] = {v: k for k, v in aa_3to1_dict.items()}
 
 variantCounts_colnames: List[str] = [
     "counts",
@@ -366,8 +363,14 @@ def process_single_site(
             rejected = False
 
     if name == "":
-        logging.warning("Error in variant parsing")
-        logging.warning(line)
+        logging.warning(
+            "Dropping unexpected mutation row (AA=%r mutation=%r codon=%r counts=%d): "
+            "expected S/M/N at AA[0]",
+            AA, mutation, codon, counts,
+        )
+        count = counts
+        rejected = True
+        mutation_type = "X"
 
     return {
         "count": count,
@@ -400,13 +403,6 @@ def parse_multi_synonymous(codon: str) -> str:
     name = ";".join(names)
 
     return name
-
-
-def check_expected(variant_dict: VariantDict, variant_names_array: List[str]) -> bool:
-    if variant_dict["name"] in variant_names_array:
-        return False
-    else:
-        return True
 
 
 def update_stats(
@@ -502,6 +498,7 @@ def process_variants_file(
     rejected_stats["wrong_variant_counts"] = 0
     rejected_stats["insdel_variant_counts"] = 0
     rejected_stats["multi_variant_counts"] = 0
+    rejected_stats["unexpected_mutation_counts"] = 0
 
     accepted_stats["accepted_syn_counts"] = 0
     accepted_stats["accepted_sub_counts"] = 0
@@ -520,12 +517,22 @@ def process_variants_file(
     # Otherwise we will populate a copy of the designed variants dataframe.
     variants_noprocess_dict: Dict[str, VariantDict] = {}
 
+    # Per-variant observed-count accumulator for the filtering (noprocess=False)
+    # path. The hot loop below previously updated variants_df with a boolean-mask
+    # `.loc[mask, "count"] += counts` once per GATK row, which is O(reads × designed
+    # variants) — the dominant runtime cost on 100s-of-GB fastq inputs. Accumulate
+    # into a dict here, then do a single vectorized join after the loop.
+    observed_counts: Dict[str, int] = {}
+
     if noprocess:
         variants_df = pd.DataFrame()
-        variant_names_array = []
+        # `variant_names` is a set for O(1) membership checks in the hot loop;
+        # under noprocess we don't filter against a designed library at all, so
+        # an empty set is fine.
+        variant_names: set = set()
     else:
         variants_df = designed_variants_df.copy(deep=True)
-        variant_names_array = sorted(variants_df["name"].array)
+        variant_names = set(variants_df["name"])
 
     for line in gatk_list:
         counts = int(line[0])
@@ -562,6 +569,10 @@ def process_variants_file(
 
         if len(mutation.split(";")) == 1:
             variant_dict = process_single_site(line, ref_AA_sequence, noprocess)
+            if variant_dict.get("mutation_type") == "X":
+                rejected_list.append(line)
+                rejected_stats["unexpected_mutation_counts"] += counts
+                continue
         else:
             variant_dict = {}
             variant_dict["count"] = counts
@@ -598,7 +609,7 @@ def process_variants_file(
         # designed variants dataframe. If it is not, we will reject it.
         else:
             try:
-                if variant_dict["name"] in variant_names_array:
+                if variant_dict["name"] in variant_names:
                     variant_dict["rejected"] = False
                 else:
                     variant_dict["rejected"] = True
@@ -618,16 +629,10 @@ def process_variants_file(
                 accepted_stats, rejected_stats, variant_dict
             )
 
-            try:
-                variants_df.loc[
-                    variants_df.name == variant_dict["name"], "count"
-                ] += int(counts)
-            except KeyError:
-                rejected = True
-                rejected_list = rejected_list + [line]
-                rejected_stats["wrong_variant_counts"] = (
-                    rejected_stats["wrong_variant_counts"] + counts
-                )
+            # Accept: accumulate counts under the variant's name. A single
+            # vectorized merge into variants_df happens after the loop.
+            name = variant_dict["name"]
+            observed_counts[name] = observed_counts.get(name, 0) + int(counts)
 
     total_stats["total_rejected_counts"] = (
         rejected_stats["outside_orf_counts"]
@@ -636,6 +641,7 @@ def process_variants_file(
         + rejected_stats["wrong_variant_counts"]
         + rejected_stats["insdel_variant_counts"]
         + rejected_stats["multi_variant_counts"]
+        + rejected_stats["unexpected_mutation_counts"]
     )
     total_stats["total_accepted_counts"] = (
         accepted_stats["accepted_syn_counts"]
@@ -648,12 +654,21 @@ def process_variants_file(
 
     if noprocess:
         variants_df = pd.DataFrame.from_dict(variants_noprocess_dict, orient="index")
-        # Drop the "rejected" column
-        variants_df.drop(columns=["rejected"], inplace=True)
-        # Counts are ints.
-        variants_df["count"] = variants_df["count"].astype(int)
-        # rename mutation column to mutant
-        variants_df.rename(columns={"mutation": "mutant"}, inplace=True)
+        if not variants_df.empty:
+            variants_df.drop(columns=["rejected"], inplace=True)
+            variants_df["count"] = variants_df["count"].astype(int)
+            variants_df.rename(columns={"mutation": "mutant"}, inplace=True)
+    else:
+        # Vectorized merge: replace the boolean-mask-per-row update with a
+        # single .map() + add. variants_df["name"] looks each name up in the
+        # accumulator dict (O(N) total); names not in the dict get NaN, which
+        # we fill with 0 before adding. This collapses what was an
+        # O(reads × designed variants) hot path to O(reads + designed variants).
+        if observed_counts:
+            additions = (
+                variants_df["name"].map(observed_counts).fillna(0).astype(int)
+            )
+            variants_df["count"] = variants_df["count"] + additions
 
     return variants_df, rejected_list, rejected_stats, accepted_stats, total_stats
 

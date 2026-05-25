@@ -29,8 +29,7 @@ required:
   - replicate
   - file
 
-oneOf:
-  - required:
-      - time
-  - required:
-      - bin
+# Per-row enforcement of exactly-one-of {time, bin} happens in
+# script_utils.validate_experiment_time_or_bin so the error message can name
+# the offending sample. A schema-level oneOf reported only
+# "is not valid under any of the given schemas".

@@ -6,51 +6,7 @@ import pandas as pd
 from Bio import SeqIO
 
 import process_variants
-from script_utils import run_script, set_index_with_unique_check
-
-
-order: list[str] = [
-    "A",
-    "C",
-    "D",
-    "E",
-    "F",
-    "G",
-    "H",
-    "I",
-    "J",
-    "K",
-    "L",
-    "M",
-    "N",
-    "P",
-    "Q",
-    "R",
-    "S",
-    "T",
-    "V",
-    "W",
-    "Y",
-    "D_1",
-    "D_2",
-    "D_3",
-    "I_1",
-    "I_2",
-    "I_3",
-    "X",
-]
-
-designed_variant_header: list[str] = [
-    "count",
-    "pos",
-    "mutation_type",
-    "name",
-    "codon",
-    "mutation",
-    "length",
-    "hgvs",
-    "chunk",
-]
+from script_utils import load_experiments, run_script, translate_orf
 
 
 def process_gatk_file(gatk_output_file, designed_df, ref_AA_sequence, max_deletion_length, noprocess):
@@ -74,74 +30,32 @@ def process_gatk_file(gatk_output_file, designed_df, ref_AA_sequence, max_deleti
     return filtered_df, rejected_df, rejected_stats, accepted_stats, total_stats
 
 
-def write_stats_output(stats_file, stats):
-    """
-    Write stats to a file.
-    """
-
-    with open(stats_file, "w") as f:
-        f.write("Mutation\tCount\n")
-        for mutation in order:
-            f.write(f"{mutation}\t{stats.get(mutation, 0)}\n")
-
-
-def write_counts_output(counts_file, counts):
-    """
-    Write counts to a file.
-    """
-
-    with open(counts_file, "w") as f:
-        f.write("Mutation\tCount\n")
-        for mutation in order:
-            f.write(f"{mutation}\t{counts.get(mutation, 0)}\n")
-
-
 def process_experiment(
     sample_list,
     experiment_name,
-    ref_dir,
-    reference_fasta,
-    oligo_file,
-    variants_file,
-    orf_range,
+    ref_AA_sequence,
+    designed_df,
     max_deletion_length,
     noprocess,
     gatk_dir,
     output_dir,
-    regenerate_variants=False,
 ):
     """
-    Process the experiment given a list of sample names (experiment_list).
-    * Load reference sequence from FASTA.
-    * Possibly regenerate variants file from oligo definitions.
-    * Read the designed variants file.
-    * For each sample in experiment_list:
-       - Read GATK csv
-       - Process variants
-       - Write Enrich2-readable file, processed CSV, and stats.
+    Process one replicate-group's worth of samples.
+
+    The reference AA sequence and designed-variants DataFrame are passed in
+    by `_run` rather than loaded here. Both are identical across every
+    (condition × tile × replicate) call, so the FASTA parse + ORF translate
+    and the variants CSV read happen once per pipeline invocation instead
+    of once per replicate group (audit item M7).
+
+    For each sample in `sample_list`:
+      - Read GATK csv
+      - Process variants
+      - Write Enrich2-readable file, processed CSV, and stats.
     """
 
     logging.debug("Processing files: %s", sample_list)
-
-    # Load reference sequence from FASTA
-    ref_path = os.path.join(ref_dir, reference_fasta)
-    with open(ref_path, "r") as f:
-        ref_list = list(SeqIO.parse(f, "fasta"))
-        ref_sequence = ref_list[0].seq
-
-    # Parse ORF range
-    #    e.g. if orf_range == "100-500", orf_start=100, orf_end=500
-    orf_start, orf_end = map(int, orf_range.split("-"))
-    ref_AA_sequence = ref_sequence[orf_start - 1 : orf_end].translate()
-
-    # Read the designed variants file
-    logging.info("Processing designed variants file: %s", variants_file)
-    if not os.path.exists(variants_file):
-        raise FileNotFoundError(
-            f"Variants file not found: '{variants_file}'. Check 'variants_file' path in config YAML."
-        )
-    designed_df = pd.read_csv(variants_file)
-    logging.info("Designed variants length: %d", len(designed_df))
 
     # Process each sample in the experiment list
     for sample_name in sample_list:
@@ -198,38 +112,50 @@ def process_experiment(
 
 
 def main():
-    from snakemake.script import snakemake
-
     run_script(snakemake, _run)
 
 
 def _run(snakemake):
     # Read from Snakemake config
     experiment_name = snakemake.config["experiment"]
-    experiment_file = snakemake.config["experiment_file"]
     ref_dir = snakemake.config["ref_dir"]
     reference_fasta = snakemake.config["reference"]
     orf_range = snakemake.config["orf"]  # e.g. "100-500"
-    oligo_file = snakemake.config["oligo_file"]
     designed_variants_file = snakemake.config["variants_file"]
     gatk_dir = snakemake.params["gatk_dir"]
     noprocess = snakemake.config["noprocess"]
     max_deletion_length = snakemake.config["max_deletion_length"]
-    regenerate_variants = snakemake.config["regenerate_variants"]
     tiled = snakemake.config["tiled"]
 
     # Determine output directory
     output_dir = os.path.join("results", experiment_name, "processed_counts")
 
-    logging.debug("Loading experiment file: %s", experiment_file)
+    samples = load_experiments(snakemake.config["experiment_file"])
 
-    # Read experiments DataFrame
-    with open(experiment_file) as f:
-        samples = set_index_with_unique_check(
-            pd.read_csv(f, header=0).dropna(how="all"),
-            "sample",
-            drop=False,
-        )
+    # Parse reference FASTA + translate ORF region once, then reuse across
+    # every (condition × tile × replicate) call below. Audit item M7:
+    # these were previously redone per-call inside process_experiment.
+    ref_path = os.path.join(ref_dir, reference_fasta)
+    with open(ref_path, "r") as f:
+        ref_list = list(SeqIO.parse(f, "fasta"))
+        ref_sequence = ref_list[0].seq
+    ref_AA_sequence = translate_orf(ref_sequence, orf_range)
+
+    # Read designed variants file once. When noprocess=True the GATK output
+    # is used as-is (no filtering); pass an empty frame through and skip
+    # the file existence check.
+    if noprocess:
+        logging.info("noprocess=True: skipping designed variants file load.")
+        designed_df = pd.DataFrame()
+    else:
+        logging.info("Loading designed variants file: %s", designed_variants_file)
+        if not os.path.exists(designed_variants_file):
+            raise FileNotFoundError(
+                f"Variants file not found: '{designed_variants_file}'. "
+                "Check 'variants_file' path in config YAML."
+            )
+        designed_df = pd.read_csv(designed_variants_file, encoding="utf-8-sig")
+        logging.info("Designed variants length: %d", len(designed_df))
 
     # Loop over conditions, tiles, replicates
     for condition in samples["condition"].unique():
@@ -275,16 +201,12 @@ def _run(snakemake):
                 process_experiment(
                     sample_list=sample_name_list,
                     experiment_name=experiment_name,
-                    ref_dir=ref_dir,
-                    reference_fasta=reference_fasta,
-                    oligo_file=oligo_file,
-                    variants_file=designed_variants_file,
-                    orf_range=orf_range,
+                    ref_AA_sequence=ref_AA_sequence,
+                    designed_df=designed_df,
                     max_deletion_length=max_deletion_length,
                     noprocess=noprocess,
                     gatk_dir=gatk_dir,
                     output_dir=output_dir,
-                    regenerate_variants=regenerate_variants,
                 )
 
 

@@ -8,65 +8,15 @@ This module provides common fixtures for unit and integration tests including:
 - Temporary directory management
 """
 
-import os
 import sys
 import pytest
-import numpy
 import pandas as pd
 from pathlib import Path
-from types import ModuleType
 from unittest.mock import MagicMock
 
 # Add workflow scripts to path for imports
 REPO_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(REPO_ROOT / "workflow" / "rules" / "scripts"))
-
-
-def _make_bootstrap_snakemake():
-    """Create a minimal snakemake-like object for module import time."""
-    fixtures_dir = REPO_ROOT / "tests" / "fixtures"
-    bootstrap_ref = REPO_ROOT / "references" / "cftr_d508_frag1.fasta"
-    bootstrap_oligos = REPO_ROOT / "config" / "oligos" / "CFTR_1_d508_oligos.csv"
-    return MagicMock(
-        config={
-            "experiment": "mock_experiment",
-            "experiment_file": str(fixtures_dir / "mock_experiment.csv"),
-            "baseline_condition": "baseline",
-            "variants_file": str(fixtures_dir / "mock_variants.csv"),
-            "orf": "229-2817",
-        },
-        input={
-            "oligo_file": str(bootstrap_oligos),
-            "ref_fasta": str(bootstrap_ref),
-        },
-        output=[os.devnull],
-        params={},
-        log=[os.devnull],
-    )
-
-
-def _install_snakemake_import_shim():
-    """Ensure ``from snakemake.script import snakemake`` works during pytest imports."""
-    bootstrap = _make_bootstrap_snakemake()
-
-    try:
-        import snakemake.script as snakemake_script
-
-        if not hasattr(snakemake_script, "snakemake"):
-            snakemake_script.snakemake = bootstrap
-        return
-    except ModuleNotFoundError:
-        pass
-
-    snakemake_module = ModuleType("snakemake")
-    script_module = ModuleType("snakemake.script")
-    script_module.snakemake = bootstrap
-    snakemake_module.script = script_module
-    sys.modules.setdefault("snakemake", snakemake_module)
-    sys.modules["snakemake.script"] = script_module
-
-
-_install_snakemake_import_shim()
 
 
 # =============================================================================

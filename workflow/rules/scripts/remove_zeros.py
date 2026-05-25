@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from script_utils import run_script, set_index_with_unique_check
+from script_utils import load_experiments, run_script
 
 
 def remove_zeros_enrich(enrich_file_list, output_dir):
@@ -70,16 +70,22 @@ def remove_zeros_enrich(enrich_file_list, output_dir):
     return unobserved_variants
 
 
-def remove_zeros(experiment_list, input_dir, output_dir, experiment_name):
+def remove_zeros(experiment_list, input_dir, output_dir, experiment_name, group_id):
     """
     Remove variants that are not observed in any of the experiments in `experiment_list`.
-    Writes the list of unobserved variants to a separate file.
+    Writes the list of unobserved variants to a separate file scoped to `group_id`.
+
+    `group_id` distinguishes per-(condition, tile, replicate) calls so each group's
+    unobserved variants get their own log file. Prior to this argument, every group
+    wrote to the same filename and only the last group's contents survived.
     """
     enrich_file_list = [f"{input_dir}{s}.tsv" for s in experiment_list]
     unobserved = remove_zeros_enrich(enrich_file_list, output_dir)
 
     unobserved_file = Path(
-        output_dir, "rejected", f"{experiment_name}_unobserved_variants.csv"
+        output_dir,
+        "rejected",
+        f"{experiment_name}_{group_id}_unobserved_variants.csv",
     )
     unobserved_file.parent.mkdir(parents=True, exist_ok=True)
 
@@ -98,17 +104,10 @@ def _run(snakemake):
     logging.debug("Performing unobserved variant removal.")
 
     experiment_name = snakemake.config["experiment"]
-    experiment_file = snakemake.config["experiment_file"]
     input_dir = f"results/{experiment_name}/processed_counts/enrich_format/"
     output_dir = f"results/{experiment_name}/processed_counts/removed_zeros/"
 
-    # Read experiments
-    experiments = set_index_with_unique_check(
-        pd.read_csv(experiment_file, header=0).dropna(how="all"),
-        "sample",
-        drop=False,
-    )
-
+    experiments = load_experiments(snakemake.config["experiment_file"])
 
     # Check if 'tile' column exists
     has_tile = "tile" in experiments.columns
@@ -147,12 +146,20 @@ def _run(snakemake):
                 experiment_list = replicate_subset["sample"].tolist()
                 logging.debug("Samples: %s", experiment_list)
 
-                remove_zeros(experiment_list, input_dir, output_dir, experiment_name)
+                # Build a group identifier so each replicate group gets its own
+                # unobserved-variants log. Mirrors the naming used in Enrich2
+                # config generation.
+                if tile is None or not has_tile:
+                    group_id = f"{condition}_rep{replicate}"
+                else:
+                    group_id = f"{condition}_tile{tile}_rep{replicate}"
+
+                remove_zeros(
+                    experiment_list, input_dir, output_dir, experiment_name, group_id
+                )
 
 
 def main():
-    from snakemake.script import snakemake
-
     run_script(snakemake, _run)
 
 

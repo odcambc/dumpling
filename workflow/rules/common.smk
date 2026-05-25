@@ -1,48 +1,19 @@
 from pathlib import Path
-import logging
 import re
+import sys
 
-# Regex patterns for identifying paired-end read files.
-# Matches common conventions: _R1_001, _R1, _1 with .fastq.gz, .fq.gz, .fastq, .fq extensions
-_FASTQ_R1_PATTERN = re.compile(r"[._](?:R1|1)(?:_\d+)?\.(?:fastq|fq)(?:\.gz)?$")
-_FASTQ_R2_PATTERN = re.compile(r"[._](?:R2|2)(?:_\d+)?\.(?:fastq|fq)(?:\.gz)?$")
+# Make the scripts directory importable so this file can use the same
+# helpers Snakemake script-rules use.
+_SCRIPTS_DIR = Path(workflow.basedir) / "rules" / "scripts"
+if str(_SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS_DIR))
 
-
-def resolve_fastq_pair(data_dir, filename):
-    """Resolve a file prefix to a paired-end R1/R2 fastq pair.
-
-    Handles common naming conventions:
-      - Illumina standard: {prefix}_R1_001.fastq.gz
-      - Simplified: {prefix}_R1.fastq.gz
-      - Numeric: {prefix}_1.fastq.gz
-      - Any of the above with .fq.gz, .fastq, or .fq extensions
-    """
-    data_dir = Path(data_dir).resolve()
-    R1, R2 = None, None
-
-    for file in data_dir.glob(f"{filename}*"):
-        name = file.name
-        if _FASTQ_R1_PATTERN.search(name):
-            if R1 is not None:
-                raise ValueError(
-                    f"Multiple R1 files found for prefix '{filename}': {R1.name} and {name}"
-                )
-            R1 = file
-        elif _FASTQ_R2_PATTERN.search(name):
-            if R2 is not None:
-                raise ValueError(
-                    f"Multiple R2 files found for prefix '{filename}': {R2.name} and {name}"
-                )
-            R2 = file
-
-    if not R1 or not R2:
-        raise FileNotFoundError(
-            f"Could not find matching R1 and R2 fastq files for prefix '{filename}' in {data_dir}. "
-            f"Expected files matching patterns like {filename}_R1_001.fastq.gz, {filename}_R1.fq.gz, "
-            f"{filename}_1.fastq, etc."
-        )
-
-    return R1, R2
+from script_utils import (  # noqa: E402
+    file_digest,
+    load_experiments,
+    resolve_fastq_pair,
+    validate_experiment_time_or_bin,
+)
 
 
 def get_file_from_sample(wildcards):
@@ -90,14 +61,12 @@ def get_baseline_samples(experiments, samples):
 
 
 def get_experiment_samples(experiments, samples):
-    """Returns a list of experiment (i.e., non-baseline) sample and files"""
+    """Returns a list of experiment (i.e., non-baseline) samples."""
     experiment_samples = []
-    experiment_files = []
     for sample in samples:
         if experiments.loc[sample, "condition"] != config["baseline_condition"]:
             experiment_samples.append(sample)
-            experiment_files.append(experiments.loc[sample, "file"])
-    return experiment_samples, experiment_files
+    return experiment_samples
 
 
 def get_enrich2_input(wildcards):
@@ -231,19 +200,16 @@ def validate_config(config):
 config.setdefault("bbtools_use_bgzip", True)
 validate(config, "../schemas/config.schema.yaml")
 
-experiments = (
-    pd.read_csv(config["experiment_file"], header=0)
-    .dropna(how="all")
-    .set_index("sample", drop=False, verify_integrity=True)
-)
+experiments = load_experiments(config["experiment_file"])
 
 validate(experiments, "../schemas/experiments.schema.yaml")
+validate_experiment_time_or_bin(experiments)
 
 # Determine experiments, samples, and files by parsing config and experiment input
 experiment = config["experiment"]
 samples = experiments["sample"]
 baseline_samples, baseline_files = get_baseline_samples(experiments, samples)
-experiment_samples, experiment_files = get_experiment_samples(experiments, samples)
+experiment_samples = get_experiment_samples(experiments, samples)
 files = experiments["file"]
 conditions = set(experiments["condition"])
 experimental_conditions = conditions - set([config["baseline_condition"]])
@@ -280,7 +246,10 @@ else:
 if config["enrich2"]:
     remove_zeros = config["remove_zeros"]
 else:
-    logging.warning("Enrich2 will not be run, so zero counts will not be removed.")
+    print(
+        "WARNING [dumpling]: Enrich2 will not be run, so zero counts will not be removed.",
+        file=sys.stderr,
+    )
     remove_zeros = False
 
 # Resolve fastq file paths for all samples at parse time
@@ -290,7 +259,10 @@ for file_prefix in files:
         r1, r2 = resolve_fastq_pair(config["data_dir"], file_prefix)
         fastq_map[file_prefix] = {"R1": r1, "R2": r2}
     except (FileNotFoundError, ValueError) as e:
-        logging.warning(f"Could not resolve fastq pair for '{file_prefix}': {e}")
+        print(
+            f"WARNING [dumpling]: Could not resolve fastq pair for '{file_prefix}': {e}",
+            file=sys.stderr,
+        )
 
 # Build list of raw fastq paths for QC rules
 raw_fastq_paths = []
@@ -325,3 +297,11 @@ for file_prefix, paths in fastq_map.items():
 
 # Validate the configuration
 validate_config(config)
+
+# Hash the reference file so the bbmap index path varies by reference content.
+# A changed reference produces a different output path, which avoids the
+# scenario where bbmap is pointed at a directory containing artifacts from
+# a previous build against a different reference. Computed here (after
+# validate_config) so a missing reference fails with the clearer validation
+# error rather than a raw FileNotFoundError from the hash read.
+ref_digest = file_digest(reference_file)

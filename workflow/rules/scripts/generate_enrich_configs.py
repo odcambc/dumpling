@@ -1,8 +1,6 @@
-import pandas as pd
 import logging
-from snakemake.script import snakemake
 
-from script_utils import run_script, set_index_with_unique_check
+from script_utils import load_experiments, run_script
 
 
 # The hierarchy of the enrich2 config file elements is as follows:
@@ -17,9 +15,14 @@ def remove_truncated_replicates(experiments, conditions, tiled):
     """
     Remove replicates with fewer than two timepoints/bins.
 
+    Enrich2 needs at least two timepoints per replicate (a T0 and at least
+    one later sample) to compute a ratio, so replicates with strictly fewer
+    than two are dropped. Replicates with exactly two timepoints are valid
+    and retained.
+
     Accepts as input a dataframe of experiment metadata.
-    Returns a dataframe of experiment metadata with all replicates
-    that have two or fewer timepoints removed.
+    Returns a dataframe of experiment metadata with all replicates that
+    have fewer than two timepoints removed.
     """
     has_tile_column = "tile" in experiments.columns
 
@@ -53,7 +56,7 @@ def remove_truncated_replicates(experiments, conditions, tiled):
                 ]
                 timepoints = rep_subset["time"].unique()
 
-                if len(timepoints) <= 2:
+                if len(timepoints) < 2:
                     # Remove all rows matching this condition+replicate (+tile if present)
                     if tile is None or not (tiled and has_tile_column):
                         experiments = experiments.loc[
@@ -262,12 +265,7 @@ def _run(snakemake):
     output_directory = f"results/{experiment_name}/enrich/"
     output_file = snakemake.output[0]
 
-    # Read in the experiments file
-    experiments = set_index_with_unique_check(
-        pd.read_csv(snakemake.config["experiment_file"], header=0).dropna(how="all"),
-        "sample",
-        drop=False,
-    )
+    experiments = load_experiments(snakemake.config["experiment_file"])
 
     # List of condition names, ignoring baseline condition if present
     conditions = experiments["condition"].unique().tolist()
@@ -285,6 +283,24 @@ def _run(snakemake):
     experiments_filtered = remove_truncated_replicates(
         experiments_filtered, conditions, tiled
     )
+
+    # Re-derive the condition list from the filtered df: any condition whose
+    # replicates were all dropped above would otherwise still produce a config
+    # stanza with an empty "selections" array (and break trailing-comma logic).
+    surviving = set(experiments_filtered["condition"].unique())
+    dropped = [c for c in conditions if c not in surviving]
+    if dropped:
+        logging.warning(
+            "Conditions dropped entirely after replicate filtering: %s",
+            ", ".join(dropped),
+        )
+    conditions = [c for c in conditions if c in surviving]
+    if not conditions:
+        raise ValueError(
+            "No conditions remain after replicate filtering. Check the experiment "
+            "file: at least one condition must have a replicate with both a T0 "
+            "sample and >=2 timepoints."
+        )
 
     # Generate the Enrich2 config
     enrich2_config_lines = generate_config(
