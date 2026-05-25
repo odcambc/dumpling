@@ -262,104 +262,87 @@ build_counts_for_replicate <- function(df_subset, experiment_name) {
 # ===========================
 #   BUILD ROSACE OBJECT
 # ===========================
-build_rosace_object <- function(experiment_definition, experiment_name, baseline_condition, noprocess) {
-  # For each non-baseline condition:
-  #   1. Add every replicate's assay to the Rosace object.
-  #   2. Once all replicates for the condition are present, run
-  #      FilterData / ImputeData / NormalizeData / IntegrateData ONCE
-  #      against that condition's key.
+build_rosace_object_for_condition <- function(experiment_definition, experiment_name, expt_condition, noprocess) {
+  # For the given condition:
+  #   1. Add every replicate's assay to a fresh Rosace object.
+  #   2. Once all replicates are present, run FilterData / ImputeData /
+  #      NormalizeData / IntegrateData ONCE against the condition's key.
   #
   # IntegrateData consolidates all replicates sharing a key into a single
   # AssaySet, and NormalizeData (wt-relative) needs visibility across all
   # replicates to compute a meaningful WT baseline — so both must run after
-  # the full replicate set for a condition is loaded, not after each
+  # the full replicate set for the condition is loaded, not after each
   # individual replicate.
 
-  conditions <- unique(experiment_definition$condition)
-  conditions <- conditions[conditions != baseline_condition]
+  condition_df <- filter(experiment_definition, condition == expt_condition)
 
   rosace_created <- FALSE
-  rosace_obj <- NULL # We'll return this at the end
+  rosace_obj <- NULL
+  condition_has_data <- FALSE
 
-  for (expt_condition in conditions) {
-    # Subset by condition
-    condition_df <- filter(experiment_definition, condition == expt_condition)
-    condition_has_data <- FALSE
+  # Pass 1: add every valid replicate's assay to the object.
+  for (expt_replicate in unique(condition_df$replicate)) {
+    replicate_df <- filter(condition_df, replicate == expt_replicate)
 
-    # Pass 1: add every valid replicate's assay to the object.
-    for (expt_replicate in unique(condition_df$replicate)) {
-      replicate_df <- filter(condition_df, replicate == expt_replicate)
-
-      # Build the counts for this replicate
-      counts <- build_counts_for_replicate(replicate_df, experiment_name)
-      if (nrow(counts) == 0) {
-        # Possibly no data
-        warning(sprintf("No valid data for condition=%s replicate=%s", expt_condition, expt_replicate))
-        next
-      }
-
-      # Build an assay
-      # The first column in 'counts' is 'hgvs'; the rest are numeric
-      assay <- CreateAssayObject(
-        counts = as.matrix(counts[, 2:ncol(counts)]),
-        var.names = counts$hgvs,
-        key = expt_condition,
-        rep = expt_replicate,
-        type = "growth"
-      )
-
-      # If rosace isn't created, create a new object
-      if (!rosace_created) {
-        rosace_obj <- CreateRosaceObject(object = assay)
-        rosace_created <- TRUE
-      } else {
-        # else add to the existing object
-        rosace_obj <- AddAssayData(object = rosace_obj, assay = assay)
-      }
-      condition_has_data <- TRUE
-    }
-
-    if (!condition_has_data) {
-      warning(sprintf(
-        "No valid replicates for condition=%s; skipping Filter/Impute/Normalize/Integrate.",
-        expt_condition
-      ))
+    counts <- build_counts_for_replicate(replicate_df, experiment_name)
+    if (nrow(counts) == 0) {
+      warning(sprintf("No valid data for condition=%s replicate=%s", expt_condition, expt_replicate))
       next
     }
 
-    # Pass 2: filter, impute, normalize, integrate ONCE per condition,
-    # after all of its replicates are loaded.
-    message(sprintf("Filter/impute/normalize/integrate for condition: %s", expt_condition))
-    rosace_obj <- FilterData(rosace_obj, key = expt_condition, na.rmax = 0.5)
-    rosace_obj <- ImputeData(
-      rosace_obj,
+    # The first column in 'counts' is 'hgvs'; the rest are numeric
+    assay <- CreateAssayObject(
+      counts = as.matrix(counts[, 2:ncol(counts)]),
+      var.names = counts$hgvs,
       key = expt_condition,
-      impute.method = "knn",
-      na.rmax = 0.5
+      rep = expt_replicate,
+      type = "growth"
     )
-    if (noprocess) {
-      message(sprintf("Normalizing by total counts since noprocess flag is set."))
-      rosace_obj <- NormalizeData(
-        rosace_obj,
-        key = expt_condition,
-        normalization.method = "total"
-      )
+
+    if (!rosace_created) {
+      rosace_obj <- CreateRosaceObject(object = assay)
+      rosace_created <- TRUE
     } else {
-      message(sprintf("Normalizing data by variant names and WT."))
-      rosace_obj <- NormalizeData(
-        rosace_obj,
-        key = expt_condition,
-        normalization.method = "wt",
-        wt.var.names = c("_wt"),
-        wt.rm = TRUE
-      )
+      rosace_obj <- AddAssayData(object = rosace_obj, assay = assay)
     }
-    rosace_obj <- IntegrateData(object = rosace_obj, key = expt_condition)
+    condition_has_data <- TRUE
   }
 
-  if (!rosace_created) {
-    warning("No Rosace object was created; possibly no valid data rows were found.")
+  if (!condition_has_data) {
+    stop(sprintf(
+      "No valid replicates for condition=%s. Cannot produce scores.",
+      expt_condition
+    ))
   }
+
+  # Pass 2: filter, impute, normalize, integrate ONCE after all replicates
+  # are loaded.
+  message(sprintf("Filter/impute/normalize/integrate for condition: %s", expt_condition))
+  rosace_obj <- FilterData(rosace_obj, key = expt_condition, na.rmax = 0.5)
+  rosace_obj <- ImputeData(
+    rosace_obj,
+    key = expt_condition,
+    impute.method = "knn",
+    na.rmax = 0.5
+  )
+  if (noprocess) {
+    message(sprintf("Normalizing by total counts since noprocess flag is set."))
+    rosace_obj <- NormalizeData(
+      rosace_obj,
+      key = expt_condition,
+      normalization.method = "total"
+    )
+  } else {
+    message(sprintf("Normalizing data by variant names and WT."))
+    rosace_obj <- NormalizeData(
+      rosace_obj,
+      key = expt_condition,
+      normalization.method = "wt",
+      wt.var.names = c("_wt"),
+      wt.rm = TRUE
+    )
+  }
+  rosace_obj <- IntegrateData(object = rosace_obj, key = expt_condition)
 
   return(rosace_obj)
 }
@@ -406,56 +389,49 @@ finalize_variants_in_rosace <- function(rosace_obj, noprocess) {
 # ===========================
 #   RUN ROSACE ANALYSIS
 # ===========================
-run_rosace_for_conditions <- function(rosace_obj, experiment_definition, experiment_name, baseline_condition, noprocess) {
-  # Run Rosace for each condition except baseline, writing results
+run_rosace_for_condition <- function(rosace_obj, experiment_name, expt_condition, noprocess) {
+  # Run Rosace for one condition and write its scores CSV.
   if (is.null(rosace_obj)) {
-    warning("Rosace object is NULL; skipping run_rosace_for_conditions.")
-    return(invisible(NULL))
+    stop("Rosace object is NULL; cannot run RunRosace.")
   }
 
   rosace_dir <- file.path("results", experiment_name, "rosace")
-  all_conditions <- unique(experiment_definition$condition)
-  conditions <- all_conditions[all_conditions != baseline_condition]
+  message(sprintf("Running ROSACE for condition: %s", expt_condition))
 
-  for (expt_condition in conditions) {
-    message(sprintf("Running ROSACE for condition: %s", expt_condition))
-
-    # If we are using the noprocess flag, variant data will not be parsed.
-    # Therefore we cannot use the type or position as controls.
-    if (noprocess) {
-      rosace_obj <- RunRosace(
-        object = rosace_obj,
-        name = expt_condition,
-        type = "AssaySet",
-        savedir = rosace_dir,
-        install = FALSE
-      )
-    } else {
-      rosace_obj <- RunRosace(
-        object = rosace_obj,
-        name = expt_condition,
-        type = "AssaySet",
-        savedir = rosace_dir,
-        pos.col = "position",
-        ctrl.col = "type",
-        ctrl.name = "synonymous",
-        install = FALSE
-      )
-    }
-
-    scores.data <- OutputScore(
-      rosace_obj,
-      name = paste0(expt_condition, "_ROSACE")
+  # If we are using the noprocess flag, variant data will not be parsed.
+  # Therefore we cannot use the type or position as controls.
+  if (noprocess) {
+    rosace_obj <- RunRosace(
+      object = rosace_obj,
+      name = expt_condition,
+      type = "AssaySet",
+      savedir = rosace_dir,
+      install = FALSE
     )
-
-    output_file_name <- paste0(expt_condition, "_scores.csv")
-    output_file <- file.path(rosace_dir, output_file_name)
-
-    utils::write.csv(scores.data, file = output_file, row.names = FALSE)
-    message(sprintf("Results written to: %s", output_file))
+  } else {
+    rosace_obj <- RunRosace(
+      object = rosace_obj,
+      name = expt_condition,
+      type = "AssaySet",
+      savedir = rosace_dir,
+      pos.col = "position",
+      ctrl.col = "type",
+      ctrl.name = "synonymous",
+      install = FALSE
+    )
   }
 
-  # Return the updated rosace object (in case it changed)
+  scores.data <- OutputScore(
+    rosace_obj,
+    name = paste0(expt_condition, "_ROSACE")
+  )
+
+  output_file_name <- paste0(expt_condition, "_scores.csv")
+  output_file <- file.path(rosace_dir, output_file_name)
+
+  utils::write.csv(scores.data, file = output_file, row.names = FALSE)
+  message(sprintf("Results written to: %s", output_file))
+
   return(rosace_obj)
 }
 
@@ -466,10 +442,10 @@ run_rosace_for_conditions <- function(rosace_obj, experiment_definition, experim
 main <- function() {
   # Logging setup
 
-  # Read configs
+  # Read configs + wildcards
   experiment_name <- snakemake@config[["experiment"]]
   experiment_file <- snakemake@config[["experiment_file"]]
-  baseline_condition <- snakemake@config[["baseline_condition"]]
+  expt_condition <- snakemake@wildcards[["condition"]]
 
   tiled <- snakemake@config[["tiled"]]
   noprocess <- snakemake@config[["noprocess"]]
@@ -483,20 +459,22 @@ main <- function() {
   # Load experiment definition
   experiment_definition <- load_experiment_definition(experiment_file)
 
-  # Build the Rosace object (including filter/impute/normalize/integrate)
-  rosace_obj <- build_rosace_object(experiment_definition, experiment_name, baseline_condition, noprocess)
+  # Build the Rosace object for this one condition (including
+  # filter/impute/normalize/integrate scoped to it).
+  rosace_obj <- build_rosace_object_for_condition(
+    experiment_definition, experiment_name, expt_condition, noprocess
+  )
 
   # Parse the variant strings in var.data
   rosace_obj <- finalize_variants_in_rosace(rosace_obj, noprocess)
 
-  # Run the Rosace analysis on each condition
-  print("Running ROSACE")
+  # Run the Rosace analysis on this condition
+  print(sprintf("Running ROSACE for condition: %s", expt_condition))
 
-  rosace_obj <- run_rosace_for_conditions(
+  rosace_obj <- run_rosace_for_condition(
     rosace_obj,
-    experiment_definition,
     experiment_name,
-    baseline_condition,
+    expt_condition,
     noprocess
   )
 }
@@ -509,12 +487,19 @@ on.exit(
   add = TRUE
 )
 
-# Enable renv if not using user-manged rosace
+# Enable renv if not using user-managed rosace.
+# Point .libPaths() at the project library directly instead of going
+# through renv::activate(): activate() does a self-backup rename of the
+# renv bootstrap dir on every call, so parallel invocations of this rule
+# race on that rename. renv::paths$library() is a read-only path
+# resolver, so this is concurrency-safe. install_rosace.R is the one
+# place that initializes and populates the renv project library (via
+# renv::restore()); subsequent runs only need to find it.
 
 if (!snakemake@config[["rosace_local"]]) {
-  # Activate environment if using renv
-  message(sprintf("Activating renv environment"))
-  renv::activate()
+  message(sprintf("Pointing .libPaths() at renv project library"))
+  library("renv")
+  .libPaths(c(renv::paths$library(), .libPaths()))
 }
 library("readr")
 library("stringr")
