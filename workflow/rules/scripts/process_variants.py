@@ -1,4 +1,4 @@
-from typing import Dict, List, Tuple, Any, Union
+from typing import Dict, Iterable, Iterator, List, Tuple, Any, Union
 import csv
 import pathlib
 import logging
@@ -54,26 +54,22 @@ def name_to_hgvs(name: str) -> str:
     return "p.(" + name + ")"
 
 
-def read_gatk_csv(file: Union[str, pathlib.Path]) -> GatkList:
+def read_gatk_csv(file: Union[str, pathlib.Path]) -> Iterator[List[str]]:
     # GATK output unfortunately may not be full-width, which will confuse pandas during
-    # reading in. We'll read each line and make sure it's full-length before passing it
-    # to pandas.
+    # reading in. Yield each line as a list, padded out to 9 columns. The caller
+    # iterates the generator exactly once (process_variants_file), so we never
+    # materialize the whole GATK output in memory — important on production
+    # samples where the file can be 100s of MB.
     logging.info("Loading GATK output file: %s", file)
-
-    gatk_list: GatkList = []
 
     p = pathlib.Path(file)
     p.parent.mkdir(parents=True, exist_ok=True)
 
     with p.open("r") as f:
-        lines = csv.reader(f, delimiter="\t")
-        for line in lines:
+        for line in csv.reader(f, delimiter="\t"):
             while len(line) < 9:
                 line = line + [""]
-
-            gatk_list.append(line)
-
-    return gatk_list
+            yield line
 
 
 # Process variant types
@@ -442,7 +438,7 @@ def update_stats(
 
 
 def process_variants_file(
-    gatk_list: GatkList,
+    gatk_list: Iterable[List[str]],
     designed_variants_df: pd.DataFrame,
     ref_AA_sequence: str,
     max_deletion_length: int,
