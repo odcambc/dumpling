@@ -25,8 +25,6 @@ parse_stripped_hgvs <- function(hgvs_string) {
   mutation_type <- ""
   WT <- ""
 
-  WT <- substr(hgvs_string, 1, 1)
-
   # WT case, as in enrich2 format
   if (hgvs_string == "_wt") {
     variant <- "WT"

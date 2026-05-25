@@ -119,6 +119,10 @@ test_that("parse_stripped_hgvs handles WT case", {
   expect_equal(result["variant"], c(variant = "WT"))
   expect_equal(result["pos"], c(pos = "0"))
   expect_equal(result["mutation_type"], c(mutation_type = "X"))
+  # Wildtype rows have no wildtype amino acid; assert explicitly because
+  # a regression where WT leaks "_" from the "_wt" sentinel is silent
+  # downstream (just produces nonsense in variant metadata).
+  expect_equal(result["WT"], c(WT = ""))
 })
 
 # =============================================================================
