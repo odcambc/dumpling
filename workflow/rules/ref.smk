@@ -88,7 +88,11 @@ if config["aligner"] == "bbmap":
         input:
             str(normalized_reference_file),
         output:
-            index_dir=temp(directory(f"ref/bbmap/{experiment}_{ref_digest}")),
+            # NOT temp() — keyed on ref_digest, so the path is collision-safe
+            # across reference/experiment changes (a different reference
+            # always lands somewhere else). Persisting lets repeat runs
+            # against the same reference skip the ~5s rebuild.
+            index_dir=directory(f"ref/bbmap/{experiment}_{ref_digest}"),
         params:
             mem=config["mem"],
             kmers=config["kmers"],
@@ -116,7 +120,10 @@ elif config["aligner"] == "minimap2":
         input:
             str(normalized_reference_file),
         output:
-            index=temp(f"ref/minimap2/{experiment}_{ref_digest}.mmi"),
+            # NOT temp() — same reasoning as prepare_bbmap_index: keyed on
+            # ref_digest, collision-safe, persisting saves the rebuild on
+            # repeat runs against the same reference.
+            index=f"ref/minimap2/{experiment}_{ref_digest}.mmi",
         threads: 4
         log:
             f"logs/{experiment}/minimap2/{reference_name}.minimap2_index.log",
