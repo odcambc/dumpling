@@ -228,6 +228,12 @@ build_counts_for_replicate <- function(df_subset, experiment_name) {
         "results/", experiment_name, "/processed_counts/enrich_format/",
         sample_name, ".tsv"
       )
+      if (!file.exists(file_name)) {
+        stop(sprintf(
+          "Expected per-sample count file is missing: %s. Did upstream GATK / process_counts fail for sample '%s'?",
+          file_name, sample_name
+        ))
+      }
       this_count <- read_tsv(file_name)
 
       if (anyDuplicated(this_count$hgvs) > 0) {
