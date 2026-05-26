@@ -68,7 +68,11 @@ oligo_file: "config/oligos/example_oligos.csv"
 #                      only necessary if the variants file is not already present.
 #
 # #### Scoring and Enrich2 parameters ####
-# scoring_backend: Variant scoring backend. Options: rosace (default) or lilace.
+# scoring_backend: Variant scoring backend. Options: rosace (default), lilace,
+#                  or rosace_aa. rosace_aa is an extension of rosace that
+#                  decomposes scores into position + amino-acid substitution
+#                  effects. Both lilace and rosace_aa require parsed variant
+#                  metadata and are incompatible with noprocess: true.
 # enrich2: Set to true to run Enrich2 in addition to backend scoring.
 # noprocess: Set to True to skip variant filtering based on designed variants.
 # run_qc: Set to False to skip QC steps (fastqc and multiqc)
@@ -109,6 +113,7 @@ max_deletion_length: 3
 #                 not have a compatible samtools version.
 # rosace_local: Use locally-managed Rosace/cmdstanr instead of renv+conda rule environment.
 # lilace_local: Use locally-managed Lilace/cmdstanr instead of renv+conda rule environment.
+# rosace_aa_local: Use locally-managed rosace-aa/cmdstanr instead of renv+conda rule environment.
 # bbtools_compression: BBTools (de)compression backend.
 #                      `pigz` (default) parallelizes across rule threads — typical
 #                       savings: 30-40 s/sample on 8 GB+ inputs.
@@ -130,6 +135,7 @@ min_q: 30
 samtools_local: false
 rosace_local: false
 lilace_local: false
+rosace_aa_local: false
 bbtools_compression: pigz
 
 # -----------------------------------------------------------------------------

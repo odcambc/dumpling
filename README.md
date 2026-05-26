@@ -86,33 +86,44 @@ be used to compare results.
 
 Download or fork this repository and edit the configuration files as needed.
 
-### Installing Rosace and Lilace
+### Installing Rosace, Lilace, and rosace-aa
 
-This pipeline supports the [Rosace](https://github.com/pimentellab/rosace) and [Lilace](https://github.com/pimentellab/lilace) scoring tools.
-Rosace and Lilace use [CmdStanR](https://mc-stan.org/cmdstanr/) and R to infer scores.
+This pipeline supports three scoring backends, all from the pimentellab group:
+[Rosace](https://github.com/pimentellab/rosace), [Lilace](https://github.com/pimentellab/lilace), and
+[rosace-aa](https://github.com/pimentellab/rosace-aa). All three use
+[CmdStanR](https://mc-stan.org/cmdstanr/) and R to infer scores. rosace-aa is an extension of rosace that
+decomposes the score into position + amino-acid substitution effects rather than a single per-variant scalar;
+its score CSV layout matches rosace's so downstream tooling (e.g. `format_mavedb.py`) works unchanged.
+
+Pick a backend via `scoring_backend: rosace | lilace | rosace_aa` in your config; `rosace` is the default.
+Note that both `lilace` and `rosace_aa` require parsed variant metadata (wildtype/mutation/synonymous-control
+columns) and are incompatible with `noprocess: true`.
 
 Dumpling uses [renv](https://rstudio.github.io/renv/index.html) to handle R dependencies.
-This pipeline also includes a minimal faculty to install Rosace and Lilace automatically, but issues are
-possible. This can be invoked by calling the `install_rosace` rule:
+This pipeline also includes a minimal faculty to install each backend automatically, but issues are
+possible. Invoke the relevant install rule:
 
-```snakemake --cores 8 install_rosace```
+```bash
+snakemake --cores 8 install_rosace
+snakemake --cores 8 install_lilace
+snakemake --cores 8 install_rosace_aa
+```
 
-or the `install_lilace` rule:
+These try to install renv, restore the renv environment, and install the chosen backend with CmdStanR.
+For `install_rosace_aa`, an additional `renv::install("pimentellab/rosace-aa@<sha>")` step pulls rosace-aa
+from GitHub at a pinned SHA (the upstream repo has no tagged releases yet). If any install fails, please
+try installing the package manually.
 
-```snakemake --cores 8 install_lilace```
+We recommend trying to install your chosen backend manually before running the pipeline, or at least
+verifying that the install script works. More details about manual install are available in each
+package's vignettes at the repository linked above.
 
-These try to install renv, restore the renv environment, and install Rosace or Lilace with CmdStanR. If this fails,
-please try installing them manually.
+#### Issues installing Rosace, Lilace, or rosace-aa on OSX
 
-We recommend trying to install either package manually before running the pipeline, or at least
-verifying that the install script works. More details about manually installing Rosace and Lilace are
-available in the vignettes of the package and at the repository linked above.
-
-#### Issues installing Rosace and Lilace on OSX
-
-Rosace and Lilace require a C++ and fortran compiler to install required dependencies.
+All three backends require a C++ and fortran compiler to install required dependencies.
 R, by default, requires these to be installed in `/opt/gfortran`. User installs (via Homebrew, for example)
-may not work. If you encounter an error compiling packages for Rosace or Lilace, you may need to install the gfortran compiler from R.
+may not work. If you encounter an error compiling packages for the scoring backends, you may need to install
+the gfortran compiler from R.
 
 See https://cran.r-project.org/bin/macosx/tools/ for more details.
 
