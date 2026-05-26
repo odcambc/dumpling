@@ -185,6 +185,40 @@ build_counts_for_replicate <- function(df_subset, experiment_name) {
   counts
 }
 
+resolve_lilace_seed <- function(condition_name, configured_seed = NULL,
+                                clock_seconds = NULL) {
+  # Returns the Stan seed that will be passed to lilace::lilace_fit_model.
+  # If `configured_seed` is non-null, that value is used as-is so repeat
+  # runs are bit-identical. Otherwise we generate a fresh seed from the
+  # current time and salt it with the condition name so concurrent
+  # per-condition rule invocations don't all draw the same seed (Sys.time()
+  # rounded to integer seconds can collide across parallel jobs).
+  #
+  # `clock_seconds` is injected for testability (caller passes a fixed
+  # integer); production callers leave it NULL and we read Sys.time() here.
+  if (!is.null(configured_seed)) {
+    seed <- as.integer(configured_seed)
+    source <- "config"
+  } else {
+    if (is.null(clock_seconds)) clock_seconds <- as.integer(Sys.time())
+    cond_salt <- sum(utf8ToInt(condition_name))
+    # Compute in double space — as.integer(Sys.time()) is around 1.7e9 and
+    # multiplying by 17 overflows R's 32-bit integer (returns NA). Modulo
+    # at the end before converting back to int keeps the result in range.
+    seed <- as.integer(
+      abs(as.numeric(clock_seconds) * 17 + cond_salt) %%
+        .Machine$integer.max
+    )
+    source <- "auto-generated"
+  }
+  message(sprintf(
+    "Lilace Stan seed for condition '%s': %d (%s). Re-run with `lilace_seed: %d` in config for bit-identical scores.",
+    condition_name, seed, source, seed
+  ))
+  seed
+}
+
+
 run_lilace_for_condition <- function(experiment_definition, experiment_name, condition_name) {
   condition_df <- dplyr::filter(experiment_definition, .data$condition == condition_name)
   replicate_frames <- list()
@@ -239,12 +273,17 @@ run_lilace_for_condition <- function(experiment_definition, experiment_name, con
 
   output_dir <- file.path("results", experiment_name, "lilace", condition_name)
   dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
+  lilace_seed <- resolve_lilace_seed(
+    condition_name,
+    configured_seed = snakemake@config[["lilace_seed"]]
+  )
   lilace_obj <- lilace::lilace_fit_model(
     lilace_obj,
     output_dir = output_dir,
     control_label = "synonymous",
     pseudocount = TRUE,
-    n_parallel_chains = snakemake@threads
+    n_parallel_chains = snakemake@threads,
+    seed = lilace_seed
   )
 
   output_scores <- file.path("results", experiment_name, "lilace", paste0(condition_name, "_scores.csv"))

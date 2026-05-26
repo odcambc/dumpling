@@ -91,3 +91,45 @@ parse_stripped_hgvs_lilace <- function(hgvs_string) {
 
   stop(sprintf("Unsupported HGVS format encountered: %s", hgvs_string))
 }
+
+
+#' Resolve the Stan seed for a Lilace fit (parallel copy of the function
+#' in workflow/rules/scripts/run_lilace.R).
+#'
+#' The production function reads snakemake@config[["lilace_seed"]] at the
+#' call site and forwards it into this resolver as `configured_seed`. Keep
+#' this helper in lockstep with the source — any logic change in run_lilace.R
+#' must be mirrored here, and vice versa.
+#'
+#' @param condition_name The Snakemake wildcard `condition`, used as salt
+#'   when auto-generating so concurrent per-condition rule jobs don't all
+#'   pull the same Sys.time()-derived value.
+#' @param configured_seed Either NULL (meaning auto-generate) or an integer
+#'   the user supplied via config["lilace_seed"]. Passed through as-is when
+#'   non-null so repeat runs are bit-identical.
+#' @param clock_seconds Injected clock value used only on the auto-generate
+#'   path; production callers leave NULL and we read Sys.time().
+#' @return Positive integer seed, suitable to pass to lilace_fit_model(seed=).
+resolve_lilace_seed <- function(condition_name, configured_seed = NULL,
+                                clock_seconds = NULL) {
+  if (!is.null(configured_seed)) {
+    seed <- as.integer(configured_seed)
+    source <- "config"
+  } else {
+    if (is.null(clock_seconds)) clock_seconds <- as.integer(Sys.time())
+    cond_salt <- sum(utf8ToInt(condition_name))
+    # Compute in double space — as.integer(Sys.time()) is around 1.7e9 and
+    # multiplying by 17 overflows R's 32-bit integer (returns NA). Modulo
+    # at the end before converting back to int keeps the result in range.
+    seed <- as.integer(
+      abs(as.numeric(clock_seconds) * 17 + cond_salt) %%
+        .Machine$integer.max
+    )
+    source <- "auto-generated"
+  }
+  message(sprintf(
+    "Lilace Stan seed for condition '%s': %d (%s). Re-run with `lilace_seed: %d` in config for bit-identical scores.",
+    condition_name, seed, source, seed
+  ))
+  seed
+}

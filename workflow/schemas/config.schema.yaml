@@ -121,6 +121,23 @@ properties:
     type: integer
     default: 16000
     description: memory for Lilace (in Mb)
+  lilace_seed:
+    type:
+      - integer
+      - "null"
+    default: null
+    description: |
+      Random seed passed to lilace::lilace_fit_model's Stan sampling.
+      null (default) means a fresh seed is generated at rule-invocation
+      time from Sys.time() salted with the condition name; the chosen
+      seed is always logged so users can grep the rule log to reproduce.
+      Set to a positive integer to make the chain init bit-identical
+      across runs.
+      Rosace's equivalent seed is hardcoded to 100 upstream (in
+      rosace::MCMCRunStan) and not configurable here; rosace runs are
+      already bit-identical across reruns by construction. There is
+      intentionally no `rosace_seed` knob — adding one would silently
+      no-op because RunRosace doesn't accept a seed argument.
   enrich2:
     type: boolean
     default: false
