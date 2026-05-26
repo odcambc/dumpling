@@ -37,3 +37,7 @@ __pycache__/
 # Local-only utility scripts that shouldn't ship with the pipeline.
 tools/bench_aligners.py
 multiqc_compare/
+
+# Local-only working docs (notes, agent briefings, etc.) — not part of the
+# repo's user-facing documentation.
+docs/
