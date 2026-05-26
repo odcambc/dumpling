@@ -56,7 +56,15 @@ properties:
     enum:
       - rosace
       - lilace
-    description: Scoring backend to run for variant effect inference.
+      - rosace_aa
+    description: |
+      Scoring backend to run for variant effect inference. `rosace` (default)
+      produces per-variant scalar scores; `lilace` is the alternative
+      mean-variance model; `rosace_aa` (pimentellab/rosace-aa) extends rosace
+      with position + amino-acid substitution effect decomposition. Both
+      `lilace` and `rosace_aa` require parsed variant metadata
+      (wildtype/mutation/type columns) and are incompatible with
+      `noprocess: true` — validate_scoring_backend_mode rejects the combo.
   rosace_local:
     type: boolean
     default: false
@@ -65,6 +73,10 @@ properties:
     type: boolean
     default: false
     description: Flag for whether to use Lilace installed on system-wide R or through a conda-controlled R environment.
+  rosace_aa_local:
+    type: boolean
+    default: false
+    description: Flag for whether to use rosace-aa installed on system-wide R or through a conda-controlled R environment.
   bbtools_compression:
     type: string
     default: pigz
@@ -117,6 +129,10 @@ properties:
     type: integer
     default: 16000
     description: memory for Rosace (in Mb)
+  mem_rosace_aa:
+    type: integer
+    default: 16000
+    description: memory for rosace-aa (in Mb)
   mem_lilace:
     type: integer
     default: 16000

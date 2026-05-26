@@ -226,7 +226,13 @@ class TestValidateExperimentTimeOrBin:
 class TestValidateScoringBackendMode:
     """Lilace's Stan model requires a synonymous control set and has no
     total-counts fallback. noprocess mode doesn't produce trustworthy
-    synonymous labels, so the combination must be rejected at parse time."""
+    synonymous labels, so the combination must be rejected at parse time.
+
+    rosace-aa hits the same problem plus a stricter version: its
+    RunRosace.Rosace signature requires wt.col/mut.col/ctrl.col +
+    aa.code. The noprocess path produces none of those, so the combination
+    is structurally invalid.
+    """
 
     def test_lilace_with_noprocess_rejected(self):
         config = {"scoring_backend": "lilace", "noprocess": True}
@@ -235,6 +241,15 @@ class TestValidateScoringBackendMode:
 
     def test_lilace_without_noprocess_passes(self):
         config = {"scoring_backend": "lilace", "noprocess": False}
+        validate_scoring_backend_mode(config)
+
+    def test_rosace_aa_with_noprocess_rejected(self):
+        config = {"scoring_backend": "rosace_aa", "noprocess": True}
+        with pytest.raises(ValueError, match="rosace_aa.*incompatible.*noprocess"):
+            validate_scoring_backend_mode(config)
+
+    def test_rosace_aa_without_noprocess_passes(self):
+        config = {"scoring_backend": "rosace_aa", "noprocess": False}
         validate_scoring_backend_mode(config)
 
     def test_rosace_with_noprocess_passes(self):
