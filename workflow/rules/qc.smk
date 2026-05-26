@@ -1,12 +1,12 @@
 # The map-stage stats file that triggers the multiqc_dir dependency on the
 # mapping rule depends on which aligner we're using. BBMap emits
-# `_map.covstats`; minimap2's rule emits `_samtools_coverage.txt` (via
-# samtools coverage on the BAM). MultiQC autodiscovers everything else in
+# `_map.covstats`; minimap2's rule emits `_samtools_stats.txt` (via
+# `samtools stats` on the BAM). MultiQC autodiscovers everything else in
 # the stats directory by content.
 if config["aligner"] == "bbmap":
     _map_stats_trigger = "stats/{{experiment}}/{sample_prefix}_map.covstats"
 else:  # minimap2
-    _map_stats_trigger = "stats/{{experiment}}/{sample_prefix}_samtools_coverage.txt"
+    _map_stats_trigger = "stats/{{experiment}}/{sample_prefix}_samtools_stats.txt"
 
 
 rule multiqc_dir:

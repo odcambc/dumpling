@@ -62,9 +62,11 @@ def _run(snakemake):
             "_map.idhist",
         )
     else:  # minimap2
+        # samtools coverage was intentionally dropped: it does per-base
+        # pileup and costs ~14s/sample on deep DMS data. Re-add via
+        # mosdepth in a follow-up — tracked in tasks/tasks.md.
         map_stats_exts = (
             "_samtools_stats.txt",
-            "_samtools_coverage.txt",
             "_samtools_flagstat.txt",
         )
 

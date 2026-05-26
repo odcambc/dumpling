@@ -59,16 +59,24 @@ elif config["aligner"] == "minimap2":
     rule map_to_reference_minimap2:
         """Map reads with minimap2 in short-read mode (`-ax sr`), streaming SAM
         through `samtools view -b` so the on-disk intermediate is a BAM. Then
-        run samtools {stats, coverage, flagstat} on that BAM and write their
-        outputs alongside as the per-sample mapping-stage QC artifacts.
+        run `samtools stats` and `samtools flagstat` on that BAM as the
+        per-sample mapping-stage QC artifacts.
 
         minimap2 doesn't emit the BBTools-format histograms BBMap does
         (`_map.covstats`, `_map.ehist`, etc.), but MultiQC's samtools-stats /
-        samtools-coverage / samtools-flagstat parsers cover the load-bearing
-        DMS QC questions (per-position depth, mapping rate, insert sizes,
-        global error rate). The BBMap-specific per-position error histograms
-        have no samtools equivalent and are intentionally not reproduced —
-        they were debug-detail, not biology-load-bearing.
+        samtools-flagstat parsers cover most load-bearing DMS QC: mapping
+        rate, insert sizes, global error rate, indel size distribution,
+        read length, GC content. Mean depth can be derived from
+        `bases mapped (cigar)` ÷ `reference length` in the stats output.
+
+        Per-position coverage (`samtools coverage` / `samtools depth`) is
+        explicitly NOT computed here: both do per-base pileup and cost
+        ~14s/sample on the example fixture (deeply-covered DMS data is
+        ~60,000× per position, so the per-base-event work dominates).
+        Real DMS prod depths are similar or higher, so this isn't a fixture
+        artifact. **TODO**: re-add coverage via mosdepth (purpose-built
+        for fast deep-coverage; ~10× faster than samtools coverage; has
+        dedicated MultiQC parser). Tracked in `tasks/tasks.md`.
 
         Downstream rules that depend on map-stage stats branch on
         `config['aligner']`: `multiqc_dir` (qc.smk) and the baseline file
@@ -81,7 +89,6 @@ elif config["aligner"] == "minimap2":
         output:
             bam=temp("results/{experiment}/{sample_prefix}.mapped.bam"),
             stats="stats/{experiment}/{sample_prefix}_samtools_stats.txt",
-            coverage="stats/{experiment}/{sample_prefix}_samtools_coverage.txt",
             flagstat="stats/{experiment}/{sample_prefix}_samtools_flagstat.txt",
         benchmark:
             "benchmarks/{experiment}/{sample_prefix}.minimap2_map.benchmark.txt"
@@ -89,18 +96,12 @@ elif config["aligner"] == "minimap2":
             "logs/{experiment}/minimap2/{sample_prefix}.minimap2_map.log",
         threads: 16
         shell:
-            # samtools stats and flagstat scan the BAM linearly and don't
-            # care about sort order. samtools coverage DOES require
-            # coordinate-sorted input (it pileups internally), so pipe the
-            # unsorted BAM through `samtools sort` just for that one call.
-            # The on-disk BAM stays unsorted — GATK ASM (the only downstream
-            # consumer) doesn't need sort, and persisting a sorted copy is
-            # exactly the work PR #37 deleted (sort_index_samtools rule).
+            # samtools stats and flagstat both scan the BAM linearly without
+            # caring about sort order, so the BAM stays unsorted (matches
+            # the bbmap rule's behaviour and what GATK ASM expects).
             "( minimap2 -ax sr --MD -t {threads} "
             "{input.index} {input.R1_ec} {input.R2_ec} "
             "| samtools view -b -o {output.bam} - "
             ") 2> {log}; "
             "samtools stats    -@ {threads} {output.bam} > {output.stats}; "
-            "samtools flagstat -@ {threads} {output.bam} > {output.flagstat}; "
-            "samtools sort -@ {threads} {output.bam} | "
-            "samtools coverage - > {output.coverage}"
+            "samtools flagstat -@ {threads} {output.bam} > {output.flagstat}"
