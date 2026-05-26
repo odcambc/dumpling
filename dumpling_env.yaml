@@ -19,3 +19,7 @@ dependencies:
   - pip:
       - multiqc>=1.25
       - regex
+      # MAVE-HGVS validator used by workflow/rules/scripts/format_mavedb.py
+      # to catch malformed variants before MaveDB deposit. Not on conda
+      # (verified 2026-05-26).
+      - mavehgvs
