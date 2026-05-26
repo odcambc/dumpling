@@ -236,6 +236,12 @@ oligo_file = config["oligo_file"]
 
 reference_file = Path(config["ref_dir"]) / config["reference"]
 reference_name = Path(config["reference"]).stem
+# Downstream consumers (index, dict, BBMap/minimap2 index, GATK ASM,
+# generate_variants) read from this normalized path instead of the raw
+# user-supplied file. The `prepare_reference` rule (ref.smk) rewrites the
+# first `>` line to `>{reference_name}` so the FASTA contig name matches
+# the filename stem — Upstream #19. The raw user file is left untouched.
+normalized_reference_file = Path("ref") / config["reference"]
 
 adapters_ref = pass_names(config["adapters"])
 contaminants_ref = pass_names(config["contaminants"])

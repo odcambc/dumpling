@@ -1,12 +1,42 @@
+rule prepare_reference:
+    """Normalize the reference FASTA: copy the user's reference into a working
+    path under `ref/` and rewrite the first `>` line to `>{reference_name}` so
+    the contig name inside the FASTA matches the filename stem. Solves
+    Upstream #19, where reference generation fails when the user's FASTA
+    header doesn't match `Path(config["reference"]).stem` (BBMap index build,
+    GATK SAM/ref contig matching, etc.).
+
+    Downstream index/dict/aligner rules all consume from this normalized
+    path; the user's original file is left untouched."""
+    input:
+        str(reference_file),
+    output:
+        str(normalized_reference_file),
+    log:
+        f"logs/{reference_name}.prepare_reference.log",
+    shell:
+        # awk rewrites only the FIRST `>` line; subsequent contigs are passed
+        # through unchanged. DMS references are single-contig in practice, but
+        # leaving multi-contig FASTAs intact avoids accidentally renaming
+        # secondary contigs the user might be relying on. Tee'ing the result
+        # to the log file gives a copy of the rewritten contig name for
+        # debugging.
+        "mkdir -p $(dirname {output}); "
+        "awk -v name='{reference_name}' "
+        "    'NR==1 && /^>/ {{ sub(/^>.*/, \">\" name); }} {{ print }}' "
+        "    {input} > {output} 2> {log}; "
+        "echo \"Normalized $(head -1 {input}) -> $(head -1 {output})\" >> {log}"
+
+
 rule prepare_dict_GATK:
     """Generate a sequence dictionary from the reference sequence. Necessary for GATK.
 
     https://gatk.broadinstitute.org/hc/en-us/articles/360036712531-CreateSequenceDictionary-Picard-
     """
     input:
-        str(reference_file),
+        str(normalized_reference_file),
     output:
-        str(reference_file.parent / f"{reference_name}.dict"),
+        str(normalized_reference_file.parent / f"{reference_name}.dict"),
     log:
         f"logs/gatk/{reference_name}.create_dict.log",
     shell:
@@ -22,9 +52,9 @@ if samtools_local:
         This can be useful if conda does not have a samtools version for the platform.
         """
         input:
-            str(reference_file),
+            str(normalized_reference_file),
         output:
-            str(reference_file) + ".fai",
+            str(normalized_reference_file) + ".fai",
         log:
             f"logs/gatk/{reference_name}.create_index.log",
         shell:
@@ -35,9 +65,9 @@ else:
     rule prepare_index:
         """Index the reference sequence using samtools. Necessary for GATK."""
         input:
-            str(reference_file),
+            str(normalized_reference_file),
         output:
-            str(reference_file) + ".fai",
+            str(normalized_reference_file) + ".fai",
         log:
             f"logs/gatk/{reference_name}.create_index.log",
         wrapper:
@@ -56,7 +86,7 @@ if config["aligner"] == "bbmap":
         somewhere else by construction, and a re-run against the same reference
         rebuilds via `rebuild=t`."""
         input:
-            str(reference_file),
+            str(normalized_reference_file),
         output:
             index_dir=temp(directory(f"ref/bbmap/{experiment}_{ref_digest}")),
         params:
@@ -84,7 +114,7 @@ elif config["aligner"] == "minimap2":
         mapping doesn't re-index the reference. Index is keyed on the ref
         digest so a changed reference produces a fresh file by construction."""
         input:
-            str(reference_file),
+            str(normalized_reference_file),
         output:
             index=temp(f"ref/minimap2/{experiment}_{ref_digest}.mmi"),
         threads: 4

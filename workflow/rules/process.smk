@@ -2,7 +2,7 @@ rule generate_variants:
     """Runs script to generate a designed variants csv from a DIMPLE oligo csv input."""
     input:
         oligo_file=oligo_file,
-        ref_fasta=reference_file,
+        ref_fasta=normalized_reference_file,
     output:
         expand("{variants_file}", variants_file=config["variants_file"])
         if config["regenerate_variants"]
