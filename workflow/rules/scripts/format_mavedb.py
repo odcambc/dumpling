@@ -11,11 +11,19 @@ import sys
 
 import pandas as pd
 
-# Default column names per scoring backend.
-# Override via config: mavedb.hgvs_column, mavedb.score_column, mavedb.sd_column
+# Default column names per scoring backend. Override via config:
+# mavedb.hgvs_column, mavedb.score_column, mavedb.sd_column.
+#
+# Rosace verified against results/example_experiment/rosace/cond_A_scores.csv:
+#   variants, position, wildtype, mutation, type, mean, sd, lfsr, ...
+# Lilace verified against pimentellab/lilace R/lilace.R `.get_score_df()`:
+#   variant, type, <metadata>, position, effect, effect_se, lfsr, ...
+# Note the schema drift: rosace uses plural `variants` + `mean`/`sd`; lilace
+# uses singular `variant` + `effect`/`effect_se`. Don't merge these into a
+# shared default — the column names ARE different.
 _BACKEND_DEFAULTS = {
     "rosace": {"hgvs_col": "variants", "score_col": "mean", "sd_col": "sd"},
-    "lilace": {"hgvs_col": "variants", "score_col": "mean", "sd_col": "sd"},
+    "lilace": {"hgvs_col": "variant", "score_col": "effect", "sd_col": "effect_se"},
 }
 
 _SYNONYMOUS_RE = re.compile(r"^p\.\(([A-Z])(\d+)([A-Z])\)$")
@@ -88,4 +96,5 @@ def main():
     )
 
 
-main()
+if __name__ == "__main__":
+    main()

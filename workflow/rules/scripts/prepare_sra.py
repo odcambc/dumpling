@@ -140,4 +140,5 @@ def main():
     print(f"Listed {len(all_files)} FASTQ files in {out_dir}/sra_files.txt")
 
 
-main()
+if __name__ == "__main__":
+    main()
