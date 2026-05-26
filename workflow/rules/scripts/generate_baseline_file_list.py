@@ -20,6 +20,11 @@ def _run(snakemake):
     output_file = snakemake.output[0]
     experiment_name = snakemake.config["experiment"]
     fastqc_names = snakemake.params["fastqc_names"]
+    # The map-stage stats set depends on the aligner: bbmap emits the
+    # BBTools-format histograms; minimap2 emits samtools-format outputs.
+    # The map_to_reference_minimap2 rule (workflow/rules/map.smk) and the
+    # multiqc_dir rule (workflow/rules/qc.smk) follow the same convention.
+    aligner = snakemake.config.get("aligner", "bbmap")
 
     logging.debug("Writing to file: %s", output_file)
 
@@ -33,6 +38,37 @@ def _run(snakemake):
 
     stats_prefix = f"./stats/{experiment_name}"
     results_prefix = f"./results/{experiment_name}"
+
+    # Upstream trim/clean/correct + bbmerge stats are aligner-independent.
+    upstream_stats_exts = (
+        "_trim.qhist",
+        "_trim.bhist",
+        "_trim.gchist",
+        "_trim.aqhist",
+        "_trim.lhist",
+        "_trim.stats.txt",
+        "_trim_contam.stats.txt",
+        "_merge.ihist",
+    )
+
+    if aligner == "bbmap":
+        map_stats_exts = (
+            "_map.covstats",
+            "_map.basecov",
+            "_map.bincov",
+            "_map.ehist",
+            "_map.indelhist",
+            "_map.mhist",
+            "_map.idhist",
+        )
+    else:  # minimap2
+        # samtools coverage was intentionally dropped: it does per-base
+        # pileup and costs ~14s/sample on deep DMS data. Re-add via
+        # mosdepth in a follow-up — tracked in tasks/tasks.md.
+        map_stats_exts = (
+            "_samtools_stats.txt",
+            "_samtools_flagstat.txt",
+        )
 
     with open(output_file, "w+") as f:
         logging.debug("Writing to file: %s", output_file)
@@ -48,26 +84,10 @@ def _run(snakemake):
             f.write(f"{stats_prefix}/fastqc/{fastqc_R1}_fastqc.html\n")
             f.write(f"{stats_prefix}/fastqc/{fastqc_R2}_fastqc.html\n")
 
-            # BBDuk / BBMerge / BBMap / GATK rules emit per-sample-name
-            # outputs (rule wildcards are `{sample_prefix}` = the sample
-            # name), so these path templates are correct as-is.
-            for ext in (
-                "_trim.qhist",
-                "_trim.bhist",
-                "_trim.gchist",
-                "_trim.aqhist",
-                "_trim.lhist",
-                "_trim.stats.txt",
-                "_trim_contam.stats.txt",
-                "_merge.ihist",
-                "_map.covstats",
-                "_map.basecov",
-                "_map.bincov",
-                "_map.ehist",
-                "_map.indelhist",
-                "_map.mhist",
-                "_map.idhist",
-            ):
+            # BBDuk / BBMerge / GATK rules emit per-sample-name outputs
+            # (rule wildcards are `{sample_prefix}` = the sample name), so
+            # these path templates are correct as-is.
+            for ext in upstream_stats_exts + map_stats_exts:
                 f.write(f"{stats_prefix}/{sample}{ext}\n")
 
             # GATK ASM side-output stats files (live next to the .variantCounts).

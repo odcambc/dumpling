@@ -69,6 +69,18 @@ properties:
     type: boolean
     default: true
     description: Flag for whether BBTools should use bgzip for compressed IO. Set to false to fall back to pigz/unpigz on systems where BBTools hangs with bgzip.
+  aligner:
+    type: string
+    default: bbmap
+    enum:
+      - bbmap
+      - minimap2
+    description: |
+      Read aligner to use for mapping trim/clean/correct'd reads to the reference.
+      bbmap (default) emits BBTools-format per-position histograms (covstats, ehist, etc.).
+      minimap2 (`-ax sr` short-read preset) is substantially faster on small DMS
+      references and produces samtools-based QC outputs (samtools stats + flagstat)
+      that MultiQC autodiscovers. See `tasks/performance-audit.md` Track C.
   adapters:
     type:
       - string

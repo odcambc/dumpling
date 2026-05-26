@@ -202,6 +202,12 @@ config.setdefault("bbtools_use_bgzip", True)
 config.setdefault("scoring_backend", "rosace")
 config.setdefault("lilace_local", False)
 config.setdefault("mem_lilace", 16000)
+config.setdefault("aligner", "bbmap")
+if config["aligner"] not in ("bbmap", "minimap2"):
+    raise ValueError(
+        f"Unsupported aligner '{config['aligner']}'. "
+        "Expected one of: bbmap, minimap2."
+    )
 validate(config, "../schemas/config.schema.yaml")
 validate_scoring_backend_mode(config)
 

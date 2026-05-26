@@ -22,11 +22,12 @@ class TestVariantProcessingChain:
         from process_variants import read_gatk_csv
 
         gatk_file = fixtures_dir / "mock_gatk_output.variantCounts"
-        result = read_gatk_csv(gatk_file)
+        # read_gatk_csv streams the file as a generator; materialize once for
+        # the row-level assertions below.
+        rows = list(read_gatk_csv(gatk_file))
 
-        assert isinstance(result, list), "Should return list of lists"
-        assert len(result) > 0, "Should have parsed rows"
-        assert all(len(row) == 9 for row in result), "All rows should have 9 columns"
+        assert len(rows) > 0, "Should have parsed rows"
+        assert all(len(row) == 9 for row in rows), "All rows should have 9 columns"
 
     def test_designed_variants_loading(self, fixtures_dir):
         """Test loading designed variants CSV."""

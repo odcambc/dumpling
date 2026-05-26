@@ -4,8 +4,12 @@ This repository contains the Snakemake-based workflow for implementing
 deep mutational scanning experiments used in the [Fraser](https://fraserlab.com/)
 and [Coyote-Maestas](https://www.wcoyotelab.com/) labs.
 
-Briefly, this conducts initial QC and mapping using BBTools, followed by the
-AnalyzeSaturationMutagenesis GATK module to call variants in each replicate. After variant calling, the list of observed variants in each read is filtered
+Briefly, this conducts initial QC and read processing with BBTools (adapter
+trimming, contaminant filtering, and BBMerge error correction) and maps the
+processed reads to the reference using either BBMap (default) or minimap2
+(opt-in, configurable). The aligned reads are passed through GATK's
+AnalyzeSaturationMutagenesis module to call variants in each replicate. After
+variant calling, the list of observed variants in each read is filtered
 based on the list of designed variants, and the resulting counts are used to
 infer the fitness of each variant using [Rosace](https://github.com/pimentellab/rosace), [Lilace](https://github.com/pimentellab/lilace),
 and (optionally) [Enrich2](https://github.com/FowlerLab/Enrich2).
@@ -135,7 +139,9 @@ The following are the dependencies required to run the pipeline:
 - [Snakemake](https://snakemake.readthedocs.io/en/stable/)
 - [GATK](https://software.broadinstitute.org/gatk/)
 - [BBTools](https://jgi.doe.gov/data-and-tools/bbtools/)
+- [minimap2](https://github.com/lh3/minimap2) (optional, opt-in alternative aligner — see [Aligner choice](#aligner-choice))
 - [Samtools](http://www.htslib.org/)
+- [pysam](https://github.com/pysam-developers/pysam)
 - [FastQC](https://www.bioinformatics.babraham.ac.uk/projects/fastqc/)
 - [MultiQC](http://multiqc.info/)
 - [Enrich2](https://enrich2.readthedocs.io/en/latest/)
@@ -154,11 +160,11 @@ The details of an experiment need to be specified in a configuration file that d
 parameters and an associated experiment file that details the experimental setup.
 
 The configuration file is a YAML file: full details are included in the example file
-`config/test_config.yaml` and in the schema file `schemas/config.schema.yaml`.
+`config/example.yaml` and in the schema file `workflow/schemas/config.schema.yaml`.
 
 The experiment file is a CSV file that relates experimental conditions,
 replicates, and time points to sequencing files: full details are included
-in the config file and in the schema file `schemas/experiments.schema.yaml`.
+in the config file and in the schema file `workflow/schemas/experiments.schema.yaml`.
 
 Additionally, a reference fasta file is required for mapping. This should be
 placed in the `references` directory, and the path to the file should be specified in the config file.
@@ -168,10 +174,35 @@ and remove any variants that are not designed or are likely errors. This
 requires a CSV file containing the set of designed variants, including their
 specific codon changes. This should be placed in the `config/designed_variants` directory,
 and the path to the file should be specified in the config file. An example file
-is included in `config/designed_variants/test_variants.csv`. This pipeline can generate
+is included in `config/designed_variants/example_variants.csv`. This pipeline can generate
 the variants CSV from the output set of oligos produced by the [DIMPLE](https://github.com/coywil26/DIMPLE)
 library generation protocol: this can be enabled by including the path to the oligo CSV file in the config
 file and setting `regenerate_variants` to `True` in the config.
+
+### Aligner choice
+
+The pipeline supports two alternative aligners for mapping reads to the
+reference, selected via the `aligner` key in the config:
+
+```yaml
+aligner: bbmap      # default — current behavior
+# aligner: minimap2 # opt-in
+```
+
+| Aligner | Wall (example fixture) | Peak RSS | Mapping-stage QC artifacts |
+|---|---|---|---|
+| `bbmap` (default) | ~37 s/sample | ~8.5 GB | BBMap-format histograms (`_map.covstats`, `_map.basecov`, `_map.ehist`, `_map.indelhist`, `_map.mhist`, `_map.idhist`, `_map.bincov`) |
+| `minimap2` | ~5 s/sample | ~450 MB | samtools-format outputs (`_samtools_stats`, `_samtools_flagstat`) |
+
+Both produce biologically equivalent variant counts (Rosace score Pearson
+r > 0.997 between the two on the example fixture). At production scale
+(multi-GB FASTQs) the wall advantage of minimap2 shrinks to ~2-3× as BBMap's
+fixed index-loading overhead amortizes; the RSS advantage holds.
+
+Per-position coverage stats are not currently produced under `minimap2`
+(`samtools coverage` is too expensive on deeply-covered DMS data); a
+mosdepth-based replacement is planned. All other MultiQC sections work
+identically under both aligners.
 
 ### Working directory structure
 
@@ -182,23 +213,24 @@ The pipeline has the following directory structure:
 │   ├── rules
 │   ├── envs
 │   ├── scripts
+│   ├── schemas
+│   │   ├── config.schema.yaml
+│   │   └── experiments.schema.yaml
 │   └── Snakefile
 ├── config
-│   ├── test_config.yaml
-│   ├── test_config.csv
+│   ├── example.yaml
+│   ├── example.csv
+│   ├── multiqc_config.yaml
 │   ├── designed_variants
-│   │   └── test_variants.csv
+│   │   └── example_variants.csv
 │   └── oligos
-│       └── test_oligos.csv
+│       └── (optional DIMPLE oligo CSVs)
 ├── logs
 │   └── ...
 ├── references
-│   └── test_ref.fasta
+│   └── example_ref.fasta
 ├── results
 │   └── ...
-├── schemas
-│   ├── config.schema.yaml
-│   └── experiments.schema.yaml
 ├── stats
 │   └── ...
 ├── resources
@@ -249,7 +281,8 @@ aggregated using MultiQC. The aggregated reports contain:
 - BBTools reports
   - BBDuk reports for adapter trimming and contamination removal
   - BBMerge reports for merging paired-end reads
-  - BBMap reports for mapping reads to the reference
+  - BBMap reports for mapping reads to the reference *(when `aligner: bbmap`)*
+- samtools stats and flagstat reports *(when `aligner: minimap2`)*
 - GATK AnalyzeSaturationMutagenesis reports for variant calling
 - Reports for variant filtering
 

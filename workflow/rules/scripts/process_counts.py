@@ -6,7 +6,7 @@ import pandas as pd
 from Bio import SeqIO
 
 import process_variants
-from script_utils import load_experiments, run_script, translate_orf
+from script_utils import run_script, translate_orf
 
 
 def process_gatk_file(gatk_output_file, designed_df, ref_AA_sequence, max_deletion_length, noprocess):
@@ -30,8 +30,8 @@ def process_gatk_file(gatk_output_file, designed_df, ref_AA_sequence, max_deleti
     return filtered_df, rejected_df, rejected_stats, accepted_stats, total_stats
 
 
-def process_experiment(
-    sample_list,
+def process_sample(
+    sample_name,
     experiment_name,
     ref_AA_sequence,
     designed_df,
@@ -41,74 +41,60 @@ def process_experiment(
     output_dir,
 ):
     """
-    Process one replicate-group's worth of samples.
+    Process one sample's GATK output: filter variants, write Enrich2 + CSV + stats.
 
-    The reference AA sequence and designed-variants DataFrame are passed in
-    by `_run` rather than loaded here. Both are identical across every
-    (condition × tile × replicate) call, so the FASTA parse + ORF translate
-    and the variants CSV read happen once per pipeline invocation instead
-    of once per replicate group (audit item M7).
-
-    For each sample in `sample_list`:
-      - Read GATK csv
-      - Process variants
-      - Write Enrich2-readable file, processed CSV, and stats.
+    Snakemake invokes this once per sample via the `process_sample` rule's
+    `sample_prefix` wildcard, so each call is its own Python process and can
+    run in parallel with siblings on a cluster or multi-core local host.
     """
 
-    logging.debug("Processing files: %s", sample_list)
+    logging.debug("Processing sample: %s", sample_name)
 
-    # Process each sample in the experiment list
-    for sample_name in sample_list:
-        logging.debug("Processing sample: %s", sample_name)
+    gatk_output_file = os.path.join(gatk_dir, f"{sample_name}.variantCounts")
+    logging.debug("Reading GATK file: %s", gatk_output_file)
 
-        gatk_output_file = os.path.join(gatk_dir, f"{sample_name}.variantCounts")
-        logging.debug("Reading GATK file: %s", gatk_output_file)
+    filtered_df, rejected_df, rejected_stats, accepted_stats, total_stats = (
+        process_gatk_file(gatk_output_file, designed_df, ref_AA_sequence, max_deletion_length, noprocess)
+    )
+    logging.debug("Finished processing GATK file")
 
-        filtered_df, rejected_df, rejected_stats, accepted_stats, total_stats = (
-            process_gatk_file(gatk_output_file, designed_df, ref_AA_sequence, max_deletion_length, noprocess)
-        )
-        logging.debug("Finished processing GATK file")
+    # Write Enrich2-readable file
+    enrich_file = os.path.join(output_dir, "enrich_format", f"{sample_name}.tsv")
+    logging.debug(f"Writing Enrich2 file: {enrich_file}")
 
-        # Write Enrich2-readable file
-        enrich_file = os.path.join(output_dir, "enrich_format", f"{sample_name}.tsv")
-        logging.debug(f"Writing Enrich2 file: {enrich_file}")
+    process_variants.write_enrich_df(enrich_file, filtered_df, noprocess)
 
-        process_variants.write_enrich_df(enrich_file, filtered_df, noprocess)
+    # Write processed file to CSV
+    processed_file = os.path.join(output_dir, f"{sample_name}.csv")
+    p = pathlib.Path(processed_file)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    logging.debug(
+        f"Found {len(filtered_df)} accepted variants out of {len(designed_df)} possible variants"
+    )
+    filtered_df.to_csv(processed_file, index=False)
 
-        # 5d. Write processed file to CSV
-        processed_file = os.path.join(output_dir, f"{sample_name}.csv")
-        p = pathlib.Path(processed_file)
-        p.parent.mkdir(parents=True, exist_ok=True)
-        logging.debug(
-            f"Found {len(filtered_df)} accepted variants out of {len(designed_df)} possible variants"
-        )
-        filtered_df.to_csv(processed_file, index=False)
+    # Write rejected variants
+    rejected_file = os.path.join(
+        output_dir, "rejected", f"rejected_{sample_name}.csv"
+    )
+    p = pathlib.Path(rejected_file)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    with p.open("w") as f:
+        csvwriter = csv.writer(f)
+        csvwriter.writerows(rejected_df)
 
-        # 5e. Write rejected variants
-        rejected_file = os.path.join(
-            output_dir, "rejected", f"rejected_{sample_name}.csv"
-        )
-        p = pathlib.Path(rejected_file)
-        p.parent.mkdir(parents=True, exist_ok=True)
-        with p.open("w") as f:
-            csvwriter = csv.writer(f)
-            csvwriter.writerows(rejected_df)
+    # Write rejected, accepted, and total stats files
+    stats_dir = os.path.join("stats", experiment_name, "processing")
+    pathlib.Path(stats_dir).mkdir(parents=True, exist_ok=True)
 
-        # 5f. Write rejected, accepted, and total stats files
-        stats_dir = os.path.join("stats", experiment_name, "processing")
-        pathlib.Path(stats_dir).mkdir(parents=True, exist_ok=True)
+    stats_file = os.path.join(stats_dir, f"{sample_name}_rejected_processing.tsv")
+    process_variants.write_stats_file(stats_file, rejected_stats)
 
-        # Rejected
-        stats_file = os.path.join(stats_dir, f"{sample_name}_rejected_processing.tsv")
-        process_variants.write_stats_file(stats_file, rejected_stats)
+    stats_file = os.path.join(stats_dir, f"{sample_name}_accepted_processing.tsv")
+    process_variants.write_stats_file(stats_file, accepted_stats)
 
-        # Accepted
-        stats_file = os.path.join(stats_dir, f"{sample_name}_accepted_processing.tsv")
-        process_variants.write_stats_file(stats_file, accepted_stats)
-
-        # Total
-        stats_file = os.path.join(stats_dir, f"{sample_name}_total_processing.tsv")
-        process_variants.write_stats_file(stats_file, total_stats)
+    stats_file = os.path.join(stats_dir, f"{sample_name}_total_processing.tsv")
+    process_variants.write_stats_file(stats_file, total_stats)
 
 
 def main():
@@ -116,7 +102,7 @@ def main():
 
 
 def _run(snakemake):
-    # Read from Snakemake config
+    # Read from Snakemake config and wildcards
     experiment_name = snakemake.config["experiment"]
     ref_dir = snakemake.config["ref_dir"]
     reference_fasta = snakemake.config["reference"]
@@ -125,25 +111,21 @@ def _run(snakemake):
     gatk_dir = snakemake.params["gatk_dir"]
     noprocess = snakemake.config["noprocess"]
     max_deletion_length = snakemake.config["max_deletion_length"]
-    tiled = snakemake.config["tiled"]
+    sample_name = snakemake.wildcards.sample_prefix
 
     # Determine output directory
     output_dir = os.path.join("results", experiment_name, "processed_counts")
 
-    samples = load_experiments(snakemake.config["experiment_file"])
-
-    # Parse reference FASTA + translate ORF region once, then reuse across
-    # every (condition × tile × replicate) call below. Audit item M7:
-    # these were previously redone per-call inside process_experiment.
+    # Parse reference FASTA + translate ORF region.
     ref_path = os.path.join(ref_dir, reference_fasta)
     with open(ref_path, "r") as f:
         ref_list = list(SeqIO.parse(f, "fasta"))
         ref_sequence = ref_list[0].seq
     ref_AA_sequence = translate_orf(ref_sequence, orf_range)
 
-    # Read designed variants file once. When noprocess=True the GATK output
-    # is used as-is (no filtering); pass an empty frame through and skip
-    # the file existence check.
+    # Read designed variants file. When noprocess=True the GATK output is used
+    # as-is (no filtering); pass an empty frame through and skip the file
+    # existence check.
     if noprocess:
         logging.info("noprocess=True: skipping designed variants file load.")
         designed_df = pd.DataFrame()
@@ -157,57 +139,16 @@ def _run(snakemake):
         designed_df = pd.read_csv(designed_variants_file, encoding="utf-8-sig")
         logging.info("Designed variants length: %d", len(designed_df))
 
-    # Loop over conditions, tiles, replicates
-    for condition in samples["condition"].unique():
-        logging.debug("Condition: %s", condition)
-
-        if tiled:
-            tile_list = samples.loc[samples["condition"] == condition, "tile"].unique()
-        else:
-            # Treat as if there's only one tile when 'tile' doesn't exist or it's not tiled
-            tile_list = [None]
-
-        for tile in tile_list:
-            logging.debug("Tile: %s", tile)
-            if tile is not None:
-                replicate_list = samples.loc[
-                    (samples["condition"] == condition) & (samples["tile"] == tile),
-                    "replicate",
-                ]
-            else:
-                replicate_list = samples.loc[
-                    (samples["condition"] == condition), "replicate"
-                ]
-
-            for replicate in replicate_list.unique():
-                logging.debug("Replicate: %s", replicate)
-
-                if tile is not None:
-                    sample_name_list = samples.loc[
-                        (samples["condition"] == condition)
-                        & (samples["replicate"] == replicate)
-                        & (samples["tile"] == tile),
-                        "sample",
-                    ].tolist()
-                else:
-                    sample_name_list = samples.loc[
-                        (samples["condition"] == condition)
-                        & (samples["replicate"] == replicate),
-                        "sample",
-                    ].tolist()
-                logging.debug("Samples: %s", sample_name_list)
-
-                # Call the processing function
-                process_experiment(
-                    sample_list=sample_name_list,
-                    experiment_name=experiment_name,
-                    ref_AA_sequence=ref_AA_sequence,
-                    designed_df=designed_df,
-                    max_deletion_length=max_deletion_length,
-                    noprocess=noprocess,
-                    gatk_dir=gatk_dir,
-                    output_dir=output_dir,
-                )
+    process_sample(
+        sample_name=sample_name,
+        experiment_name=experiment_name,
+        ref_AA_sequence=ref_AA_sequence,
+        designed_df=designed_df,
+        max_deletion_length=max_deletion_length,
+        noprocess=noprocess,
+        gatk_dir=gatk_dir,
+        output_dir=output_dir,
+    )
 
 
 if __name__ == "__main__":
