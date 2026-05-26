@@ -58,37 +58,49 @@ elif config["aligner"] == "minimap2":
 
     rule map_to_reference_minimap2:
         """Map reads with minimap2 in short-read mode (`-ax sr`), streaming SAM
-        through `samtools view -b` so the on-disk intermediate is a BAM.
+        through `samtools view -b` so the on-disk intermediate is a BAM. Then
+        run samtools {stats, coverage, flagstat} on that BAM and write their
+        outputs alongside as the per-sample mapping-stage QC artifacts.
 
-        Stats files (`_map.covstats`, `_map.basecov`, ...) are produced as
-        empty placeholders since minimap2 doesn't emit the BBTools-format
-        histograms MultiQC autodiscovers. Only `_map.covstats` is a
-        load-bearing rule input (multiqc_dir); the others exist purely so
-        the baseline file list and MultiQC discovery don't break. Real
-        minimap2 QC artifacts (samtools coverage, samtools flagstat) can be
-        added once the aligner swap is proven on the concordance gate."""
+        minimap2 doesn't emit the BBTools-format histograms BBMap does
+        (`_map.covstats`, `_map.ehist`, etc.), but MultiQC's samtools-stats /
+        samtools-coverage / samtools-flagstat parsers cover the load-bearing
+        DMS QC questions (per-position depth, mapping rate, insert sizes,
+        global error rate). The BBMap-specific per-position error histograms
+        have no samtools equivalent and are intentionally not reproduced —
+        they were debug-detail, not biology-load-bearing.
+
+        Downstream rules that depend on map-stage stats branch on
+        `config['aligner']`: `multiqc_dir` (qc.smk) and the baseline file
+        list generator (`generate_baseline_file_list.py`) both pick up the
+        samtools paths under `aligner: minimap2`."""
         input:
             index=f"ref/minimap2/{experiment}_{ref_digest}.mmi",
             R1_ec="results/{experiment}/{sample_prefix}_R1.ec.clean.trim.fastq.gz",
             R2_ec="results/{experiment}/{sample_prefix}_R2.ec.clean.trim.fastq.gz",
         output:
             bam=temp("results/{experiment}/{sample_prefix}.mapped.bam"),
-            covstats="stats/{experiment}/{sample_prefix}_map.covstats",
-            basecov="stats/{experiment}/{sample_prefix}_map.basecov",
-            bincov="stats/{experiment}/{sample_prefix}_map.bincov",
-            ehist="stats/{experiment}/{sample_prefix}_map.ehist",
-            indelhist="stats/{experiment}/{sample_prefix}_map.indelhist",
-            mhist="stats/{experiment}/{sample_prefix}_map.mhist",
-            idhist="stats/{experiment}/{sample_prefix}_map.idhist",
+            stats="stats/{experiment}/{sample_prefix}_samtools_stats.txt",
+            coverage="stats/{experiment}/{sample_prefix}_samtools_coverage.txt",
+            flagstat="stats/{experiment}/{sample_prefix}_samtools_flagstat.txt",
         benchmark:
             "benchmarks/{experiment}/{sample_prefix}.minimap2_map.benchmark.txt"
         log:
             "logs/{experiment}/minimap2/{sample_prefix}.minimap2_map.log",
         threads: 16
         shell:
+            # samtools stats and flagstat scan the BAM linearly and don't
+            # care about sort order. samtools coverage DOES require
+            # coordinate-sorted input (it pileups internally), so pipe the
+            # unsorted BAM through `samtools sort` just for that one call.
+            # The on-disk BAM stays unsorted — GATK ASM (the only downstream
+            # consumer) doesn't need sort, and persisting a sorted copy is
+            # exactly the work PR #37 deleted (sort_index_samtools rule).
             "( minimap2 -ax sr --MD -t {threads} "
             "{input.index} {input.R1_ec} {input.R2_ec} "
             "| samtools view -b -o {output.bam} - "
             ") 2> {log}; "
-            "touch {output.covstats} {output.basecov} {output.bincov} "
-            "{output.ehist} {output.indelhist} {output.mhist} {output.idhist}"
+            "samtools stats    -@ {threads} {output.bam} > {output.stats}; "
+            "samtools flagstat -@ {threads} {output.bam} > {output.flagstat}; "
+            "samtools sort -@ {threads} {output.bam} | "
+            "samtools coverage - > {output.coverage}"
