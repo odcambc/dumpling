@@ -148,9 +148,12 @@ The following are the dependencies required to run the pipeline:
 - [Rosace](https://github.com/pimentellab/rosace)
 - [Lilace](https://github.com/pimentellab/lilace)
 
-BBTools compressed IO defaults to `bgzip` in this pipeline. If your environment hangs in
-`bbduk.sh`, `bbmerge.sh`, or `bbmap.sh`, set `bbtools_use_bgzip: false` in the config to
-fall back to `pigz`/`unpigz`.
+BBTools compressed IO defaults to `pigz` (parallelized across each rule's threads —
+typically saves 30-40 s/sample on 8 GB+ inputs vs single-threaded bgzip). Override via
+`bbtools_compression: bgzip | pigz | none` in the config. `none` falls back to gzip and
+is the right knob if your environment hangs in `bbduk.sh`, `bbmerge.sh`, or `bbmap.sh`.
+The legacy `bbtools_use_bgzip: true|false` knob still works (with a deprecation warning)
+and translates to `bgzip`/`none`.
 
 ## Configuration
 

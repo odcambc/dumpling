@@ -109,8 +109,16 @@ max_deletion_length: 3
 #                 not have a compatible samtools version.
 # rosace_local: Use locally-managed Rosace/cmdstanr instead of renv+conda rule environment.
 # lilace_local: Use locally-managed Lilace/cmdstanr instead of renv+conda rule environment.
-# bbtools_use_bgzip: Keep BBTools on bgzip for compressed IO. Set to false only if
-#                    your environment hangs in BBTools and you need to fall back to pigz/unpigz.
+# bbtools_compression: BBTools (de)compression backend.
+#                      `pigz` (default) parallelizes across rule threads — typical
+#                       savings: 30-40 s/sample on 8 GB+ inputs.
+#                      `bgzip` uses BBTools' built-in bgzip (equivalent to the
+#                       deprecated `bbtools_use_bgzip: true`).
+#                      `none` falls back to gzip (equivalent to the deprecated
+#                       `bbtools_use_bgzip: false`); use on systems where pigz
+#                       isn't available or BBTools hangs with bgzip.
+#                      Old `bbtools_use_bgzip: true|false` is still accepted with
+#                       a deprecation warning, translated to bgzip/none accordingly.
 #
 # -----------------------------------------------------------------------------
 
@@ -122,7 +130,7 @@ min_q: 30
 samtools_local: false
 rosace_local: false
 lilace_local: false
-bbtools_use_bgzip: true
+bbtools_compression: pigz
 
 # -----------------------------------------------------------------------------
 # Other resources:

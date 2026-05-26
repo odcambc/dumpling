@@ -12,6 +12,7 @@ from script_utils import (  # noqa: E402
     file_digest,
     load_experiments,
     resolve_fastq_pair,
+    translate_legacy_bbtools_compression,
     validate_experiment_time_or_bin,
     validate_scoring_backend_mode,
 )
@@ -198,7 +199,9 @@ def validate_config(config):
 
 
 # Validate config and experiment files
-config.setdefault("bbtools_use_bgzip", True)
+for _warning in translate_legacy_bbtools_compression(config):
+    print(_warning, file=sys.stderr)
+config.setdefault("bbtools_compression", "pigz")
 config.setdefault("scoring_backend", "rosace")
 config.setdefault("lilace_local", False)
 config.setdefault("mem_lilace", 16000)
@@ -240,7 +243,36 @@ contaminants_ref = pass_names(config["contaminants"])
 # Set configuration variables
 samtools_local = config["samtools_local"]
 noprocess = config["noprocess"]
-bbtools_compression_flags = "" if config["bbtools_use_bgzip"] else "bgzip=f unbgzip=f "
+def bbtools_compression_flags(wildcards, threads):
+    """Emit the BBTools (de)compression flag string for the configured mode.
+
+    `usepigz=t unpigz=t` are universal across BBTools 39.x (verified on
+    bbduk, bbmap, bbmerge). The audit-time spec also included
+    `pigzthreads={threads}` and `unpigzthreads={threads}`, but BBMerge 39.13
+    rejects those as unknown parameters and aborts. pigz spawned by BBTools
+    without an explicit thread count uses its own default (online CPU
+    count), which still yields the parallel-vs-serial win we wanted. Cluster
+    oversubscription is bounded by rule scheduling rather than per-pigz
+    thread caps.
+
+    `bgzip=f unbgzip=f` are still passed so BBTools' default bgzip path is
+    explicitly turned off; otherwise some tools default to bgzip even when
+    pigz is enabled.
+
+    Trailing space is intentional so the rule shell template doesn't need
+    to inject one between this and the next flag.
+    """
+    mode = config["bbtools_compression"]
+    if mode == "pigz":
+        return "usepigz=t unpigz=t bgzip=f unbgzip=f "
+    if mode == "bgzip":
+        return ""
+    if mode == "none":
+        return "bgzip=f unbgzip=f "
+    raise ValueError(
+        f"Unsupported bbtools_compression: {mode!r}. "
+        "Expected one of: pigz, bgzip, none."
+    )
 
 # Set up tiled experiments
 if "tile" not in experiments.columns:

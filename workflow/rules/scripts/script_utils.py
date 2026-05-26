@@ -176,6 +176,48 @@ def validate_experiment_time_or_bin(experiments: pd.DataFrame) -> None:
         )
 
 
+def translate_legacy_bbtools_compression(config: dict) -> list[str]:
+    """Translate the deprecated `bbtools_use_bgzip` bool into `bbtools_compression`.
+
+    Returns a list of human-readable warning messages the caller should print
+    (empty list if nothing to do). Mutates `config` in place.
+
+    Mapping is byte-compatibility preserving against the prior helper:
+      `bbtools_use_bgzip: true`  →  `bbtools_compression: bgzip`
+        (old true emitted an empty flag string, letting BBTools' built-in
+        bgzip take over — same as the new `bgzip` mode)
+      `bbtools_use_bgzip: false` →  `bbtools_compression: none`
+        (old false emitted `bgzip=f unbgzip=f`, falling back to BBTools'
+        default gzip — same as the new `none` mode)
+
+    If `bbtools_compression` is already set, it wins and we just warn about
+    the redundant deprecated key. The new default (pigz, parallelized across
+    rule threads) is applied later by `config.setdefault`, so users who
+    specified neither get the faster path automatically.
+    """
+    if "bbtools_use_bgzip" not in config:
+        return []
+
+    legacy = config.pop("bbtools_use_bgzip")
+    translated = "bgzip" if legacy else "none"
+
+    if "bbtools_compression" in config:
+        return [
+            f"WARNING [dumpling]: ignoring deprecated bbtools_use_bgzip={legacy!r} "
+            f"because bbtools_compression={config['bbtools_compression']!r} is also set. "
+            f"Remove bbtools_use_bgzip from the config to silence this warning."
+        ]
+
+    config["bbtools_compression"] = translated
+    return [
+        f"WARNING [dumpling]: bbtools_use_bgzip is deprecated. Translated "
+        f"bbtools_use_bgzip={legacy!r} -> bbtools_compression={translated!r} to "
+        f"preserve prior behavior. Set bbtools_compression directly to silence "
+        f"this warning. New default is 'pigz', which parallelizes (de)compression "
+        f"across rule threads."
+    ]
+
+
 def validate_scoring_backend_mode(config: dict) -> None:
     """Reject incompatible combinations of scoring_backend and processing mode.
 

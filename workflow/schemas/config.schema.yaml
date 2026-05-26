@@ -65,10 +65,24 @@ properties:
     type: boolean
     default: false
     description: Flag for whether to use Lilace installed on system-wide R or through a conda-controlled R environment.
-  bbtools_use_bgzip:
-    type: boolean
-    default: true
-    description: Flag for whether BBTools should use bgzip for compressed IO. Set to false to fall back to pigz/unpigz on systems where BBTools hangs with bgzip.
+  bbtools_compression:
+    type: string
+    default: pigz
+    enum:
+      - pigz
+      - bgzip
+      - none
+    description: |
+      BBTools (de)compression backend for fastq IO.
+      pigz (default) parallelizes across each rule's threads, typically saving
+      30-40s/sample on 8GB+ compressed inputs vs the single-threaded bgzip path.
+      bgzip uses BBTools' built-in bgzip; equivalent to the old
+      `bbtools_use_bgzip: true` knob.
+      none disables bgzip and falls back to gzip; equivalent to the old
+      `bbtools_use_bgzip: false` knob (kept for systems where pigz isn't
+      available or BBTools hangs with bgzip).
+      The deprecated `bbtools_use_bgzip` bool is still accepted with a
+      deprecation warning; it is translated to bgzip/none accordingly.
   aligner:
     type: string
     default: bbmap
