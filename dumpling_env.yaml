@@ -11,7 +11,8 @@ dependencies:
   - biopython
   - fastqc
   - samtools
-  - bbmap
+  - bbmap=39.13
+  - minimap2
   - gatk4>=4.5.0.0
   - regex
   - pip
