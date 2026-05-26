@@ -2,6 +2,12 @@ extra_fn_clean_exts:
   - "_trim"
   - "_map"
   - "_merge"
+  # Strip the per-tool samtools-stats suffixes the minimap2 aligner rule
+  # writes (`{sample}_samtools_stats.txt`, `{sample}_samtools_flagstat.txt`)
+  # so MultiQC collapses all rows for the same sample into one general-stats
+  # row instead of one row per tool output. Match the BBMap-path convention.
+  - "_samtools_stats"
+  - "_samtools_flagstat"
   - "_accepted_processing.tsv"
   - "_rejected_processing.tsv"
   - "_total_processing.tsv"
