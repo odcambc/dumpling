@@ -33,3 +33,7 @@ reports/full_e2e/latest.json
 .mypy_cache/
 .pytest_cache/
 __pycache__/
+
+# Local-only utility scripts that shouldn't ship with the pipeline.
+tools/bench_aligners.py
+multiqc_compare/
