@@ -440,11 +440,15 @@ class TestMainSnakemakeDispatch:
         # If main() looked at dir() instead of globals() (the bug we just
         # fixed), this attribute would be invisible to it and main()
         # would fall through to argparse + crash on missing args.
+        # snakemake.output is now a NamedTuple-like namespace because the
+        # rule declares two outputs (scores + counts). When counts isn't
+        # declared (this test exercises the scores-only path), only .scores
+        # is set on the namespace.
         mock_snakemake = SimpleNamespace(
             config={"mavedb": {}},
             params=SimpleNamespace(backend="rosace"),
             input=SimpleNamespace(scores=str(csv)),
-            output=[str(out)],
+            output=SimpleNamespace(scores=str(out)),
         )
         monkeypatch.setattr(
             format_mavedb, "snakemake", mock_snakemake, raising=False
@@ -475,3 +479,357 @@ class TestMainSnakemakeDispatch:
             monkeypatch.delattr(format_mavedb, "snakemake")
         with pytest.raises(SystemExit):
             format_mavedb.main()
+
+
+# -----------------------------------------------------------------------------
+# _aggregate_sample_counts: read one processed_counts/{sample}.csv and sum
+# across the codons that encode the same protein variant. dumpling emits one
+# row per (variant, codon), so M1F from TTC and M1F from TTT must collapse
+# to a single MAVE-HGVS key with the combined count.
+# -----------------------------------------------------------------------------
+
+
+class TestAggregateSampleCounts:
+    def test_multi_codon_aggregates_to_protein_variant(self, tmp_path):
+        # Same protein variant from two codons must sum into one row of the
+        # output series. If this regresses, MaveDB count tables will
+        # double-count protein variants whose codons happen to land on the
+        # same key after MAVE-HGVS conversion.
+        csv = tmp_path / "A_R1_T0.csv"
+        pd.DataFrame(
+            {
+                "count": [10, 5, 200],
+                "hgvs": ["p.(M1F)", "p.(M1F)", "p.(M1I)"],
+            }
+        ).to_csv(csv, index=False)
+        result = format_mavedb._aggregate_sample_counts(str(csv))
+        assert result["p.Met1Phe"] == 15
+        assert result["p.Met1Ile"] == 200
+        assert len(result) == 2
+
+    def test_synonymous_codons_collapse_to_canonical_key(self, tmp_path):
+        # rosace's per-codon hgvs for a synonymous variant is "p.(X1X)"
+        # (codon-specific same-AA notation). normalize_hgvs rewrites these
+        # to canonical "p.(X1=)" before MAVE-HGVS conversion, so multiple
+        # codons encoding the same WT at the same position collapse to a
+        # single "p.<wt3>1=" key.
+        csv = tmp_path / "sample.csv"
+        pd.DataFrame(
+            {
+                "count": [50, 30, 20],
+                "hgvs": ["p.(M1M)", "p.(M1M)", "p.(M1M)"],
+            }
+        ).to_csv(csv, index=False)
+        result = format_mavedb._aggregate_sample_counts(str(csv))
+        assert result["p.Met1="] == 100
+        assert len(result) == 1
+
+    def test_missing_required_columns_raises_named_error(self, tmp_path):
+        # Error must name the file path AND the missing column so a user
+        # with many per-sample CSVs can find the bad one quickly.
+        csv = tmp_path / "broken.csv"
+        pd.DataFrame({"hgvs": ["p.(A1V)"]}).to_csv(csv, index=False)
+        with pytest.raises(ValueError) as excinfo:
+            format_mavedb._aggregate_sample_counts(str(csv))
+        msg = str(excinfo.value)
+        assert str(csv) in msg
+        assert "count" in msg
+
+
+# -----------------------------------------------------------------------------
+# format_scores with counts emission: union variant set across scores +
+# counts, NaN-pad scores for variants only in counts, zero-pad counts for
+# variants only in scores, and preserve sample-name column order. The
+# MaveDB spec requires score and count tables to share the same variant set;
+# violating that would cause deposit-time validation errors.
+# -----------------------------------------------------------------------------
+
+
+@pytest.fixture
+def two_sample_counts(tmp_path):
+    """Two per-sample count CSVs with overlapping but not identical variant
+    sets. A_R1_T0 has M1F + M1I + M1=; A_R1_T1 has M1F + M1I + M1= + A2V."""
+    sample_a = tmp_path / "A_R1_T0.csv"
+    pd.DataFrame(
+        {
+            "count": [10, 5, 200, 50],
+            "hgvs": ["p.(M1F)", "p.(M1F)", "p.(M1I)", "p.(M1M)"],
+        }
+    ).to_csv(sample_a, index=False)
+
+    sample_b = tmp_path / "A_R1_T1.csv"
+    pd.DataFrame(
+        {
+            "count": [12, 180, 40, 999],
+            "hgvs": ["p.(M1F)", "p.(M1I)", "p.(M1M)", "p.(A2V)"],
+        }
+    ).to_csv(sample_b, index=False)
+
+    return [sample_a, sample_b], ["A_R1_T0", "A_R1_T1"]
+
+
+class TestFormatScoresWithCounts:
+    def test_score_and_count_csvs_share_variant_set(
+        self, tmp_path, two_sample_counts
+    ):
+        counts_paths, sample_names = two_sample_counts
+        scores_csv = tmp_path / "scores.csv"
+        # Score CSV has M1F + M1= only (rosace filtered M1I and A2V out).
+        pd.DataFrame(
+            {
+                "variants": ["p.(M1F)", "p.(M1M)"],
+                "mean": [-0.5, 0.02],
+                "sd": [0.1, 0.05],
+            }
+        ).to_csv(scores_csv, index=False)
+
+        score_out = tmp_path / "out_score.csv"
+        count_out = tmp_path / "out_count.csv"
+        d = format_mavedb._BACKEND_DEFAULTS["rosace"]
+        format_mavedb.format_scores(
+            scores_path=str(scores_csv),
+            backend="rosace",
+            hgvs_col=d["hgvs_col"],
+            score_col=d["score_col"],
+            sd_col=d["sd_col"],
+            output_path=str(score_out),
+            counts_paths=[str(p) for p in counts_paths],
+            sample_names=sample_names,
+            counts_output_path=str(count_out),
+        )
+        score_df = pd.read_csv(score_out)
+        count_df = pd.read_csv(count_out)
+
+        # MaveDB spec requirement: same variants, same row order. Without
+        # this, the deposit-time validator rejects the upload.
+        assert score_df["hgvs_pro"].tolist() == count_df["hgvs_pro"].tolist()
+        assert set(score_df["hgvs_pro"]) == {
+            "p.Met1Phe",
+            "p.Met1=",
+            "p.Met1Ile",
+            "p.Ala2Val",
+        }
+
+    def test_variant_only_in_counts_gets_nan_score(
+        self, tmp_path, two_sample_counts
+    ):
+        # A2V is only in counts (filtered out by rosace). The score CSV
+        # must carry that row with NaN score/sd so depositors see the
+        # filter outcomes explicitly rather than silently losing signal.
+        counts_paths, sample_names = two_sample_counts
+        scores_csv = tmp_path / "scores.csv"
+        pd.DataFrame(
+            {
+                "variants": ["p.(M1F)", "p.(M1M)"],
+                "mean": [-0.5, 0.02],
+                "sd": [0.1, 0.05],
+            }
+        ).to_csv(scores_csv, index=False)
+        score_out = tmp_path / "out_score.csv"
+        count_out = tmp_path / "out_count.csv"
+        d = format_mavedb._BACKEND_DEFAULTS["rosace"]
+        format_mavedb.format_scores(
+            scores_path=str(scores_csv),
+            backend="rosace",
+            hgvs_col=d["hgvs_col"],
+            score_col=d["score_col"],
+            sd_col=d["sd_col"],
+            output_path=str(score_out),
+            counts_paths=[str(p) for p in counts_paths],
+            sample_names=sample_names,
+            counts_output_path=str(count_out),
+        )
+        score_df = pd.read_csv(score_out).set_index("hgvs_pro")
+        # Scored variants keep their values.
+        assert score_df.loc["p.Met1Phe", "score"] == -0.5
+        # Counts-only variants are NaN-padded.
+        assert pd.isna(score_df.loc["p.Met1Ile", "score"])
+        assert pd.isna(score_df.loc["p.Met1Ile", "sd"])
+        assert pd.isna(score_df.loc["p.Ala2Val", "score"])
+
+    def test_variant_only_in_scores_gets_zero_count(self, tmp_path):
+        # Symmetric edge case: a variant scored but absent from a sample's
+        # count file gets 0 (not NaN) in that sample's count column. In
+        # practice scoring takes counts as input so this is rare, but the
+        # union path treats both sides the same way and the behavior
+        # should be explicit.
+        sample = tmp_path / "S.csv"
+        pd.DataFrame({"count": [10], "hgvs": ["p.(M1F)"]}).to_csv(
+            sample, index=False
+        )
+        scores_csv = tmp_path / "scores.csv"
+        pd.DataFrame(
+            {
+                "variants": ["p.(M1F)", "p.(M1L)"],
+                "mean": [-0.5, -0.8],
+                "sd": [0.1, 0.2],
+            }
+        ).to_csv(scores_csv, index=False)
+
+        score_out = tmp_path / "out_score.csv"
+        count_out = tmp_path / "out_count.csv"
+        d = format_mavedb._BACKEND_DEFAULTS["rosace"]
+        format_mavedb.format_scores(
+            scores_path=str(scores_csv),
+            backend="rosace",
+            hgvs_col=d["hgvs_col"],
+            score_col=d["score_col"],
+            sd_col=d["sd_col"],
+            output_path=str(score_out),
+            counts_paths=[str(sample)],
+            sample_names=["S"],
+            counts_output_path=str(count_out),
+        )
+        count_df = pd.read_csv(count_out).set_index("hgvs_pro")
+        assert count_df.loc["p.Met1Phe", "S"] == 10
+        # Scored-only variant is zero, not NaN — fillna(0).astype(int) at
+        # construction time guarantees the count column stays integer.
+        assert count_df.loc["p.Met1Leu", "S"] == 0
+
+    def test_sample_column_order_matches_input(self, tmp_path):
+        # The Snakemake rule passes a deliberate sample order (sorted by
+        # replicate, time). Output column order MUST match the caller's
+        # order — depositors interpret column position as time-course
+        # progression. Use a non-alphabetical order to catch any silent
+        # alphabetization.
+        order = ["A_R2_T0", "A_R1_T0", "A_R1_T1"]
+        paths = []
+        for s in order:
+            p = tmp_path / f"{s}.csv"
+            pd.DataFrame({"count": [1], "hgvs": ["p.(M1F)"]}).to_csv(
+                p, index=False
+            )
+            paths.append(p)
+
+        scores_csv = tmp_path / "scores.csv"
+        pd.DataFrame(
+            {"variants": ["p.(M1F)"], "mean": [-0.5], "sd": [0.1]}
+        ).to_csv(scores_csv, index=False)
+
+        score_out = tmp_path / "out_score.csv"
+        count_out = tmp_path / "out_count.csv"
+        d = format_mavedb._BACKEND_DEFAULTS["rosace"]
+        format_mavedb.format_scores(
+            scores_path=str(scores_csv),
+            backend="rosace",
+            hgvs_col=d["hgvs_col"],
+            score_col=d["score_col"],
+            sd_col=d["sd_col"],
+            output_path=str(score_out),
+            counts_paths=[str(p) for p in paths],
+            sample_names=order,
+            counts_output_path=str(count_out),
+        )
+        count_df = pd.read_csv(count_out)
+        assert list(count_df.columns) == ["hgvs_pro"] + order
+
+    def test_misaligned_sample_names_raises(self, tmp_path, two_sample_counts):
+        # When the rule's params.sample_names is the wrong length the error
+        # must say so explicitly. Without this check, downstream pandas
+        # raises something cryptic about column-mismatch that doesn't point
+        # at the rule definition mistake.
+        counts_paths, _ = two_sample_counts
+        scores_csv = tmp_path / "scores.csv"
+        pd.DataFrame(
+            {"variants": ["p.(M1F)"], "mean": [-0.5], "sd": [0.1]}
+        ).to_csv(scores_csv, index=False)
+        with pytest.raises(ValueError) as excinfo:
+            format_mavedb.format_scores(
+                scores_path=str(scores_csv),
+                backend="rosace",
+                hgvs_col="variants",
+                score_col="mean",
+                sd_col="sd",
+                output_path=str(tmp_path / "out_score.csv"),
+                counts_paths=[str(p) for p in counts_paths],
+                sample_names=["only_one"],
+                counts_output_path=str(tmp_path / "out_count.csv"),
+            )
+        msg = str(excinfo.value)
+        assert "sample_names" in msg
+        # Both counts should appear in the error so the user can see
+        # exactly which side has the wrong cardinality.
+        assert "1" in msg and "2" in msg
+
+    def test_scores_only_path_unchanged_when_no_counts(
+        self, tmp_path, rosace_scores_csv
+    ):
+        # Belt-and-braces: counts_paths=None must take the original
+        # scores-only emission path. No counts CSV emitted; score CSV has
+        # exactly the input variants with no NaN-padding from union
+        # expansion. Guarantees the new counts path doesn't accidentally
+        # change behavior for callers that don't opt in.
+        out = tmp_path / "out.csv"
+        d = format_mavedb._BACKEND_DEFAULTS["rosace"]
+        format_mavedb.format_scores(
+            scores_path=str(rosace_scores_csv),
+            backend="rosace",
+            hgvs_col=d["hgvs_col"],
+            score_col=d["score_col"],
+            sd_col=d["sd_col"],
+            output_path=str(out),
+            counts_paths=None,
+            sample_names=None,
+            counts_output_path=None,
+        )
+        df = pd.read_csv(out)
+        assert list(df.columns) == ["hgvs_pro", "score", "sd"]
+        assert len(df) == 3
+        assert not df["score"].isna().any()
+
+
+# -----------------------------------------------------------------------------
+# main() dispatch with counts wired. The rule now declares snakemake.input as
+# a namespace with .scores + .counts, snakemake.output with .scores + .counts,
+# and snakemake.params with backend + sample_names. main() must thread those
+# through to format_scores so both CSVs land where the rule declared them.
+# -----------------------------------------------------------------------------
+
+
+class TestMainSnakemakeDispatchWithCounts:
+    def test_main_emits_both_outputs_when_counts_wired(
+        self, monkeypatch, tmp_path
+    ):
+        from types import SimpleNamespace
+
+        scores_csv = tmp_path / "scores.csv"
+        pd.DataFrame(
+            {"variants": ["p.(M1F)"], "mean": [-0.5], "sd": [0.1]}
+        ).to_csv(scores_csv, index=False)
+
+        sample_csv = tmp_path / "A_R1_T0.csv"
+        pd.DataFrame({"count": [42], "hgvs": ["p.(M1F)"]}).to_csv(
+            sample_csv, index=False
+        )
+
+        score_out = tmp_path / "out_score.csv"
+        count_out = tmp_path / "out_count.csv"
+
+        mock_snakemake = SimpleNamespace(
+            config={"mavedb": {}},
+            params=SimpleNamespace(
+                backend="rosace",
+                sample_names=["A_R1_T0"],
+            ),
+            input=SimpleNamespace(
+                scores=str(scores_csv),
+                counts=[str(sample_csv)],
+            ),
+            output=SimpleNamespace(
+                scores=str(score_out),
+                counts=str(count_out),
+            ),
+        )
+        monkeypatch.setattr(
+            format_mavedb, "snakemake", mock_snakemake, raising=False
+        )
+
+        format_mavedb.main()
+
+        score_df = pd.read_csv(score_out)
+        count_df = pd.read_csv(count_out)
+        # Single variant, present in both files, count column named after
+        # the sample.
+        assert score_df["hgvs_pro"].tolist() == ["p.Met1Phe"]
+        assert count_df["hgvs_pro"].tolist() == ["p.Met1Phe"]
+        assert count_df["A_R1_T0"].tolist() == [42]
