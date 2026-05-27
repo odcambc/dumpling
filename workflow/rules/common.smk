@@ -299,7 +299,7 @@ def bbtools_compression_flags(wildcards, threads):
     if mode == "none":
         return "bgzip=f unbgzip=f "
     raise ValueError(
-        f"Unsupported bbtools_compression: {mode! r}. "
+        f"Unsupported bbtools_compression: {mode!r}. "
         "Expected one of: pigz, bgzip, none."
     )
 
