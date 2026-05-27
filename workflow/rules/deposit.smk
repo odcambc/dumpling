@@ -29,8 +29,8 @@ rule format_mavedb:
     """Format variant scores and raw counts into MaveDB score/count CSVs.
 
 Run for a specific condition:
-  snakemake results/<experiment>/deposit/mavedb/<condition>_mavedb.csv
-  snakemake results/<experiment>/deposit/mavedb/<condition>_mavedb_counts.csv
+snakemake results/<experiment>/deposit/mavedb/<condition>_mavedb.csv
+snakemake results/<experiment>/deposit/mavedb/<condition>_mavedb_counts.csv
 
 Both outputs share the same variant set (union of scored + counted
 variants) and the same hgvs_pro index column, per the MaveDB spec
@@ -55,7 +55,7 @@ rule prepare_sra:
     """Prepare SRA submission metadata and FASTQ file list.
 
 Run with:
-  snakemake results/<experiment>/deposit/sra/sra_metadata.tsv
+snakemake results/<experiment>/deposit/sra/sra_metadata.tsv
 """
     input:
         experiment_file=config["experiment_file"],
