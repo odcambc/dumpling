@@ -1,0 +1,24 @@
+target-version = "py313"
+
+# Black-compatible default; matches snakefmt's internal Python formatter so
+# .py files and Python blocks inside .smk rules don't drift.
+line-length = 88
+
+extend-exclude = [
+    ".claude",
+    "results",
+    "stats",
+    "benchmarks",
+    "logs",
+    "ref",
+]
+
+[lint]
+# Conservative starter set:
+#   E,W: pycodestyle style + warnings
+#   F:   pyflakes (unused imports/vars, undefined names)
+#   I:   isort (import ordering)
+# Heavier rule families (B, D, N, UP, ...) are deliberately left off until
+# the team picks a docstring/naming convention; turning them on now would
+# generate churn without a corresponding style decision.
+select = ["E", "F", "I", "W"]
