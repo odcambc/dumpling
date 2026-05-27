@@ -50,6 +50,14 @@ echo "[postCreate] pre-warming scoring backends (rosace, lilace, rosace_aa)"
 # persist after build so subsequent snakemake invocations see the
 # install as a cache-hit.
 #
+# --cores 1 is deliberate. Each install rule's R script begins with
+# install.packages("renv", ...) targeting the shared system library at
+# /usr/local/lib/R/site-library. With parallel cores the rules race on
+# the 00LOCK-renv directory and corrupt each other's installs (the
+# loser sees a partial renv with a missing .rdb file and aborts). The
+# wall-clock cost of serial execution is small — renv install is fast;
+# the CmdStan compile dominates and only runs once anyway.
+#
 # Non-fatal on failure: scoring-backend installs reach out to GitHub
 # (install_github for rosace-aa), download CmdStan, and compile a Stan
 # toolchain — any of which can fail transiently or in restricted
@@ -59,7 +67,7 @@ echo "[postCreate] pre-warming scoring backends (rosace, lilace, rosace_aa)"
 # a cache-hit. Print a clear retry hint in that case.
 if conda run --no-capture-output -n dumpling_env \
     snakemake -s workflow/Snakefile --configfile config/example.yaml \
-    --cores 4 \
+    --cores 1 \
     results/example_experiment/rosace/rosace_installed.txt \
     results/example_experiment/lilace/lilace_installed.txt \
     results/example_experiment/rosace_aa/rosace_aa_installed.txt; then
@@ -70,7 +78,7 @@ else
   echo "[postCreate] rules will fire renv::restore() on first scoring run" >&2
   echo "[postCreate] instead of being instant. Retry the warmup manually:" >&2
   echo "[postCreate]   conda run -n dumpling_env snakemake -s workflow/Snakefile \\" >&2
-  echo "[postCreate]     --configfile config/example.yaml --cores 4 \\" >&2
+  echo "[postCreate]     --configfile config/example.yaml --cores 1 \\" >&2
   echo "[postCreate]     results/example_experiment/rosace/rosace_installed.txt \\" >&2
   echo "[postCreate]     results/example_experiment/lilace/lilace_installed.txt \\" >&2
   echo "[postCreate]     results/example_experiment/rosace_aa/rosace_aa_installed.txt" >&2
