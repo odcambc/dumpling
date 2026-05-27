@@ -1,15 +1,18 @@
-"""Format variant scores into MaveDB score set CSV format.
+"""Format variant scores and raw counts into MaveDB score/count CSV format.
 
-Output columns: hgvs_pro, score, sd (if available). The hgvs_pro column is
-emitted in MAVE-HGVS form — three-letter amino acid codes, no parenthesized
-"predicted" wrapper, `Ter` for stop. Rosace and lilace emit one-letter
-parenthesized form (`p.(M1L)`, `p.(A1*)`); to_mave_hgvs handles the
-structural conversion. Verified against the MAVE-HGVS spec at
-github.com/VariantEffect/mavehgvs/docs/spec.rst (audit 2026-05-26):
+Score output (`{cond}_mavedb.csv`): columns hgvs_pro, score, sd (if available).
+Count output (`{cond}_mavedb_counts.csv`): columns hgvs_pro plus one column per
+input sample (sample name as-is from the dumpling experiment CSV).
+
+The hgvs_pro column is emitted in MAVE-HGVS form — three-letter amino acid
+codes, no parenthesized "predicted" wrapper, `Ter` for stop. Rosace and
+lilace emit one-letter parenthesized form (`p.(M1L)`, `p.(A1*)`);
+to_mave_hgvs handles the structural conversion. Verified against the
+MAVE-HGVS spec at github.com/VariantEffect/mavehgvs/docs/spec.rst
+(audit 2026-05-26):
 
   rosace/lilace          MAVE-HGVS
   -----------------      ----------------
-  p.(Met1Leu)            (n/a — already three-letter? no — rosace is 1-letter)
   p.(M1L)                p.Met1Leu
   p.(M1=)                p.Met1=
   p.(A1del)              p.Ala1del
@@ -17,8 +20,18 @@ github.com/VariantEffect/mavehgvs/docs/spec.rst (audit 2026-05-26):
   p.(A1_A2insGGG)        p.Ala1_Ala2insGlyGlyGly
   p.(A1*)                p.Ala1Ter
 
+Score and count tables MUST share the same variant set per the MaveDB spec
+("Score and count tables must share the same set of variants and the same
+index column"). We build the union of variants across the score CSV and all
+per-sample count CSVs for the condition, then emit both files indexed on
+that union. Variants observed in counts but filtered out by rosace/lilace
+appear in the score CSV with NaN score/sd — depositors see the filter
+outcomes explicitly rather than silently losing the raw signal.
+
 Run via Snakemake or standalone:
-  python format_mavedb.py --scores <scores.csv> --output <out.csv> [--backend rosace]
+  python format_mavedb.py --scores <scores.csv> --score-output <out.csv> \\
+      [--counts <a.csv> <b.csv> ...] [--sample-names A B ...] \\
+      [--count-output <counts.csv>] [--backend rosace]
 """
 
 import argparse
@@ -175,7 +188,49 @@ def _validate_mave_hgvs(hgvs: str, row_idx: int) -> str:
     return hgvs
 
 
-def format_scores(scores_path, backend, hgvs_col, score_col, sd_col, output_path):
+def _to_mave_key_series(hgvs_series):
+    """Apply normalize_hgvs + to_mave_hgvs to a series of dumpling-style HGVS
+    strings, returning a series of MAVE-HGVS keys. Shared by scores and counts
+    paths so the same input string always maps to the same index value."""
+    return hgvs_series.apply(normalize_hgvs).apply(to_mave_hgvs)
+
+
+def _aggregate_sample_counts(counts_path, count_col="count", hgvs_col="hgvs"):
+    """Read one processed_counts/{sample}.csv and return a Series mapping
+    MAVE-HGVS variant -> summed count.
+
+    dumpling emits one row per (variant, codon) in processed_counts. Multiple
+    codons can encode the same protein variant (e.g. M1F from both TTC and
+    TTT), so we sum across the protein-level key. Synonymous codons all
+    collapse to the same p.{wt}{pos}= key after normalize_hgvs."""
+    df = pd.read_csv(counts_path)
+    if count_col not in df.columns or hgvs_col not in df.columns:
+        raise ValueError(
+            f"{counts_path}: expected columns {count_col!r} and {hgvs_col!r}; "
+            f"got {list(df.columns)}"
+        )
+    keys = _to_mave_key_series(df[hgvs_col])
+    return df[count_col].groupby(keys).sum()
+
+
+def format_scores(
+    scores_path,
+    backend,
+    hgvs_col,
+    score_col,
+    sd_col,
+    output_path,
+    counts_paths=None,
+    sample_names=None,
+    counts_output_path=None,
+):
+    """Emit MaveDB score CSV, and optionally a matching count CSV.
+
+    When counts_paths is provided, builds the union of variants across the
+    score CSV and all per-sample count CSVs, then emits both files indexed on
+    that union (NaN score/sd for variants only present in counts). When
+    counts_paths is None, behaves as the original scores-only formatter.
+    """
     scores = pd.read_csv(scores_path)
 
     missing = [c for c in [hgvs_col, score_col] if c not in scores.columns]
@@ -186,21 +241,52 @@ def format_scores(scores_path, backend, hgvs_col, score_col, sd_col, output_path
             f"Set mavedb.hgvs_column / mavedb.score_column in config to override defaults."
         )
 
-    out = pd.DataFrame()
     # Two-step conversion: first canonicalize rosace's same-AA missense to
     # synonymous notation (p.(A1A) -> p.(A1=)), then convert the whole row
     # to MAVE-HGVS form (three-letter codes, no outer parens, Ter for stop).
-    # Validation runs per-row so error messages can name the offending index.
-    normalized = scores[hgvs_col].apply(normalize_hgvs).apply(to_mave_hgvs)
-    out["hgvs_pro"] = [
-        _validate_mave_hgvs(s, i) for i, s in enumerate(normalized)
-    ]
-    out["score"] = scores[score_col]
-
+    score_keys = _to_mave_key_series(scores[hgvs_col])
+    scored_df = pd.DataFrame({"hgvs_pro": score_keys, "score": scores[score_col]})
     if sd_col and sd_col in scores.columns:
-        out["sd"] = scores[sd_col]
+        scored_df["sd"] = scores[sd_col]
+    scored_df = scored_df.set_index("hgvs_pro")
 
-    out.to_csv(output_path, index=False)
+    emit_counts = counts_paths and counts_output_path
+    if emit_counts:
+        if not sample_names or len(sample_names) != len(counts_paths):
+            raise ValueError(
+                "sample_names must align 1:1 with counts_paths "
+                f"(got {len(sample_names) if sample_names else 0} names "
+                f"for {len(counts_paths)} files)"
+            )
+
+        # Per-sample MAVE-HGVS -> count series, joined column-wise.
+        per_sample = {
+            name: _aggregate_sample_counts(path)
+            for name, path in zip(sample_names, counts_paths)
+        }
+        counts_df = pd.DataFrame(per_sample).fillna(0).astype(int)
+        # Preserve the sample order Snakemake passed in (DataFrame() may
+        # reorder by insertion-iteration order from the dict above, which is
+        # insertion order in Py3.7+, but being explicit is safer).
+        counts_df = counts_df[list(sample_names)]
+
+        union_index = scored_df.index.union(counts_df.index)
+        scored_df = scored_df.reindex(union_index)  # NaN-pads dropped rows
+        counts_df = counts_df.reindex(union_index, fill_value=0)
+    else:
+        union_index = scored_df.index
+
+    # Validate every emitted key (cheap; runs once per row).
+    for i, key in enumerate(union_index):
+        _validate_mave_hgvs(key, i)
+
+    scored_df.reset_index().rename(columns={"index": "hgvs_pro"}).to_csv(
+        output_path, index=False
+    )
+    if emit_counts:
+        counts_df.reset_index().rename(columns={"index": "hgvs_pro"}).to_csv(
+            counts_output_path, index=False
+        )
 
 
 def main():
@@ -216,25 +302,53 @@ def main():
         backend = snakemake.params.backend
         defaults = _BACKEND_DEFAULTS.get(backend, _BACKEND_DEFAULTS["rosace"])
 
+        # Counts inputs are optional: when the rule declares them they appear
+        # as snakemake.input.counts (list) and snakemake.params.sample_names
+        # (list, aligned by index). Older rule wiring without counts still
+        # works — format_scores falls back to scores-only.
+        counts_paths = list(getattr(snakemake.input, "counts", []) or [])
+        sample_names = list(getattr(snakemake.params, "sample_names", []) or [])
+        counts_output_path = (
+            snakemake.output.counts if counts_paths else None
+        ) if hasattr(snakemake.output, "counts") else None
+
         format_scores(
             scores_path=snakemake.input.scores,
             backend=backend,
             hgvs_col=cfg.get("hgvs_column", defaults["hgvs_col"]),
             score_col=cfg.get("score_column", defaults["score_col"]),
             sd_col=cfg.get("sd_column", defaults["sd_col"]),
-            output_path=snakemake.output[0],
+            output_path=snakemake.output.scores,
+            counts_paths=counts_paths,
+            sample_names=sample_names,
+            counts_output_path=counts_output_path,
         )
         return
 
     # Standalone CLI path
-    parser = argparse.ArgumentParser(description="Format scores for MaveDB.")
+    parser = argparse.ArgumentParser(description="Format scores/counts for MaveDB.")
     parser.add_argument("--scores", required=True, help="Score CSV from rosace or lilace")
-    parser.add_argument("--output", required=True, help="Output MaveDB CSV path")
+    parser.add_argument("--score-output", required=True, help="Output MaveDB score CSV path")
     parser.add_argument("--backend", default="rosace", choices=list(_BACKEND_DEFAULTS))
     parser.add_argument("--hgvs-column", default=None)
     parser.add_argument("--score-column", default=None)
     parser.add_argument("--sd-column", default=None)
+    parser.add_argument(
+        "--counts", nargs="*", default=[],
+        help="Per-sample processed_counts CSVs for the condition (optional).",
+    )
+    parser.add_argument(
+        "--sample-names", nargs="*", default=[],
+        help="Sample names aligned 1:1 with --counts. Used as count column headers.",
+    )
+    parser.add_argument(
+        "--count-output", default=None,
+        help="Output MaveDB count CSV path. Required when --counts is given.",
+    )
     args = parser.parse_args()
+
+    if args.counts and not args.count_output:
+        parser.error("--count-output is required when --counts is given.")
 
     defaults = _BACKEND_DEFAULTS[args.backend]
     format_scores(
@@ -243,7 +357,10 @@ def main():
         hgvs_col=args.hgvs_column or defaults["hgvs_col"],
         score_col=args.score_column or defaults["score_col"],
         sd_col=args.sd_column or defaults["sd_col"],
-        output_path=args.output,
+        output_path=args.score_output,
+        counts_paths=args.counts or None,
+        sample_names=args.sample_names or None,
+        counts_output_path=args.count_output,
     )
 
 

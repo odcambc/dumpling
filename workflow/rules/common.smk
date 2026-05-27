@@ -120,12 +120,18 @@ def get_input(wildcards):
                 )
             )
         if config["deposit_to_mavedb"]:
-            # MaveDB-format deposit CSV per experimental condition. Cheap
+            # MaveDB-format deposit CSVs per experimental condition: the
+            # score table plus a row-aligned raw-count table. Both are cheap
             # (~seconds) post-processing of the scoring output, so default-on.
             # prepare_sra stays manual-only (ships placeholder fields).
             input_list.extend(
                 expand(
                     "results/{experiment_name}/deposit/mavedb/{conditions}_mavedb.csv",
+                    experiment_name=config["experiment"],
+                    conditions=experimental_conditions,
+                )
+                + expand(
+                    "results/{experiment_name}/deposit/mavedb/{conditions}_mavedb_counts.csv",
                     experiment_name=config["experiment"],
                     conditions=experimental_conditions,
                 )
