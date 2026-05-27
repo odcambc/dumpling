@@ -34,7 +34,6 @@ if str(SCRIPTS_DIR) not in sys.path:
 # isn't in this test process), then import the helper functions directly.
 import format_mavedb  # noqa: E402
 
-
 # -----------------------------------------------------------------------------
 # normalize_hgvs: synonymous notation conversion
 # -----------------------------------------------------------------------------

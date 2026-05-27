@@ -5,9 +5,9 @@ Tests the complete flow of variant processing from GATK output through
 to Enrich2/Rosace input formats.
 """
 
-import pytest
+
 import pandas as pd
-from pathlib import Path
+import pytest
 
 
 @pytest.mark.integration

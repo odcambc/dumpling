@@ -5,9 +5,9 @@ Tests that the pipeline's configuration validation correctly accepts valid
 configs and rejects invalid ones.
 """
 
+
 import pytest
 import yaml
-from pathlib import Path
 
 
 @pytest.mark.integration

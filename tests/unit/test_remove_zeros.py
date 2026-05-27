@@ -1,11 +1,10 @@
-import pytest
+
 import pandas as pd
-import os
-from pathlib import Path
+import pytest
 
 # Import the functions you want to test directly
 # Adjust if the script is named differently or in a different location
-from workflow.rules.scripts.remove_zeros import remove_zeros_enrich, remove_zeros
+from workflow.rules.scripts.remove_zeros import remove_zeros, remove_zeros_enrich
 
 
 @pytest.fixture

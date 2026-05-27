@@ -2,7 +2,6 @@ import logging
 
 from script_utils import load_experiments, run_script
 
-
 # The hierarchy of the enrich2 config file elements is as follows:
 # experiment
 #   conditions

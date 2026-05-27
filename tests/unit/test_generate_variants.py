@@ -1,17 +1,17 @@
-import unittest
-from unittest.mock import patch
+import csv
 import logging
 import os
 import tempfile
-import csv
+import unittest
+from unittest.mock import patch
 
 # Import the functions you want to test directly
 # Adjust if the script is named differently or in a different location
 from workflow.rules.scripts.generate_variants import (
-    name_to_hgvs,
-    get_sequence_segment,
-    extract_codon,
     designed_variants,
+    extract_codon,
+    get_sequence_segment,
+    name_to_hgvs,
     write_designed_csv,
 )
 

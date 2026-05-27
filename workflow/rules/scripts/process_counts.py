@@ -1,11 +1,11 @@
 import csv
 import logging
-import pathlib
 import os
-import pandas as pd
-from Bio import SeqIO
+import pathlib
 
+import pandas as pd
 import process_variants
+from Bio import SeqIO
 from script_utils import run_script, translate_orf
 
 

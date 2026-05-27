@@ -9,10 +9,11 @@ This module provides common fixtures for unit and integration tests including:
 """
 
 import sys
-import pytest
-import pandas as pd
 from pathlib import Path
 from unittest.mock import MagicMock
+
+import pandas as pd
+import pytest
 
 # Add workflow scripts to path for imports
 REPO_ROOT = Path(__file__).parent.parent

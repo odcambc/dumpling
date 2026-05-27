@@ -36,7 +36,6 @@ Run via Snakemake or standalone:
 
 import argparse
 import re
-import sys
 
 import pandas as pd
 

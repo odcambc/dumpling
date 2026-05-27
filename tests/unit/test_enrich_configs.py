@@ -4,10 +4,10 @@ import pandas as pd
 import pytest
 
 from workflow.rules.scripts.generate_enrich_configs import (
-    remove_truncated_replicates,
+    _run,
     generate_config,
     remove_missing_t0,
-    _run,
+    remove_truncated_replicates,
 )
 
 

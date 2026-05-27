@@ -18,7 +18,6 @@ from pathlib import Path
 
 import pytest
 
-
 # The exact awk command embedded in workflow/rules/ref.smk's prepare_reference
 # rule. If you edit one, edit the other; the tests in this module are the
 # tripwire if they fall out of sync.

@@ -10,7 +10,6 @@ Run via Snakemake or standalone:
 
 import argparse
 import re
-import sys
 from pathlib import Path
 
 import pandas as pd

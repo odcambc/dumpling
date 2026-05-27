@@ -1,14 +1,13 @@
-import pathlib
 import csv
-import regex
-import re
 import logging
-from Bio.Seq import Seq
-from Bio import SeqIO
-from Bio.SeqUtils import seq1
+import pathlib
+import re
 
 import pandas as pd
-
+import regex
+from Bio import SeqIO
+from Bio.Seq import Seq
+from Bio.SeqUtils import seq1
 from script_utils import run_script, translate_orf
 
 # Define constants
@@ -427,7 +426,7 @@ def extract_codon(
             return oligo_sequence[expected_codon_pos : expected_codon_pos + 3]
 
     # If all attempts fail, log and return empty string
-    logging.warning(f"Could not find codon. Check offset value and reference sequence.")
+    logging.warning("Could not find codon. Check offset value and reference sequence.")
     logging.warning(
         f"codon_n: {codon_n}, pre_start: {codon_pos - PRE_SPAN}, post_end: {codon_pos + PRE_SPAN + 3}"
     )

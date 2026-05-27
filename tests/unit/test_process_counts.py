@@ -1,20 +1,19 @@
 # test_process_counts.py
 
-import pytest
-import os
 import csv
+import os
 from pathlib import Path
 from unittest.mock import patch
 
 import pandas as pd
+import pytest
+from Bio import SeqIO
 from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
-from Bio import SeqIO
 
 from workflow.rules.scripts.process_counts import (
     _run,
     process_sample,
-    process_gatk_file,
 )
 from workflow.rules.scripts.script_utils import translate_orf
 

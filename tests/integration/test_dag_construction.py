@@ -5,11 +5,11 @@ Tests that the pipeline DAG builds correctly with various configurations
 using dry-run mode (no actual execution).
 """
 
-import pytest
-import subprocess
-import shutil
 import os
-from pathlib import Path
+import shutil
+import subprocess
+
+import pytest
 
 
 def snakemake_available():
@@ -74,7 +74,6 @@ class TestDryRun:
     def test_dry_run_with_mock_config(self, repo_root, fixtures_dir, tmp_path):
         """Test that dry-run succeeds with mock config."""
         # Copy fixtures to tmp_path for isolation
-        import shutil
 
         test_dir = tmp_path / "test_run"
         test_dir.mkdir()

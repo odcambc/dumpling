@@ -1,19 +1,16 @@
 # test_process_variants.py
 
-import pytest
 import pandas as pd
+import pytest
 
 from workflow.rules.scripts.process_variants import (
-    read_gatk_csv,
-    process_variants_file,
+    name_to_hgvs,
     parse_multi_synonymous,
-    process_insertion,
     process_deletion,
     process_insdel,
+    process_insertion,
     process_single_site,
-    write_enrich_df,
-    write_stats_file,
-    name_to_hgvs,
+    process_variants_file,
 )
 
 # -------------------------

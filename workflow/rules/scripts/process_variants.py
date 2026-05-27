@@ -1,12 +1,11 @@
-from typing import Dict, Iterable, Iterator, List, Tuple, Any, Union
 import csv
-import pathlib
 import logging
-import Bio.Seq
+import pathlib
+from typing import Dict, Iterable, Iterator, List, Tuple, Union
 
+import Bio.Seq
 import pandas as pd
 import regex
-
 
 # Type aliases
 VariantDict = Dict[str, Union[int, str, bool]]
