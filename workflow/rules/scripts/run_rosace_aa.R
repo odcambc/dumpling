@@ -450,9 +450,30 @@ run_rosace_for_condition <- function(rosace_obj, experiment_name, expt_condition
     install = FALSE
   )
 
+  # rosace-aa stores the fitted Score under <condition>_ROSACE{0,1,2,3}
+  # depending on which model the call configured (verified by reading
+  # helperRunRosaceGrowth in upstream R/runROSACE.R + the vignette's
+  # OutputScore examples 2026-05-27):
+  #   ROSACE0: no position model (pos.col unset)
+  #   ROSACE1: position-only (pos.col set, no blosum)
+  #   ROSACE2: position + blosum (default when blosum is enabled, which
+  #            rosace-aa does whenever pos.col is set and pos.act = FALSE)
+  #   ROSACE3: position + blosum + activation (pos.act = TRUE)
+  # Our RunRosace call above pins pos.col + pos.act = FALSE, so we land
+  # on ROSACE2. If pos.act or other flags become user-configurable via
+  # config knobs later, this suffix must move in lockstep (or switch to
+  # introspecting names(rosace_obj@scores)).
+  #
+  # pos.info + blosum.info attach the position-level and AA-substitution
+  # columns to the output (phi_mean/phi_sd/sigma2_mean/sigma2_sd from
+  # pos.info; blosum_score/nu_mean/nu_sd from blosum.info). Surfacing
+  # these is the whole point of using rosace-aa over rosace — the core
+  # variants/mean/sd columns are unchanged so format_mavedb still works.
   scores.data <- OutputScore(
     rosace_obj,
-    name = paste0(expt_condition, "_ROSACE_AA")
+    pos.info = TRUE,
+    blosum.info = TRUE,
+    name = paste0(expt_condition, "_ROSACE2")
   )
 
   output_file_name <- paste0(expt_condition, "_scores.csv")
