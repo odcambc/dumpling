@@ -158,6 +158,19 @@ properties:
     type: boolean
     default: false
     description: Flag for whether to run Enrich2 in addition to the chosen scoring backend.
+  deposit_to_mavedb:
+    type: boolean
+    default: true
+    description: |
+      Flag for whether to emit a MaveDB-formatted score CSV per experimental
+      condition as part of the default `all` target. When true (default),
+      `results/{experiment}/deposit/mavedb/{condition}_mavedb.csv` is
+      produced alongside the regular scoring outputs — the format_mavedb
+      rule's output is cheap (~seconds, runs after scoring completes) and
+      directly uploadable to MaveDB. Set to false to skip deposit-format
+      generation. `prepare_sra` stays manual-only regardless of this flag
+      because its output ships placeholder fields (instrument_model,
+      biosample_accession) the user has to fill in.
   remove_zeros:
     type: boolean
     default: false

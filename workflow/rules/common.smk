@@ -119,6 +119,17 @@ def get_input(wildcards):
                     experiment_name=config["experiment"],
                 )
             )
+        if config["deposit_to_mavedb"]:
+            # MaveDB-format deposit CSV per experimental condition. Cheap
+            # (~seconds) post-processing of the scoring output, so default-on.
+            # prepare_sra stays manual-only (ships placeholder fields).
+            input_list.extend(
+                expand(
+                    "results/{experiment_name}/deposit/mavedb/{conditions}_mavedb.csv",
+                    experiment_name=config["experiment"],
+                    conditions=experimental_conditions,
+                )
+            )
     if config["baseline_condition"] and config["run_qc"]:
         input_list.extend(
             expand(
@@ -208,6 +219,7 @@ config.setdefault("mem_lilace", 16000)
 config.setdefault("lilace_seed", None)
 config.setdefault("rosace_aa_local", False)
 config.setdefault("mem_rosace_aa", 16000)
+config.setdefault("deposit_to_mavedb", True)
 config.setdefault("aligner", "bbmap")
 if config["aligner"] not in ("bbmap", "minimap2"):
     raise ValueError(

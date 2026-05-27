@@ -74,6 +74,10 @@ oligo_file: "config/oligos/example_oligos.csv"
 #                  effects. Both lilace and rosace_aa require parsed variant
 #                  metadata and are incompatible with noprocess: true.
 # enrich2: Set to true to run Enrich2 in addition to backend scoring.
+# deposit_to_mavedb: Set to false to skip MaveDB-formatted CSV emission. Default
+#                    true; ships `results/{experiment}/deposit/mavedb/{cond}_mavedb.csv`
+#                    per experimental condition, directly uploadable to MaveDB.
+#                    Cheap (~seconds after scoring) so on by default.
 # noprocess: Set to True to skip variant filtering based on designed variants.
 # run_qc: Set to False to skip QC steps (fastqc and multiqc)
 #
@@ -89,6 +93,7 @@ oligo_file: "config/oligos/example_oligos.csv"
 orf: "141-1568"
 scoring_backend: rosace
 enrich2: true
+deposit_to_mavedb: true
 remove_zeros: true
 regenerate_variants: false
 noprocess: false

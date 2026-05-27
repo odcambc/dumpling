@@ -21,6 +21,7 @@ include: "rules/ref.smk"
 include: "rules/rosace.smk"
 include: "rules/lilace.smk"
 include: "rules/rosace_aa.smk"
+include: "rules/deposit.smk"
 
 
 # Pseudo-rule for running analysis
