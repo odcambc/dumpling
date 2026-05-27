@@ -21,6 +21,7 @@ with a variety of experimental designs. Please note several current [limitations
 
 - [GATK-based Snakemake pipeline for deep mutational scanning experiments](#gatk-based-snakemake-pipeline-for-deep-mutational-scanning-experiments)
   - [Quick start](#quick-start)
+    - [Using the prebuilt container (recommended)](#using-the-prebuilt-container-recommended)
     - [Testing the pipeline with example data](#testing-the-pipeline-with-example-data)
   - [Installation](#installation)
     - [Install via GitHub](#install-via-github)
@@ -46,6 +47,35 @@ with a variety of experimental designs. Please note several current [limitations
   - [Getting help](#getting-help)
 
 ## Quick start
+
+### Using the prebuilt container (recommended)
+
+A prebuilt container image is published to [GitHub Container Registry](https://github.com/odcambc/dumpling/pkgs/container/dumpling) bundling Snakemake plus the full dumpling toolchain — BBTools, GATK, minimap2, samtools, FastQC, MultiQC, R 4.5 with the Rosace/Lilace/Rosace-AA stack, **CmdStan pre-compiled**, and Enrich2. This is the fastest path to a working pipeline because it skips conda environment setup and the multi-hour CmdStan compile that otherwise bites first-time users.
+
+The same image works for both Docker (local dev, CI) and Apptainer/Singularity (HPC), since Apptainer transparently pulls and converts OCI images.
+
+**With Docker:**
+
+```bash
+git clone https://github.com/odcambc/dumpling
+cd dumpling
+docker run --rm -v "$(pwd):/workdir" ghcr.io/odcambc/dumpling:latest \
+    snakemake -s workflow/Snakefile --cores 16
+```
+
+**With Apptainer/Singularity (HPC):**
+
+```bash
+git clone https://github.com/odcambc/dumpling
+cd dumpling
+snakemake -s workflow/Snakefile --use-singularity --cores 16
+```
+
+The `containerized:` directive in `workflow/Snakefile` already points at the GHCR image, so `--use-singularity` picks it up automatically. You do **not** need `--use-conda` — the container bundles every tool in a single environment.
+
+Available tags: `:latest` (most recent release), `:vX.Y.Z` (pinned release), `:dev` (rolling build of the `dev` branch).
+
+If you'd rather manage dependencies yourself, the conda-based install is below.
 
 ```bash
 git clone https://github.com/odcambc/dumpling

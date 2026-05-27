@@ -1,0 +1,98 @@
+name: build-container
+
+# Build, smoke-test, and (on non-PR events) publish the dumpling container
+# image to GHCR. The same OCI image is consumed by both Docker
+# (`docker pull ghcr.io/odcambc/dumpling:<tag>`) and Apptainer
+# (`apptainer pull docker://ghcr.io/odcambc/dumpling:<tag>` — apptainer
+# converts to SIF on pull). See tasks.md "container branch" for design notes.
+
+on:
+  push:
+    branches: [container, dev]
+    tags: ['v*.*.*']
+  pull_request:
+    branches: [dev, main]
+    paths:
+      - Dockerfile
+      - dumpling_env.yaml
+      - 'workflow/**'
+      - 'config/**'
+      - .github/workflows/build-container.yml
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Tag strategy:
+      #   container branch  -> :container, :dev   (dev tag matches the
+      #                        `containerized:` directive in workflow/Snakefile)
+      #   dev branch        -> :dev               (will overtake container's
+      #                        :dev once the container branch merges)
+      #   tag vX.Y.Z        -> :vX.Y.Z, :vX.Y, :latest
+      #   PR                -> no tag emitted; image built but not pushed
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/odcambc/dumpling
+          tags: |
+            type=raw,value=container,enable=${{ github.ref == 'refs/heads/container' }}
+            type=raw,value=dev,enable=${{ github.ref == 'refs/heads/container' || github.ref == 'refs/heads/dev' }}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+
+      # Load locally first so the smoke-test step can run against the
+      # freshly built image before we push. Then push separately on
+      # non-PR events.
+      - name: Build (load to local docker)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          tags: dumpling:ci-smoke
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Lightweight verification: tools resolve + Snakemake builds the DAG
+      # for the example experiment. If the DAG can't be built (parse errors,
+      # missing tools, broken config), this fails before publishing a bad
+      # image. Same dry-run we run locally.
+      - name: Smoke test (snakemake --dry-run inside image)
+        run: |
+          docker run --rm -v "$PWD:/workdir" dumpling:ci-smoke \
+            snakemake -s workflow/Snakefile --dry-run --quiet
+
+      # Re-build for push using the buildx cache from the load step; this
+      # is fast (cache hit on every layer) and emits the metadata-action
+      # tags.
+      - name: Push to GHCR
+        if: github.event_name != 'pull_request' && steps.meta.outputs.tags != ''
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
