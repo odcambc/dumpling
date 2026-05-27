@@ -464,15 +464,21 @@ run_rosace_for_condition <- function(rosace_obj, experiment_name, expt_condition
   # config knobs later, this suffix must move in lockstep (or switch to
   # introspecting names(rosace_obj@scores)).
   #
-  # pos.info + blosum.info attach the position-level and AA-substitution
-  # columns to the output (phi_mean/phi_sd/sigma2_mean/sigma2_sd from
-  # pos.info; blosum_score/nu_mean/nu_sd from blosum.info). Surfacing
-  # these is the whole point of using rosace-aa over rosace — the core
-  # variants/mean/sd columns are unchanged so format_mavedb still works.
+  # blosum.info = pos.info = FALSE here is a deliberate workaround for
+  # an upstream bug at the pinned SHA (c0fda38): OutputScore.Score's
+  # blosum branch does
+  #   df <- cbind(df, optional.score %>% select(blosum_score, nu_mean, nu_sd))
+  # but at this SHA `optional.score` is sized one row per position
+  # (116 on the example fixture) while `df` is one row per variant
+  # (1773). The cbind raises "arguments imply differing number of rows".
+  # Tracked as a follow-up in tasks/tasks.md: revisit when upstream
+  # ships a fix, then turn on pos.info/blosum.info and write the
+  # per-position frame to a sibling CSV. For now the ROSACE2-model
+  # per-variant `mean`/`sd` posterior is the load-bearing output —
+  # users still get rosace-aa's decomposition baked into the variant
+  # scores, just not the per-position summary columns.
   scores.data <- OutputScore(
     rosace_obj,
-    pos.info = TRUE,
-    blosum.info = TRUE,
     name = paste0(expt_condition, "_ROSACE2")
   )
 
