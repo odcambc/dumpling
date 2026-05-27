@@ -96,8 +96,11 @@ def build_metadata(experiments: pd.DataFrame, data_dir: Path, experiment_name: s
 
 
 def main():
-    # Snakemake execution path
-    if "snakemake" in dir():
+    # Snakemake execution path. `"snakemake" in dir()` would always
+    # return False inside a function — dir() returns local names, not
+    # module globals — so use globals() to detect the snakemake-injected
+    # variable. Same fix as format_mavedb.py (2026-05-27).
+    if "snakemake" in globals():
         experiments = pd.read_csv(snakemake.input.experiment_file)
         data_dir = Path(snakemake.params.data_dir).resolve()
         sra_cfg = snakemake.params.sra_config or {}

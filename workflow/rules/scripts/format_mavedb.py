@@ -204,8 +204,14 @@ def format_scores(scores_path, backend, hgvs_col, score_col, sd_col, output_path
 
 
 def main():
-    # Snakemake execution path
-    if "snakemake" in dir():
+    # Snakemake execution path. Snakemake's `script:` directive injects
+    # `snakemake` as a module-level global. `dir()` inside a function
+    # returns LOCAL names, not module globals — so `"snakemake" in dir()`
+    # always returns False here and the original guard silently fell
+    # through to the argparse path. Check globals() instead. (Found
+    # 2026-05-27 when wiring deposit_to_mavedb default-on into get_input
+    # and running the rule via snakemake.)
+    if "snakemake" in globals():
         cfg = snakemake.config.get("mavedb", {})
         backend = snakemake.params.backend
         defaults = _BACKEND_DEFAULTS.get(backend, _BACKEND_DEFAULTS["rosace"])

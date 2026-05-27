@@ -408,3 +408,71 @@ class TestMaveHgvsValidation:
         msg = str(excinfo.value)
         assert "Row 42" in msg
         assert "p.(M1L)" in msg
+
+
+# -----------------------------------------------------------------------------
+# main()'s snakemake-vs-CLI dispatch. The original guard used
+# `"snakemake" in dir()` inside main(), but dir() returns LOCAL names of
+# the function — not module globals — so the snakemake-injected global
+# was never visible, and main() silently fell through to the argparse path.
+# Surfaced empirically on 2026-05-27 when wiring deposit_to_mavedb default-on
+# into get_input and running the rule via snakemake: the script crashed
+# with "argparse: error: the following arguments are required:
+# --scores, --output" because sys.argv didn't contain those.
+#
+# Lock in the correct dispatch via globals().
+# -----------------------------------------------------------------------------
+
+
+class TestMainSnakemakeDispatch:
+    def test_main_takes_snakemake_path_when_snakemake_global_present(
+        self, monkeypatch, tmp_path
+    ):
+        from types import SimpleNamespace
+
+        csv = tmp_path / "scores.csv"
+        pd.DataFrame(
+            {"variants": ["p.(A1V)", "p.(M1X)"], "mean": [-0.5, -1.2], "sd": [0.1, 0.2]}
+        ).to_csv(csv, index=False)
+        out = tmp_path / "out.csv"
+
+        # Inject a snakemake-shaped object into the module's globals,
+        # mirroring what Snakemake's `script:` directive does at runtime.
+        # If main() looked at dir() instead of globals() (the bug we just
+        # fixed), this attribute would be invisible to it and main()
+        # would fall through to argparse + crash on missing args.
+        mock_snakemake = SimpleNamespace(
+            config={"mavedb": {}},
+            params=SimpleNamespace(backend="rosace"),
+            input=SimpleNamespace(scores=str(csv)),
+            output=[str(out)],
+        )
+        monkeypatch.setattr(
+            format_mavedb, "snakemake", mock_snakemake, raising=False
+        )
+
+        format_mavedb.main()
+
+        # If we got here, main() took the snakemake path. Verify the
+        # output landed where snakemake.output[0] pointed.
+        assert out.exists()
+        df = pd.read_csv(out)
+        assert list(df.columns) == ["hgvs_pro", "score", "sd"]
+        # X stop code → Ter (regression-coverage doubled with the
+        # earlier TestToMaveHgvs.test_nonsense).
+        assert "p.Ala1Val" in df["hgvs_pro"].tolist()
+        assert "p.Met1Ter" in df["hgvs_pro"].tolist()
+
+    def test_main_falls_through_to_argparse_when_no_snakemake_global(
+        self, monkeypatch
+    ):
+        # Belt-and-braces: when no `snakemake` global is present, main()
+        # MUST go down the CLI path (which argparse-errors out without
+        # required args). Catches a regression where someone "fixes" the
+        # guard by removing the snakemake-mode detection entirely.
+        monkeypatch.setattr(sys, "argv", ["format_mavedb.py"])
+        # Ensure no leftover snakemake attribute from a sibling test.
+        if hasattr(format_mavedb, "snakemake"):
+            monkeypatch.delattr(format_mavedb, "snakemake")
+        with pytest.raises(SystemExit):
+            format_mavedb.main()
