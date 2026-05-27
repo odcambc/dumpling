@@ -11,7 +11,9 @@ processed reads to the reference using either BBMap (default) or minimap2
 AnalyzeSaturationMutagenesis module to call variants in each replicate. After
 variant calling, the list of observed variants in each read is filtered
 based on the list of designed variants, and the resulting counts are used to
-infer the fitness of each variant using [Rosace](https://github.com/pimentellab/rosace), [Lilace](https://github.com/pimentellab/lilace),
+infer the fitness of each variant using [Rosace](https://github.com/pimentellab/rosace),
+[Rosace-AA](https://github.com/pimentellab/rosace-aa),
+[Lilace](https://github.com/pimentellab/lilace),
 and (optionally) [Enrich2](https://github.com/FowlerLab/Enrich2).
 
 The pipeline is designed to be flexible and modular and should be amenable to use
@@ -22,13 +24,14 @@ with a variety of experimental designs. Please note several current [limitations
     - [Testing the pipeline with example data](#testing-the-pipeline-with-example-data)
   - [Installation](#installation)
     - [Install via GitHub](#install-via-github)
-    - [Installing Rosace and Lilace](#installing-rosace-and-lilace)
-      - [Issues installing Rosace and Lilace on OSX](#issues-installing-rosace-and-lilace-on-osx)
+    - [Installing Rosace, Lilace, and Rosace-AA](#installing-rosace-lilace-and-rosace-aa)
+      - [Issues installing Rosace, Lilace, or Rosace-AA on OSX](#issues-installing-rosace-lilace-or-rosace-aa-on-osx)
     - [Dependencies](#dependencies)
       - [Via conda (recommended)](#via-conda-recommended)
       - [Manually](#manually)
   - [Configuration](#configuration)
     - [Configuration files](#configuration-files)
+    - [Aligner choice](#aligner-choice)
     - [Working directory structure](#working-directory-structure)
   - [Usage](#usage)
     - [Running the pipeline](#running-the-pipeline)
@@ -86,33 +89,44 @@ be used to compare results.
 
 Download or fork this repository and edit the configuration files as needed.
 
-### Installing Rosace and Lilace
+### Installing Rosace, Lilace, and Rosace-AA
 
-This pipeline supports the [Rosace](https://github.com/pimentellab/rosace) and [Lilace](https://github.com/pimentellab/lilace) scoring tools.
-Rosace and Lilace use [CmdStanR](https://mc-stan.org/cmdstanr/) and R to infer scores.
+This pipeline supports three scoring backends, all from the pimentellab group:
+[Rosace](https://github.com/pimentellab/rosace), [Lilace](https://github.com/pimentellab/lilace), and
+[Rosace-AA](https://github.com/pimentellab/rosace-aa). All three use
+[CmdStanR](https://mc-stan.org/cmdstanr/) and R to infer scores. Rosace-AA is an extension of rosace that
+decomposes the score into position + amino-acid substitution effects rather than a single per-variant scalar;
+its score CSV layout matches rosace's so downstream tooling (e.g. `format_mavedb.py`) works unchanged.
+
+Pick a backend via `scoring_backend: rosace | lilace | rosace_aa` in your config; `rosace` is the default.
+Note that both `lilace` and `rosace_aa` require parsed variant metadata (wildtype/mutation/synonymous-control
+columns) and are incompatible with `noprocess: true`.
 
 Dumpling uses [renv](https://rstudio.github.io/renv/index.html) to handle R dependencies.
-This pipeline also includes a minimal faculty to install Rosace and Lilace automatically, but issues are
-possible. This can be invoked by calling the `install_rosace` rule:
+This pipeline also includes a minimal faculty to install each backend automatically, but issues are
+possible. Invoke the relevant install rule:
 
-```snakemake --cores 8 install_rosace```
+```bash
+snakemake --cores 8 install_rosace
+snakemake --cores 8 install_lilace
+snakemake --cores 8 install_rosace_aa
+```
 
-or the `install_lilace` rule:
+These try to install renv, restore the renv environment, and install the chosen backend with CmdStanR.
+For `install_rosace_aa`, an additional `renv::install("pimentellab/rosace-aa@<sha>")` step pulls Rosace-AA
+from GitHub at a pinned SHA (the upstream repo has no tagged releases yet). If any install fails, please
+try installing the package manually.
 
-```snakemake --cores 8 install_lilace```
+We recommend trying to install your chosen backend manually before running the pipeline, or at least
+verifying that the install script works. More details about manual install are available in each
+package's vignettes at the repository linked above.
 
-These try to install renv, restore the renv environment, and install Rosace or Lilace with CmdStanR. If this fails,
-please try installing them manually.
+#### Issues installing Rosace, Lilace, or Rosace-AA on OSX
 
-We recommend trying to install either package manually before running the pipeline, or at least
-verifying that the install script works. More details about manually installing Rosace and Lilace are
-available in the vignettes of the package and at the repository linked above.
-
-#### Issues installing Rosace and Lilace on OSX
-
-Rosace and Lilace require a C++ and fortran compiler to install required dependencies.
+All three backends require a C++ and fortran compiler to install required dependencies.
 R, by default, requires these to be installed in `/opt/gfortran`. User installs (via Homebrew, for example)
-may not work. If you encounter an error compiling packages for Rosace or Lilace, you may need to install the gfortran compiler from R.
+may not work. If you encounter an error compiling packages for the scoring backends, you may need to install
+the gfortran compiler from R.
 
 See https://cran.r-project.org/bin/macosx/tools/ for more details.
 
@@ -146,6 +160,7 @@ The following are the dependencies required to run the pipeline:
 - [MultiQC](http://multiqc.info/)
 - [Enrich2](https://enrich2.readthedocs.io/en/latest/)
 - [Rosace](https://github.com/pimentellab/rosace)
+- [Rosace-AA](https://github.com/pimentellab/rosace-aa)
 - [Lilace](https://github.com/pimentellab/lilace)
 
 BBTools compressed IO defaults to `pigz` (parallelized across each rule's threads —
@@ -192,10 +207,10 @@ aligner: bbmap      # default — current behavior
 # aligner: minimap2 # opt-in
 ```
 
-| Aligner | Wall (example fixture) | Peak RSS | Mapping-stage QC artifacts |
-|---|---|---|---|
-| `bbmap` (default) | ~37 s/sample | ~8.5 GB | BBMap-format histograms (`_map.covstats`, `_map.basecov`, `_map.ehist`, `_map.indelhist`, `_map.mhist`, `_map.idhist`, `_map.bincov`) |
-| `minimap2` | ~5 s/sample | ~450 MB | samtools-format outputs (`_samtools_stats`, `_samtools_flagstat`) |
+| Aligner           | Wall (example fixture) | Peak RSS | Mapping-stage QC artifacts                                                                                                            |
+| ----------------- | ---------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `bbmap` (default) | ~37 s/sample           | ~8.5 GB  | BBMap-format histograms (`_map.covstats`, `_map.basecov`, `_map.ehist`, `_map.indelhist`, `_map.mhist`, `_map.idhist`, `_map.bincov`) |
+| `minimap2`        | ~5 s/sample            | ~450 MB  | samtools-format outputs (`_samtools_stats`, `_samtools_flagstat`)                                                                     |
 
 Both produce biologically equivalent variant counts (Rosace score Pearson
 r > 0.997 between the two on the example fixture). At production scale
@@ -331,6 +346,13 @@ This workflow, along with Rosace, is described in the following publication:
 
 - Preprint: [Rao et al., 2023](https://www.biorxiv.org/content/10.1101/2023.10.24.562292v1)
 - Published: [Rao et al., 2024](https://doi.org/10.1186/s13059-024-03279-7)
+
+The Rosace-AA extension to Rosace is described in:
+
+- Preprint: [Rao et al., 2025](https://www.biorxiv.org/content/10.1101/2025.01.09.632281v1)
+- Published: [Rao et al., 2025](https://doi.org/10.1093/bioadv/vbaf218)
+
+- [Freudenberg et al., 2026](https://doi.org/10.1186/s13059-026-03934-1)
 
 The Lilace FACS-based model is described in:
 

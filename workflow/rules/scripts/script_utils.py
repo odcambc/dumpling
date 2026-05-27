@@ -227,12 +227,19 @@ def validate_scoring_backend_mode(config: dict) -> None:
     `normalization.method = "total"`. In noprocess mode the pipeline does not
     parse HGVS into a trustworthy `synonymous` label, so the control set would
     be empty and the run would fail deep inside R after a long install step.
-    Catch it here instead.
+
+    rosace-aa hits the same wall plus a stricter one: its `RunRosace.Rosace`
+    signature requires `wt.col`, `mut.col`, `ctrl.col` and an `aa.code` setting
+    (verified against pimentellab/rosace-aa R/runROSACE.R). Those columns
+    come from process_variants and don't exist on the noprocess path. Catch
+    both backends' incompatibility here rather than deep in R.
     """
-    if config.get("noprocess") and config.get("scoring_backend") == "lilace":
+    backend = config.get("scoring_backend")
+    if config.get("noprocess") and backend in ("lilace", "rosace_aa"):
         raise ValueError(
-            "scoring_backend='lilace' is incompatible with noprocess=true. "
-            "Lilace requires a synonymous-variant control set and has no "
-            "total-counts fallback. Use scoring_backend='rosace' for "
-            "noprocess runs, or set noprocess=false."
+            f"scoring_backend={backend!r} is incompatible with noprocess=true. "
+            f"{backend} requires parsed variant metadata "
+            "(synonymous control set + wildtype/mutation columns) which the "
+            "noprocess path does not produce. Use scoring_backend='rosace' "
+            "for noprocess runs, or set noprocess=false."
         )

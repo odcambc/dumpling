@@ -9,10 +9,15 @@
   },
   "features": {
     "ghcr.io/devcontainers-extra/features/apt-packages:1": {
-      "packages": "gfortran,cmake,libuv1-dev,libxml2-dev,libcurl4-openssl-dev,libssl-dev,libnlopt-dev,libfontconfig1-dev,libharfbuzz-dev,libfribidi-dev,libtiff-dev,libjpeg-dev,libpng-dev"
+      "packages": "gfortran,cmake,libuv1-dev,libxml2-dev,libcurl4-openssl-dev,libssl-dev,libnlopt-dev,libfontconfig1-dev,libharfbuzz-dev,libfribidi-dev,libtiff-dev,libjpeg-dev,libpng-dev,libblas-dev,liblapack-dev"
     },
     "ghcr.io/rocker-org/devcontainer-features/r-apt:0": {
-      "version": "release",
+      // Pin to 4.5.x to match renv.lock's declared R version. R 4.6
+      // released 2026-04-24 broke source compiles of rlang/S7/yaml
+      // (and via cascade, ~half the lockfile). Bump this in lockstep
+      // with renv.lock's "R": "Version" when the CRAN ecosystem catches
+      // up — see commit log for the R 4.6 lockfile-update attempt.
+      "version": "4.5",
       "installRenv": true,
       "installRMarkdown": false,
       "installRadian": false,
@@ -24,7 +29,7 @@
   "containerEnv": {
     "RENV_CONFIG_AUTOLOADER_ENABLED": "FALSE"
   },
-  "postCreateCommand": "(conda env create -f dumpling_env.yaml || conda env update -f dumpling_env.yaml) && Rscript -e 'install.packages(c(\"dplyr\", \"readr\", \"stringr\", \"testthat\", \"withr\"), repos=\"https://cloud.r-project.org\")'",
+  "postCreateCommand": "bash .devcontainer/postCreate.sh",
   "customizations": {
     "vscode": {
       "extensions": [

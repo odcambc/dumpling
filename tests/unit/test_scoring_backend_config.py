@@ -52,7 +52,12 @@ class TestSchemaShape:
         assert "scoring_backend" in schema["properties"]
         prop = schema["properties"]["scoring_backend"]
         assert prop["type"] == "string"
-        assert set(prop["enum"]) == {"rosace", "lilace"}
+        # rosace_aa joined the enum 2026-05-26 as a third backend
+        # (pimentellab/rosace-aa, extends rosace with AA-substitution effect
+        # decomposition). The default stays `rosace` for backward compat —
+        # old configs without scoring_backend still land on the same backend
+        # they did pre-rosace_aa.
+        assert set(prop["enum"]) == {"rosace", "lilace", "rosace_aa"}
         assert prop["default"] == "rosace"
 
     def test_mem_lilace_property_present(self):
@@ -62,10 +67,24 @@ class TestSchemaShape:
         assert prop["type"] == "integer"
         assert prop["default"] == 16000
 
+    def test_mem_rosace_aa_property_present(self):
+        schema = _load_schema()
+        assert "mem_rosace_aa" in schema["properties"]
+        prop = schema["properties"]["mem_rosace_aa"]
+        assert prop["type"] == "integer"
+        assert prop["default"] == 16000
+
     def test_lilace_local_property_present(self):
         schema = _load_schema()
         assert "lilace_local" in schema["properties"]
         prop = schema["properties"]["lilace_local"]
+        assert prop["type"] == "boolean"
+        assert prop["default"] is False
+
+    def test_rosace_aa_local_property_present(self):
+        schema = _load_schema()
+        assert "rosace_aa_local" in schema["properties"]
+        prop = schema["properties"]["rosace_aa_local"]
         assert prop["type"] == "boolean"
         assert prop["default"] is False
 
@@ -91,6 +110,11 @@ class TestEnumEnforcement:
     def test_scoring_backend_lilace_accepted(self):
         config = _minimal_valid_config()
         config["scoring_backend"] = "lilace"
+        jsonschema.validate(config, _load_schema())
+
+    def test_scoring_backend_rosace_aa_accepted(self):
+        config = _minimal_valid_config()
+        config["scoring_backend"] = "rosace_aa"
         jsonschema.validate(config, _load_schema())
 
     def test_scoring_backend_unknown_rejected(self):
@@ -143,3 +167,15 @@ class TestDefaultInjection:
         assert "lilace_local" not in config
         self.snakemake_validate(config, str(SCHEMA_PATH))
         assert config.get("lilace_local") is False
+
+    def test_mem_rosace_aa_default_is_16000(self):
+        config = _minimal_valid_config()
+        assert "mem_rosace_aa" not in config
+        self.snakemake_validate(config, str(SCHEMA_PATH))
+        assert config.get("mem_rosace_aa") == 16000
+
+    def test_rosace_aa_local_default_is_false(self):
+        config = _minimal_valid_config()
+        assert "rosace_aa_local" not in config
+        self.snakemake_validate(config, str(SCHEMA_PATH))
+        assert config.get("rosace_aa_local") is False
