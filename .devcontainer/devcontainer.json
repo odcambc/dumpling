@@ -12,7 +12,12 @@
       "packages": "gfortran,cmake,libuv1-dev,libxml2-dev,libcurl4-openssl-dev,libssl-dev,libnlopt-dev,libfontconfig1-dev,libharfbuzz-dev,libfribidi-dev,libtiff-dev,libjpeg-dev,libpng-dev,libblas-dev,liblapack-dev"
     },
     "ghcr.io/rocker-org/devcontainer-features/r-apt:0": {
-      "version": "release",
+      // Pin to 4.5.x to match renv.lock's declared R version. R 4.6
+      // released 2026-04-24 broke source compiles of rlang/S7/yaml
+      // (and via cascade, ~half the lockfile). Bump this in lockstep
+      // with renv.lock's "R": "Version" when the CRAN ecosystem catches
+      // up — see commit log for the R 4.6 lockfile-update attempt.
+      "version": "4.5",
       "installRenv": true,
       "installRMarkdown": false,
       "installRadian": false,
