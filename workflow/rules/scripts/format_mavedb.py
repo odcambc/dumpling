@@ -279,6 +279,15 @@ def format_scores(
     for i, key in enumerate(union_index):
         _validate_mave_hgvs(key, i)
 
+    # NaN-padded rows (variants present only in counts, dropped by rosace's
+    # filter) serialize as empty cells under pandas' default to_csv behavior:
+    #     p.Ala2Val,,
+    # The MaveDB spec doesn't document whether empty score/sd cells are
+    # accepted at deposit validation. If upload rejects them, switch to
+    # `to_csv(output_path, index=False, na_rep="NA")` so the empties become
+    # explicit "NA" strings — or drop the NaN rows entirely from the score
+    # CSV, at the cost of variant-set misalignment with the counts CSV
+    # (which would re-trigger the spec violation this code exists to avoid).
     scored_df.reset_index().rename(columns={"index": "hgvs_pro"}).to_csv(
         output_path, index=False
     )
