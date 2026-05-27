@@ -6,7 +6,7 @@ def _mavedb_condition_samples(condition):
     since those are the basis for any scores. The expectation is that full
     library QC is deposited elsewhere, given baselines are optional.
 
-    Not that by construction of the dag and workflow "condition" is solely
+    Note that by construction of the dag and workflow "condition" is solely
     experimental conditions and so we simply read the row corresponding to that.
     """
     experimental_condition_rows = experiments[
