@@ -4,6 +4,11 @@ target-version = "py313"
 # .py files and Python blocks inside .smk rules don't drift.
 line-length = 88
 
+# Snakemake's `script:` directive injects `snakemake` as a module-level global
+# at execution time. Tell ruff it exists so the per-script `snakemake.input`
+# / `snakemake.params` references don't trigger F821 (Undefined name).
+builtins = ["snakemake"]
+
 extend-exclude = [
     ".claude",
     "results",
@@ -22,3 +27,8 @@ extend-exclude = [
 # the team picks a docstring/naming convention; turning them on now would
 # generate churn without a corresponding style decision.
 select = ["E", "F", "I", "W"]
+
+# E501 (line too long) is suppressed because ruff format already wraps where
+# it can; the leftovers are mostly verbose error-message f-strings where
+# unbreaking improves readability. Re-enable if a stricter cap is wanted.
+extend-ignore = ["E501"]
