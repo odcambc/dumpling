@@ -12,12 +12,14 @@
       "packages": "gfortran,cmake,libuv1-dev,libxml2-dev,libcurl4-openssl-dev,libssl-dev,libnlopt-dev,libfontconfig1-dev,libharfbuzz-dev,libfribidi-dev,libtiff-dev,libjpeg-dev,libpng-dev,libblas-dev,liblapack-dev"
     },
     "ghcr.io/rocker-org/devcontainer-features/r-apt:0": {
-      // Pin to 4.5.x to match renv.lock's declared R version. R 4.6
-      // released 2026-04-24 broke source compiles of rlang/S7/yaml
-      // (and via cascade, ~half the lockfile). Bump this in lockstep
-      // with renv.lock's "R": "Version" when the CRAN ecosystem catches
-      // up — see commit log for the R 4.6 lockfile-update attempt.
-      "version": "4.5",
+      // useTesting=false switches the apt source from Debian testing
+      // (currently R 4.6) to CRAN's official Debian repo for the base
+      // image's codename. CRAN's debian-cran40 tracks the released
+      // R version paired with each Debian, which keeps us aligned with
+      // renv.lock's declared R 4.5.x. R 4.6 (released 2026-04-24)
+      // broke source compiles of rlang/S7/yaml in our lockfile, so we
+      // can't follow Debian testing forward until CRAN catches up.
+      "useTesting": false,
       "installRenv": true,
       "installRMarkdown": false,
       "installRadian": false,
