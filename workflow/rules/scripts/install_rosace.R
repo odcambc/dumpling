@@ -41,7 +41,7 @@ main <- function() {
     # Check cmdstanr toolchain
     tryCatch(
       {
-        install_cmdstan(overwrite = FALSE)
+        install_cmdstan(version = "2.39.0", overwrite = FALSE)
       },
       warning = function(w) {
         message("cmdstan already installed. Not reinstalling.")
@@ -81,7 +81,7 @@ main <- function() {
     # Install cmdstan, catch warning if already installed
     tryCatch(
       {
-        install_cmdstan(overwrite = FALSE)
+        install_cmdstan(version = "2.39.0", overwrite = FALSE)
       },
       warning = function(w) {
         message("cmdstan already installed. Not reinstalling.")
