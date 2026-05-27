@@ -7,7 +7,13 @@ dependencies:
   # The R-side install (rosace-aa + cmdstanr + Bioconductor `impute` +
   # transitive deps) is handled by install_rosace_aa.R via renv::restore()
   # + renv::install("pimentellab/rosace-aa@<sha>").
-  - r-base
+  #
+  # Pin to R 4.5.x to match renv.lock's declared R version. R 4.6
+  # (released 2026-04-24) broke source compiles of rlang/S7/yaml
+  # and via cascade ~half the lockfile. Bump in lockstep with
+  # renv.lock's "R": "Version" and the matching r-apt pin in
+  # .devcontainer/devcontainer.json.
+  - r-base=4.5
   - r-nloptr
   - nlopt
   - libxml2
