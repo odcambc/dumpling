@@ -14,8 +14,14 @@ rule multiqc_dir:
   """
     input:
         expand(_map_stats_trigger, sample_prefix=samples),
-        [f"stats/{{experiment}}/fastqc/{fastqc_names[f]['R1']}_fastqc.html" for f in files],
-        [f"stats/{{experiment}}/fastqc/{fastqc_names[f]['R2']}_fastqc.html" for f in files],
+        [
+            f"stats/{{experiment}}/fastqc/{fastqc_names[f]['R1']}_fastqc.html"
+            for f in files
+        ],
+        [
+            f"stats/{{experiment}}/fastqc/{fastqc_names[f]['R2']}_fastqc.html"
+            for f in files
+        ],
         expand(
             "results/{{experiment}}/gatk/{sample_prefix}.variantCounts",
             sample_prefix=samples,

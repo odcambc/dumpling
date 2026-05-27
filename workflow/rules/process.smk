@@ -20,12 +20,12 @@ rule process_sample:
     processed CSV, and total-processing stats. Runs once per sample (parallel-
     safe; sibling invocations write to disjoint output paths)."""
     input:
+        *([config["variants_file"]] if not config["noprocess"] else []),
         gatk="results/{experiment}/gatk/{sample_prefix}.variantCounts",
         # The designed variants file is only consumed when noprocess=False
         # (i.e. when we're filtering observed variants against the designed
         # library). Under noprocess=True it's neither read nor required to
         # exist, so don't declare it as an input then.
-        *([config["variants_file"]] if not config["noprocess"] else []),
     output:
         enrich="results/{experiment}/processed_counts/enrich_format/{sample_prefix}.tsv",
         csv="results/{experiment}/processed_counts/{sample_prefix}.csv",

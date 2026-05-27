@@ -270,6 +270,8 @@ contaminants_ref = pass_names(config["contaminants"])
 # Set configuration variables
 samtools_local = config["samtools_local"]
 noprocess = config["noprocess"]
+
+
 def bbtools_compression_flags(wildcards, threads):
     """Emit the BBTools (de)compression flag string for the configured mode.
 
@@ -297,9 +299,10 @@ def bbtools_compression_flags(wildcards, threads):
     if mode == "none":
         return "bgzip=f unbgzip=f "
     raise ValueError(
-        f"Unsupported bbtools_compression: {mode!r}. "
+        f"Unsupported bbtools_compression: {mode! r}. "
         "Expected one of: pigz, bgzip, none."
     )
+
 
 # Set up tiled experiments
 if "tile" not in experiments.columns:

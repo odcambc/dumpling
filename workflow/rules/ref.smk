@@ -25,7 +25,7 @@ rule prepare_reference:
         "awk -v name='{reference_name}' "
         "    'NR==1 && /^>/ {{ sub(/^>.*/, \">\" name); }} {{ print }}' "
         "    {input} > {output} 2> {log}; "
-        "echo \"Normalized $(head -1 {input}) -> $(head -1 {output})\" >> {log}"
+        'echo "Normalized $(head -1 {input}) -> $(head -1 {output})" >> {log}'
 
 
 rule prepare_dict_GATK:
