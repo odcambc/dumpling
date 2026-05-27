@@ -276,8 +276,19 @@ class TestToMaveHgvs:
         )
 
     def test_nonsense(self):
-        # `*` must become `Ter`; MAVE-HGVS explicitly rejects `*` as the
-        # stop code (audit finding, see tasks/tasks.md).
+        # MAVE-HGVS explicitly rejects `*` as the stop code; canonical
+        # is `Ter`. Dumpling internally uses `X` for stops (per
+        # process_variants.aa_3to1_dict's "Stp" -> "X" mapping) so that
+        # is what shows up in real rosace/lilace score CSV `variants`
+        # columns -- `p.(A1X)`, not `p.(A1*)`. Empirically verified
+        # against results/example_experiment/rosace/cond_A_scores.csv
+        # 2026-05-27: 78 rows of the form `p.([A-Z][0-9]+X)`, all
+        # convert cleanly to `p.<wt3>{pos}Ter`. We still accept `*` as
+        # an alternate notation for robustness.
+        assert format_mavedb.to_mave_hgvs("p.(A1X)") == "p.Ala1Ter"
+        assert format_mavedb.to_mave_hgvs("p.(M1X)") == "p.Met1Ter"
+        assert format_mavedb.to_mave_hgvs("p.(S2X)") == "p.Ser2Ter"
+        # Alternate stop notation (kept as fallback path).
         assert format_mavedb.to_mave_hgvs("p.(A1*)") == "p.Ala1Ter"
         assert format_mavedb.to_mave_hgvs("p.(M1*)") == "p.Met1Ter"
 

@@ -54,16 +54,20 @@ _BACKEND_DEFAULTS = {
 _SYNONYMOUS_RE = re.compile(r"^p\.\(([A-Z])(\d+)([A-Z])\)$")
 
 # One-letter to three-letter amino acid mapping for MAVE-HGVS conversion.
-# Inverted from process_variants.aa_3to1_dict, with the canonical HGVS "Ter"
-# for stop (replacing dumpling's internal "Stp"/"X" convention — MAVE-HGVS
-# rejects `*` as the stop code and requires Ter, see audit notes in
-# tasks/tasks.md).
+# Inverted from process_variants.aa_3to1_dict. Both `X` (dumpling's
+# internal stop code from aa_3to1_dict["Stp"] -> "X", which is what shows
+# up in rosace/lilace score CSVs — verified empirically against
+# results/example_experiment/rosace/cond_A_scores.csv 2026-05-27) and `*`
+# (standard one-letter HGVS stop notation) map to "Ter", the only stop
+# code MAVE-HGVS accepts. The spec explicitly rejects `*` and `X` literal
+# stops in protein variants; the canonical form is always `Ter`.
 _AA_1to3 = {
     "A": "Ala", "R": "Arg", "N": "Asn", "D": "Asp", "C": "Cys",
     "E": "Glu", "Q": "Gln", "G": "Gly", "H": "His", "I": "Ile",
     "L": "Leu", "K": "Lys", "M": "Met", "F": "Phe", "P": "Pro",
     "S": "Ser", "T": "Thr", "W": "Trp", "Y": "Tyr", "V": "Val",
-    "*": "Ter",
+    "X": "Ter",  # dumpling's internal stop code (process_variants.aa_3to1_dict)
+    "*": "Ter",  # alternate stop notation, kept for robustness
 }
 
 # Inner-content patterns (after stripping the outer `p.( ... )`).
