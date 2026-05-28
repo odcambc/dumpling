@@ -227,6 +227,22 @@ config.setdefault("rosace_aa_local", False)
 config.setdefault("mem_rosace_aa", 16000)
 config.setdefault("deposit_to_mavedb", True)
 config.setdefault("aligner", "bbmap")
+
+# Per-tool memory budgets (GB). Used for both Java -Xmx flags inside the
+# BBTools/GATK rule shells AND `resources: mem_mb` declarations consumed
+# by cluster schedulers. Defaults sized from BBTools/GATK upstream
+# documentation plus a safety factor; tune per site by re-running the
+# pipeline with --benchmark on real data and reading max_rss from
+# benchmarks/{experiment}/. The legacy single-knob `config["mem"]` is
+# still honored as a fallback where rule shells reference {params.mem};
+# see schemas/config.schema.yaml for the migration note.
+config.setdefault("mem_bbduk", 2)
+config.setdefault("mem_bbmerge", 2)
+config.setdefault("mem_bbmap", 12)
+config.setdefault("mem_minimap2", 1)
+config.setdefault("mem_gatk", 6)
+config.setdefault("mem_process_sample", 2)
+
 if config["aligner"] not in ("bbmap", "minimap2"):
     raise ValueError(
         f"Unsupported aligner '{config['aligner']}'. "
