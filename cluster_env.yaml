@@ -1,0 +1,27 @@
+name: dumpling_cluster
+# Thin login-node env for driving dumpling on a SLURM cluster.
+#
+# Install on the HPC login node alongside (or instead of) dumpling_env.yaml:
+#   conda env create -f cluster_env.yaml
+#   conda activate dumpling_cluster
+#   snakemake --profile workflow/profiles/slurm --use-singularity --cores 16
+#
+# Snakemake submits jobs FROM the login node via this env; the jobs
+# themselves run inside `ghcr.io/odcambc/dumpling:latest` on the compute
+# nodes via `apptainer exec`. Nothing in this env runs inside the
+# container, so this stays minimal — Snakemake + the SLURM executor
+# plugin, nothing else.
+#
+# If you also do interactive dev (running pipeline tools locally) on the
+# login node, create dumpling_env.yaml separately. The two envs are
+# disjoint by design.
+channels:
+  - conda-forge
+  - bioconda
+  - nodefaults
+dependencies:
+  - python>=3.11
+  - snakemake>=8.0
+  - pip
+  - pip:
+      - snakemake-executor-plugin-slurm>=2.0
