@@ -464,7 +464,7 @@ def check_designed_df(df) -> bool:
     return True
 
 
-def deduplicate_designed_variants(variants_df):
+def deduplicate_designed_variants(variants_df, dup_report_path="duped.csv"):
     """
     Collapse genuine duplicate designed-variant rows while preserving variants
     that share a protein-level name but differ by codon.
@@ -478,6 +478,9 @@ def deduplicate_designed_variants(variants_df):
 
     Args:
         variants_df (pd.DataFrame): Designed variants, one row per oligo.
+        dup_report_path (str | pathlib.Path): Where to dump the offending rows
+            for debugging when an unrecoverable duplicate is found. Parent
+            directories are created as needed.
 
     Returns:
         pd.DataFrame: Deduplicated designed variants.
@@ -525,9 +528,11 @@ def deduplicate_designed_variants(variants_df):
 
         duplicated_pairs = variants_df.duplicated(subset=["name", "codon"]).sum()
         if duplicated_pairs > 0:
-            variants_df.to_csv("duped.csv", index=False)
+            report = pathlib.Path(dup_report_path)
+            report.parent.mkdir(parents=True, exist_ok=True)
+            variants_df.to_csv(report, index=False)
             logging.error(
-                f"Found {duplicated_pairs} duplicated (name, codon) pairs with non-identical values in the designed variants dataframe. Check for errors."
+                f"Found {duplicated_pairs} duplicated (name, codon) pairs with non-identical values in the designed variants dataframe. Offending rows written to {report}. Check for errors."
             )
             raise Exception(
                 "Found duplicated (name, codon) pairs with non-identical values. Check for errors."
@@ -591,7 +596,12 @@ def _run(snakemake):
         logging.error("Error in designed variants. Check log for details.")
         raise Exception("Error in designed variants. Check log for details.")
 
-    variants_df = deduplicate_designed_variants(variants_df)
+    # Dump offending rows under results/<experiment>/ if dedup fails, rather
+    # than the process working directory.
+    dup_report_path = (
+        pathlib.Path("results") / snakemake.config["experiment"] / "duped_variants.csv"
+    )
+    variants_df = deduplicate_designed_variants(variants_df, dup_report_path)
 
     variants_df.to_csv(variants_file, index=False)
 

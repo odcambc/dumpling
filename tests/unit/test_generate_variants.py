@@ -405,16 +405,16 @@ class TestDeduplicateDesignedVariants(unittest.TestCase):
         b = self._row("G10A", "GCT")
         b["mutation_type"] = "S"  # conflict that survives the groupby
         df = pd.DataFrame([a, b])
-        # The error path dumps a "duped.csv" to the cwd for debugging; run in a
-        # temp dir so it doesn't pollute the repo root.
-        cwd = os.getcwd()
+        # The error path dumps the offending rows for debugging; it must honor
+        # the given dup_report_path (and create parent dirs), not write to cwd.
         with tempfile.TemporaryDirectory() as tmp:
-            os.chdir(tmp)
-            try:
-                with self.assertRaises(Exception):
-                    deduplicate_designed_variants(df)
-            finally:
-                os.chdir(cwd)
+            report = os.path.join(tmp, "nested", "duped_variants.csv")
+            with self.assertRaises(Exception):
+                deduplicate_designed_variants(df, dup_report_path=report)
+            self.assertTrue(
+                os.path.exists(report),
+                "dedup conflict should write the offending rows to dup_report_path",
+            )
 
 
 class TestIntegration(unittest.TestCase):
