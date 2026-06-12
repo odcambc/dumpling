@@ -405,8 +405,16 @@ class TestDeduplicateDesignedVariants(unittest.TestCase):
         b = self._row("G10A", "GCT")
         b["mutation_type"] = "S"  # conflict that survives the groupby
         df = pd.DataFrame([a, b])
-        with self.assertRaises(Exception):
-            deduplicate_designed_variants(df)
+        # The error path dumps a "duped.csv" to the cwd for debugging; run in a
+        # temp dir so it doesn't pollute the repo root.
+        cwd = os.getcwd()
+        with tempfile.TemporaryDirectory() as tmp:
+            os.chdir(tmp)
+            try:
+                with self.assertRaises(Exception):
+                    deduplicate_designed_variants(df)
+            finally:
+                os.chdir(cwd)
 
 
 class TestIntegration(unittest.TestCase):
