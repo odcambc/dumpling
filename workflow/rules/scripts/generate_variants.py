@@ -465,6 +465,13 @@ def extract_codon(
     return ""
 
 
+def _translate(codon):
+    """Translate a codon to a 1-letter amino acid, using 'X' for a stop codon to
+    match the rest of the pipeline's convention (e.g. process_variants, which
+    names stops 'X', not '*')."""
+    return str(Seq(codon).translate()).replace("*", "X")
+
+
 def build_reference_kmer_index(ref, k=SEED_K):
     """Map each length-k reference substring to the 0-based positions where it
     occurs. Built once per reference and reused across oligos so sequence-based
@@ -485,14 +492,6 @@ def _extend_match_right(oligo, ref, i, d):
     return i
 
 
-def _extend_match_left(oligo, ref, i, d):
-    """Leftmost oligo index of the exact match ending just before oligo[i]
-    along diagonal d."""
-    while i - 1 >= 0 and 0 <= i - 1 + d < len(ref) and oligo[i - 1] == ref[i - 1 + d]:
-        i -= 1
-    return i
-
-
 def _seq_substitution(oligo, ref, d, ref_edit_start, ref_edit_end, orf_codon_start):
     """Build a substitution/synonymous variant_data dict from a same-length edit,
     or None if it isn't a clean single-codon change."""
@@ -510,8 +509,8 @@ def _seq_substitution(oligo, ref, d, ref_edit_start, ref_edit_end, orf_codon_sta
     oligo_codon = oligo[first_codon - d : first_codon - d + 3]
     if len(ref_codon) != 3 or len(oligo_codon) != 3:
         return None
-    wt_aa = str(Seq(ref_codon).translate())
-    mut_aa = str(Seq(oligo_codon).translate())
+    wt_aa = _translate(ref_codon)
+    mut_aa = _translate(oligo_codon)
     pos = (first_codon - orf_codon_start) // 3 + 1
     name = wt_aa + str(pos) + mut_aa
     return {
@@ -527,31 +526,88 @@ def _seq_substitution(oligo, ref, d, ref_edit_start, ref_edit_end, orf_codon_sta
     }
 
 
+def _oligo_codon(oligo, ref, d, cstart):
+    """The oligo's bases mapping to the reference codon at ref index `cstart`
+    (oligo index = ref index - d), or None if out of range."""
+    oi = cstart - d
+    if oi < 0 or oi + 3 > len(oligo):
+        return None
+    return oligo[oi : oi + 3]
+
+
 def _resolve_substitution(oligo, ref, d, orf_codon_start):
-    """Resolve a same-diagonal (no-indel) edit by trimming the per-oligo adapter
-    mismatches at each end of the gene window, then scanning for the differing
-    bases. Works even when one flank is shorter than the seed k-mer (e.g. a
-    variant near the gene start), where the two-flank bracket can't anchor."""
+    """Resolve a same-diagonal (no-indel) edit by comparing CODONS in the ORF
+    frame. Anchor on the longest exact matching run (the dominant gene flank),
+    then walk outward codon-by-codon: a mismatching codon counts as the edit
+    only if the codon beyond it still matches the reference (the gene continues).
+
+    Working at codon granularity makes this robust to per-oligo adapters that
+    coincidentally match a base or two at the gene boundary — those don't form a
+    matching codon, so the walk stops at the adapter instead of mistaking the
+    coincidence for a second edit."""
     lo = max(0, -d)
     hi = min(len(oligo), len(ref) - d)
     if lo >= hi:
         return None
-    # Trim leading/trailing adapter (mismatch) so the window starts and ends on
-    # a reference-matching base — i.e. the gene fragment on this diagonal.
-    a = lo
-    while a < hi and oligo[a] != ref[a + d]:
-        a += 1
-    b = hi
-    while b > a and oligo[b - 1] != ref[b - 1 + d]:
-        b -= 1
-    if a >= b:
+
+    # Longest contiguous match run on this diagonal: the dominant gene flank.
+    best_a = best_b = 0
+    i = lo
+    while i < hi:
+        if oligo[i] == ref[i + d]:
+            j = i
+            while j < hi and oligo[j] == ref[j + d]:
+                j += 1
+            if j - i > best_b - best_a:
+                best_a, best_b = i, j
+            i = j
+        else:
+            i += 1
+    if best_b - best_a < SEED_K:
+        return None  # no flank long enough to trust
+
+    # Codon boundaries inside the run (ref coords; codons start at
+    # orf_codon_start + 3k).
+    ca = best_a + d
+    ca += (-(ca - orf_codon_start)) % 3  # round up to a codon boundary
+    cb = best_b + d
+    cb -= (cb - orf_codon_start) % 3  # round down
+    if cb - ca < 3 or ca < orf_codon_start:
         return None
-    mism = [i for i in range(a, b) if oligo[i] != ref[i + d]]
-    if not mism:
-        return None  # DNA-identical to the reference: nothing to call
-    return _seq_substitution(
-        oligo, ref, d, mism[0] + d, mism[-1] + d + 1, orf_codon_start
-    )
+
+    edits = []
+
+    def codon_matches(cstart):
+        oc = _oligo_codon(oligo, ref, d, cstart)
+        return oc is not None and oc == ref[cstart : cstart + 3]
+
+    # Walk left from the run, then right, allowing a mismatching codon only when
+    # the next codon outward still matches (gene continues, not adapter).
+    c = ca
+    while c - 3 >= orf_codon_start:
+        if codon_matches(c - 3):
+            c -= 3
+        elif codon_matches(c - 6):
+            edits.append(c - 3)
+            c -= 3
+        else:
+            break
+    c = cb
+    while c + 3 <= len(ref):
+        if _oligo_codon(oligo, ref, d, c) is None:
+            break
+        if codon_matches(c):
+            c += 3
+        elif codon_matches(c + 3):
+            edits.append(c)
+            c += 3
+        else:
+            break
+
+    if len(edits) != 1:
+        return None
+    es = edits[0]
+    return _seq_substitution(oligo, ref, d, es, es + 3, orf_codon_start)
 
 
 def _seq_deletion(oligo, ref, d5, length, ref_edit_start, orf_codon_start):
@@ -574,12 +630,12 @@ def _seq_deletion(oligo, ref, d5, length, ref_edit_start, orf_codon_start):
         return None
     num_codons = length // 3
     start_pos = (cstart - orf_codon_start) // 3 + 1
-    start_aa = str(Seq(ref[cstart : cstart + 3]).translate())
+    start_aa = _translate(ref[cstart : cstart + 3])
     if num_codons == 1:
         name = start_aa + str(start_pos) + "del"
     else:
         end_codon_start = cstart + length - 3
-        end_aa = str(Seq(ref[end_codon_start : end_codon_start + 3]).translate())
+        end_aa = _translate(ref[end_codon_start : end_codon_start + 3])
         name = (
             start_aa
             + str(start_pos)
@@ -618,10 +674,10 @@ def _seq_insertion(oligo, ref, d5, length, ref_edit_start, orf_codon_start):
     win = ref[ipos : ipos + 21]
     if win and oligo[oj + length : oj + length + len(win)] != win:
         return None
-    start_aa = str(Seq(ref[ipos - 3 : ipos]).translate())
-    end_aa = str(Seq(ref[ipos : ipos + 3]).translate())
+    start_aa = _translate(ref[ipos - 3 : ipos])
+    end_aa = _translate(ref[ipos : ipos + 3])
     aa_string = "".join(
-        str(Seq(inserted[i : i + 3]).translate()) for i in range(0, len(inserted), 3)
+        _translate(inserted[i : i + 3]) for i in range(0, len(inserted), 3)
     )
     name = start_aa + str(pos) + "_" + end_aa + str(pos + 1) + "ins" + aa_string
     return {

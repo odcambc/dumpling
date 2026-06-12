@@ -525,6 +525,28 @@ class TestSequenceBasedIdentification(unittest.TestCase):
         self.assertTrue(v["name"].endswith("insK"))
         self.assertEqual(v["codon"], "AAA")
 
+    def test_substitution_to_stop_uses_X(self):
+        # codon 10 (idx 9) CGT(R) -> TAA(stop). Pipeline names stops 'X', not '*'.
+        o = self._oligo("TTGCACTGACTGAC", "GACTGACGTTGCAA", mutate=9, new_codon="TAA")
+        v = self._id(o)
+        self.assertEqual(v["name"], "R10X")
+        self.assertEqual(v["mutant"], "X")
+
+    def test_adapter_coincidental_match_at_gene_boundary(self):
+        # A tile covering codons 1-15 with a substitution at codon 5, whose 3'
+        # adapter *coincidentally starts with the base the reference has just
+        # after the tile*. Base-level gap detection misreads that as a second
+        # edit; the codon-frame walk does not. (Regression for real CFTR data.)
+        cs = self.REF_CODONS[:15]
+        cs[4] = "TTT"  # codon 5 -> F (was F? REF_CODONS[4]=TTC=F) ; use a missense
+        cs[4] = "GCG"  # F5A
+        tile = "".join(cs)
+        next_ref_base = self.REF_CODONS[15][0]  # base immediately after the tile
+        oligo = "ACACACACACACAC" + tile + next_ref_base + "TTTTTTTTTTTT"
+        v = self._id(oligo)
+        self.assertIsNotNone(v)
+        self.assertEqual(v["name"], "F5A")
+
     def test_adapter_independence(self):
         # Same variant (R10A) with two DIFFERENT non-reference adapters resolves
         # identically — proving the gene fragment is found per-oligo.
