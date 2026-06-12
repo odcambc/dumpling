@@ -78,6 +78,11 @@ oligo_file: "config/oligos/example_oligos.csv"
 #                    true; ships `results/{experiment}/deposit/mavedb/{cond}_mavedb.csv`
 #                    per experimental condition, directly uploadable to MaveDB.
 #                    Cheap (~seconds after scoring) so on by default.
+# deposit_to_cosmos: Set to true to emit a single cosmos (pimentellab/cosmos)
+#                    multi-phenotype input CSV at
+#                    `results/{experiment}/deposit/cosmos/{experiment}_cosmos.csv`.
+#                    Requires assigning conditions a `phenotype` slot (1, 2, ...)
+#                    in the experiment CSV. Off by default (opt-in).
 # noprocess: Set to True to skip variant filtering based on designed variants.
 # run_qc: Set to False to skip QC steps (fastqc and multiqc)
 #
@@ -88,12 +93,15 @@ oligo_file: "config/oligos/example_oligos.csv"
 #                      quality of input libraries.
 #
 # max_deletion_length: The maximum length (in codons) of a designed deletion in the library.
+#                      Insdels that resolve to an in-frame deletion longer than this are
+#                      rejected. Set to 0 (or any non-positive value) to disable the cap.
 #                      Defaults to 3.
 # -----------------------------------------------------------------------------
 orf: "141-1568"
 scoring_backend: rosace
 enrich2: true
 deposit_to_mavedb: true
+deposit_to_cosmos: false
 remove_zeros: true
 regenerate_variants: false
 noprocess: false

@@ -10,6 +10,7 @@ if str(_SCRIPTS_DIR) not in sys.path:
 
 from script_utils import (  # noqa: E402
     file_digest,
+    get_cosmos_phenotype_conditions,
     load_experiments,
     resolve_fastq_pair,
     translate_legacy_bbtools_compression,
@@ -136,6 +137,15 @@ def get_input(wildcards):
                     conditions=experimental_conditions,
                 )
             )
+        if config.get("deposit_to_cosmos") and cosmos_phenotype_conditions:
+            # Single multi-condition cosmos table, gated on at least one
+            # condition declaring a `phenotype` slot in the experiment CSV.
+            input_list.extend(
+                expand(
+                    "results/{experiment_name}/deposit/cosmos/{experiment_name}_cosmos.csv",
+                    experiment_name=config["experiment"],
+                )
+            )
     if config["baseline_condition"] and config["run_qc"]:
         input_list.extend(
             expand(
@@ -249,6 +259,13 @@ files = experiments["file"]
 conditions = set(experiments["condition"])
 experimental_conditions = sorted(conditions - set([config["baseline_condition"]]))
 scoring_backend = config["scoring_backend"]
+
+# Conditions assigned a cosmos phenotype slot (via the optional `phenotype`
+# column in the experiment CSV), in slot order. [] when the cosmos export is
+# off. Validation lives in script_utils alongside the other experiment checks.
+cosmos_phenotype_conditions = get_cosmos_phenotype_conditions(
+    experiments, config["baseline_condition"]
+)
 
 
 # Load additional files

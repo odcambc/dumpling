@@ -51,6 +51,34 @@ requirement that score and count tables align row-for-row.
         "scripts/format_mavedb.py"
 
 
+rule format_cosmos:
+    """Format per-condition variant scores into a single cosmos input CSV.
+
+Run with:
+snakemake results/<experiment>/deposit/cosmos/<experiment>_cosmos.csv
+
+Unlike format_mavedb (one file per condition), this is multi-condition: it
+joins the score CSVs of every condition assigned a `phenotype` slot in the
+experiment CSV into one wide table with beta_hat_N/se_hat_N column pairs, in
+slot order. See docs/cosmos_export_design.md.
+"""
+    input:
+        # Score CSVs in slot order: cosmos_phenotype_conditions[i] -> beta_hat_{i+1}.
+        scores=expand(
+            f"results/{{experiment_name}}/{scoring_backend}/{{condition}}_scores.csv",
+            condition=cosmos_phenotype_conditions,
+            allow_missing=True,
+        ),
+    output:
+        cosmos="results/{experiment_name}/deposit/cosmos/{experiment_name}_cosmos.csv",
+    log:
+        "logs/{experiment_name}/deposit/cosmos.log",
+    params:
+        backend=scoring_backend,
+    script:
+        "scripts/format_cosmos.py"
+
+
 rule prepare_sra:
     """Prepare SRA submission metadata and FASTQ file list.
 

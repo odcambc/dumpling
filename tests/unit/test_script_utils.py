@@ -4,6 +4,7 @@ from Bio.Seq import Seq
 
 from workflow.rules.scripts.script_utils import (
     file_digest,
+    get_cosmos_phenotype_conditions,
     load_experiments,
     run_script,
     translate_orf,
@@ -264,3 +265,64 @@ class TestValidateScoringBackendMode:
         """Defaults aren't this function's job — schema validation fills
         them in. An empty config shouldn't crash here."""
         validate_scoring_backend_mode({})
+
+
+class TestGetCosmosPhenotypeConditions:
+    """The optional `phenotype` column assigns each condition a cosmos slot N
+    (-> beta_hat_N). Validation lives here so it's testable off the Snakemake
+    include."""
+
+    @staticmethod
+    def _experiments(rows):
+        # rows: list of (condition, phenotype-or-None); two sample rows each to
+        # exercise the per-condition agreement check.
+        data = []
+        for cond, pheno in rows:
+            for rep in (1, 2):
+                data.append(
+                    {
+                        "sample": f"{cond}_{rep}",
+                        "condition": cond,
+                        "phenotype": pheno,
+                    }
+                )
+        return pd.DataFrame(data)
+
+    def test_no_phenotype_column_returns_empty(self):
+        df = pd.DataFrame({"sample": ["s1"], "condition": ["cond_A"]})
+        assert get_cosmos_phenotype_conditions(df, "baseline") == []
+
+    def test_all_blank_returns_empty(self):
+        df = self._experiments([("cond_A", None), ("baseline", None)])
+        assert get_cosmos_phenotype_conditions(df, "baseline") == []
+
+    def test_returns_conditions_in_slot_order(self):
+        # Declared out of slot order; result must be ordered by slot (1, 2).
+        df = self._experiments([("cond_B", 2), ("cond_A", 1), ("baseline", None)])
+        assert get_cosmos_phenotype_conditions(df, "baseline") == ["cond_A", "cond_B"]
+
+    def test_conflicting_slots_within_condition_raises(self):
+        df = pd.DataFrame(
+            [
+                {"sample": "a1", "condition": "cond_A", "phenotype": 1},
+                {"sample": "a2", "condition": "cond_A", "phenotype": 2},
+            ]
+        )
+        with pytest.raises(ValueError, match="conflicting phenotype slots"):
+            get_cosmos_phenotype_conditions(df, "baseline")
+
+    def test_baseline_with_slot_raises(self):
+        df = self._experiments([("cond_A", 1), ("baseline", 2)])
+        with pytest.raises(ValueError, match="[Bb]aseline"):
+            get_cosmos_phenotype_conditions(df, "baseline")
+
+    def test_duplicate_slots_raise(self):
+        df = self._experiments([("cond_A", 1), ("cond_B", 1)])
+        with pytest.raises(ValueError, match="[Dd]uplicate"):
+            get_cosmos_phenotype_conditions(df, "baseline")
+
+    def test_non_contiguous_slots_raise(self):
+        # Slots 1 and 3 (gap at 2) — cosmos requires beta_hat_1..N with no gaps.
+        df = self._experiments([("cond_A", 1), ("cond_B", 3)])
+        with pytest.raises(ValueError, match="contiguous"):
+            get_cosmos_phenotype_conditions(df, "baseline")

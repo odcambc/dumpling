@@ -114,9 +114,7 @@ def load_experiments(experiment_file) -> pd.DataFrame:
     enforcement) stay identical across rules. Drift between callers
     previously meant a CSV that worked for one script could break another.
     """
-    df = pd.read_csv(experiment_file, header=0, encoding="utf-8-sig").dropna(
-        how="all"
-    )
+    df = pd.read_csv(experiment_file, header=0, encoding="utf-8-sig").dropna(how="all")
     return set_index_with_unique_check(df, "sample", drop=False)
 
 
@@ -171,9 +169,7 @@ def validate_experiment_time_or_bin(experiments: pd.DataFrame) -> None:
 
     if problems:
         details = "\n  - ".join(problems)
-        raise ValueError(
-            "Invalid experiment definitions:\n  - " + details
-        )
+        raise ValueError("Invalid experiment definitions:\n  - " + details)
 
 
 def translate_legacy_bbtools_compression(config: dict) -> list[str]:
@@ -243,3 +239,53 @@ def validate_scoring_backend_mode(config: dict) -> None:
             "noprocess path does not produce. Use scoring_backend='rosace' "
             "for noprocess runs, or set noprocess=false."
         )
+
+
+def get_cosmos_phenotype_conditions(experiments, baseline_condition):
+    """Return experimental conditions ordered by their cosmos phenotype slot.
+
+    The optional ``phenotype`` column in the experiment CSV assigns each
+    condition an integer slot N, which becomes cosmos's ``beta_hat_N`` /
+    ``se_hat_N`` pair. The column is per-sample but describes a condition, so
+    every row of a condition must agree — we fail loud on disagreement rather
+    than silently pick one. Blank/absent means the condition is excluded from
+    the cosmos export (baseline conditions, which have no score CSV, are
+    naturally left blank). Slots must form a contiguous ``1..N`` range with no
+    duplicates, since cosmos requires ``beta_hat_1..N`` with no gaps.
+
+    Returns the conditions as a list in slot order (slot 1 first); ``[]`` when
+    no slots are declared (cosmos export off).
+    """
+    if "phenotype" not in experiments.columns:
+        return []
+
+    slot_by_condition = {}
+    for condition, rows in experiments.groupby("condition"):
+        vals = rows["phenotype"].dropna().unique()
+        if len(vals) == 0:
+            continue
+        if len(vals) > 1:
+            raise ValueError(
+                f"Condition {condition!r} has conflicting phenotype slots "
+                f"{sorted(int(v) for v in vals)}; all rows of a condition must "
+                "declare the same slot (or leave it blank)."
+            )
+        if condition == baseline_condition:
+            raise ValueError(
+                f"Baseline condition {condition!r} was assigned a phenotype slot; "
+                "baselines have no scores and cannot be a cosmos phenotype."
+            )
+        slot_by_condition[condition] = int(vals[0])
+
+    if not slot_by_condition:
+        return []
+
+    slots = sorted(slot_by_condition.values())
+    if len(set(slots)) != len(slots):
+        raise ValueError(f"Duplicate cosmos phenotype slots: {slots}.")
+    if slots != list(range(1, len(slots) + 1)):
+        raise ValueError(
+            f"cosmos phenotype slots must be a contiguous 1..N range; got {slots}."
+        )
+
+    return [c for c, _ in sorted(slot_by_condition.items(), key=lambda kv: kv[1])]
