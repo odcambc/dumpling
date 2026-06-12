@@ -464,6 +464,79 @@ def check_designed_df(df) -> bool:
     return True
 
 
+def deduplicate_designed_variants(variants_df):
+    """
+    Collapse genuine duplicate designed-variant rows while preserving variants
+    that share a protein-level name but differ by codon.
+
+    A library can encode the same protein change with distinct codons (e.g.
+    A10G via GGC and via GGT); per issue #23 these are kept as separate rows so
+    the rest of the pipeline can index on (name, codon). Only rows identical in
+    *both* name and codon are merged. A (name, codon) pair that survives the
+    merge with conflicting values in the other columns is an unrecoverable
+    error.
+
+    Args:
+        variants_df (pd.DataFrame): Designed variants, one row per oligo.
+
+    Returns:
+        pd.DataFrame: Deduplicated designed variants.
+    """
+    duplicate_rows = variants_df.duplicated().sum()
+
+    logging.info(variants_df.nunique())
+    logging.info(
+        f"Found {duplicate_rows} completely duplicate rows in the designed variants dataframe."
+    )
+
+    if duplicate_rows > 0:
+        logging.warning(
+            f"Found {duplicate_rows} duplicate rows in the designed variants dataframe. Dropping duplicates."
+        )
+        variants_df = variants_df.drop_duplicates()
+
+    # Distinct codons for the same protein name are intentional (issue #23), so
+    # the duplicate check keys on (name, codon), not name alone.
+    duplicated_pairs = (
+        variants_df.drop_duplicates().duplicated(subset=["name", "codon"]).sum()
+    )
+    if duplicated_pairs > 0:
+        logging.warning(
+            f"Found {duplicated_pairs} duplicated (name, codon) pairs in the designed variants dataframe. Attempting to deduplicate."
+        )
+
+        # `codon` joins the group key so distinct-codon variants survive; only
+        # `chunk` is reduced (taking the first when otherwise-identical rows are
+        # merged). `as_index=False` keeps the group keys as columns, so no
+        # trailing reset_index (which would inject a spurious `index` column).
+        variants_df = variants_df.groupby(
+            [
+                "count",
+                "pos",
+                "mutation_type",
+                "name",
+                "codon",
+                "mutant",
+                "length",
+                "hgvs",
+            ],
+            as_index=False,
+        ).agg({"chunk": "first"})
+
+        duplicated_pairs = variants_df.duplicated(subset=["name", "codon"]).sum()
+        if duplicated_pairs > 0:
+            variants_df.to_csv("duped.csv", index=False)
+            logging.error(
+                f"Found {duplicated_pairs} duplicated (name, codon) pairs with non-identical values in the designed variants dataframe. Check for errors."
+            )
+            raise Exception(
+                "Found duplicated (name, codon) pairs with non-identical values. Check for errors."
+            )
+
+    logging.info("Regenerated variants.")
+    return variants_df
+
+
 def write_designed_csv(file, header, variant_list):
     p = pathlib.Path(file)
     p.parent.mkdir(parents=True, exist_ok=True)
@@ -518,53 +591,7 @@ def _run(snakemake):
         logging.error("Error in designed variants. Check log for details.")
         raise Exception("Error in designed variants. Check log for details.")
 
-    duplicate_rows = variants_df.duplicated().sum()
-
-    logging.info(variants_df.nunique())
-    logging.info(
-        f"Found {duplicate_rows} completely duplicate rows in the designed variants dataframe."
-    )
-
-    if duplicate_rows > 0:
-        logging.warning(
-            f"Found {duplicate_rows} duplicate rows in the designed variants dataframe. Dropping duplicates."
-        )
-        variants_df = variants_df.drop_duplicates()
-
-    duplicated_names = variants_df.drop_duplicates()["name"].duplicated().sum()
-    if duplicated_names > 0:
-        logging.warning(
-            f"Found {duplicated_names} duplicated variant names in the designed variants dataframe. Attempting to deduplicate."
-        )
-
-        variants_df = (
-            variants_df.groupby(
-                [
-                    "count",
-                    "pos",
-                    "mutation_type",
-                    "name",
-                    "mutant",
-                    "length",
-                    "hgvs",
-                ],
-                as_index=False,
-            )
-            .agg({"chunk": "first", "codon": "first"})
-            .reset_index()
-        )
-
-        duplicated_names = variants_df["name"].duplicated().sum()
-        if duplicated_names > 0:
-            variants_df.to_csv("duped.csv", index=False)
-            logging.error(
-                f"Found {duplicated_names} duplicated variant names with non-identical values in the designed variants dataframe. Check for errors."
-            )
-            raise Exception(
-                "Found duplicated variant names with non-identical values. Check for errors."
-            )
-
-    logging.info("Regenerated variants.")
+    variants_df = deduplicate_designed_variants(variants_df)
 
     variants_df.to_csv(variants_file, index=False)
 

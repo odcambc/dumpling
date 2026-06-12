@@ -5,9 +5,12 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+import pandas as pd
+
 # Import the functions you want to test directly
 # Adjust if the script is named differently or in a different location
 from workflow.rules.scripts.generate_variants import (
+    deduplicate_designed_variants,
     designed_variants,
     extract_codon,
     get_sequence_segment,
@@ -139,9 +142,7 @@ class TestOligoProcessing(unittest.TestCase):
         """Test processing deletion variants."""
         with tempfile.NamedTemporaryFile(delete=False) as temp_file:
             temp_name = temp_file.name
-            temp_file.write(
-                b"name,sequence\ntest_delete-1_3-5,ACTAGCTAGCGCTAGCTAGCT\n"
-            )
+            temp_file.write(b"name,sequence\ntest_delete-1_3-5,ACTAGCTAGCGCTAGCTAGCT\n")
 
         # Mock the reference sequence
         ref = "ATGGCTAGCATGGCTAGCATGGCTAGCATGGCTAGCATGGCTAGC"
@@ -166,9 +167,7 @@ class TestOligoProcessing(unittest.TestCase):
             temp_name = temp_file.name
             # Note: no trailing "-<pos>" — would previously crash with
             # TypeError: int() argument must be a string ... not 'NoneType'
-            temp_file.write(
-                b"name,sequence\ntest_delete-1_3,ACTAGCTAGCGCTAGCTAGCT\n"
-            )
+            temp_file.write(b"name,sequence\ntest_delete-1_3,ACTAGCTAGCGCTAGCTAGCT\n")
 
         ref = "ATGGCTAGCATGGCTAGCATGGCTAGCATGGCTAGCATGGCTAGC"
         offset = 1
@@ -305,7 +304,9 @@ class TestOligoProcessing(unittest.TestCase):
             designed_variants(temp_name, ref, offset)
 
         self.assertTrue(
-            any("anchor" in msg.lower() and "flank" in msg.lower() for msg in cm.output),
+            any(
+                "anchor" in msg.lower() and "flank" in msg.lower() for msg in cm.output
+            ),
             f"Expected a flank-anchoring warning. Got: {cm.output}",
         )
 
@@ -359,6 +360,55 @@ class TestOligoProcessing(unittest.TestCase):
         os.unlink(temp_name)
 
 
+class TestDeduplicateDesignedVariants(unittest.TestCase):
+    """Dedup must keep variants that share a protein name but differ by codon
+    (issue #23), while still collapsing genuine duplicates."""
+
+    def _row(self, name, codon, chunk=1):
+        return {
+            "count": 0,
+            "pos": 10,
+            "mutation_type": "M",
+            "name": name,
+            "codon": codon,
+            "mutant": name[-1],
+            "length": 1,
+            "hgvs": f"p.({name})",
+            "chunk": chunk,
+        }
+
+    def test_distinct_codons_for_same_name_are_preserved(self):
+        """Two designed variants with the same protein name but different
+        codons must both survive deduplication."""
+        df = pd.DataFrame([self._row("G10A", "GCT"), self._row("G10A", "GCA")])
+        result = deduplicate_designed_variants(df)
+        self.assertEqual(len(result), 2)
+        self.assertEqual(
+            set(result.loc[result["name"] == "G10A", "codon"]),
+            {"GCT", "GCA"},
+        )
+
+    def test_identical_name_codon_rows_collapse(self):
+        """A genuinely duplicated (name, codon) pair (here differing only in an
+        otherwise-reducible field) collapses to a single row."""
+        df = pd.DataFrame(
+            [self._row("G10A", "GCT", chunk=1), self._row("G10A", "GCT", chunk=2)]
+        )
+        result = deduplicate_designed_variants(df)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result.iloc[0]["codon"], "GCT")
+
+    def test_conflicting_name_codon_pair_raises(self):
+        """The same (name, codon) with conflicting values in a non-reducible
+        key column (here mutation_type) cannot be merged and must raise."""
+        a = self._row("G10A", "GCT")
+        b = self._row("G10A", "GCT")
+        b["mutation_type"] = "S"  # conflict that survives the groupby
+        df = pd.DataFrame([a, b])
+        with self.assertRaises(Exception):
+            deduplicate_designed_variants(df)
+
+
 class TestIntegration(unittest.TestCase):
     """Integration tests to test the full workflow."""
 
@@ -398,7 +448,10 @@ class TestIntegration(unittest.TestCase):
 
         # For demonstration, we'll just run the main components manually
         variants = designed_variants(
-            self.oligo_file_name, self.ref_sequence, 1, False  # offset  # is_circular
+            self.oligo_file_name,
+            self.ref_sequence,
+            1,
+            False,  # offset  # is_circular
         )
 
         header = [

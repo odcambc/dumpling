@@ -725,11 +725,25 @@ def write_enrich_df(
     else:
         wt_summed = None
 
+    # Collapse codon-level rows back to one row per protein-level hgvs. A library
+    # may design the same protein variant with multiple codons (issue #23);
+    # those are tracked separately upstream, but scoring is protein-level, so
+    # their counts are summed here. This is a no-op when hgvs is already unique
+    # (single-codon libraries, noprocess path). sort=False preserves
+    # first-appearance order. Guard the empty/all-rejected case where the frame
+    # has no columns to group on.
+    if variant_df.empty or "hgvs" not in variant_df.columns:
+        collapsed = pd.DataFrame(columns=["hgvs", "count"])
+    else:
+        collapsed = variant_df.groupby("hgvs", as_index=False, sort=False)[
+            "count"
+        ].sum()
+
     p = pathlib.Path(file)
     p.parent.mkdir(parents=True, exist_ok=True)
 
     with p.open("w+") as f:
-        variant_df.to_csv(f, columns=["hgvs", "count"], index=False, sep="\t")
+        collapsed.to_csv(f, columns=["hgvs", "count"], index=False, sep="\t")
         if wt_summed is not None:
             f.write("_wt\t" + str(wt_summed))
 

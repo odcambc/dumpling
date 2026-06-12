@@ -12,6 +12,7 @@ from workflow.rules.scripts.process_variants import (
     process_insertion,
     process_single_site,
     process_variants_file,
+    write_enrich_df,
 )
 
 # -------------------------
@@ -535,7 +536,9 @@ def test_real_benchmark_library_rejects_undesigned_codon(fixtures_dir):
     """Regression against a real user designed-variants file. S2T is designed
     with codons ACG and ACT; an observation via the undesigned codon ACC must
     be rejected as a wrong codon, not pooled into S2T."""
-    designed = pd.read_csv(fixtures_dir / "benchmark_variants.csv", encoding="utf-8-sig")
+    designed = pd.read_csv(
+        fixtures_dir / "benchmark_variants.csv", encoding="utf-8-sig"
+    )
     designed["codon"] = designed["codon"].fillna("")
     assert set(designed.loc[designed["name"] == "S2T", "codon"]) == {"ACG", "ACT"}
 
@@ -546,3 +549,53 @@ def test_real_benchmark_library_rejects_undesigned_codon(fixtures_dir):
     assert len(rejected_list) == 1
     assert rejected_stats["wrong_codon_counts"] == 7
     assert rejected_stats["wrong_variant_counts"] == 0
+
+
+def test_write_enrich_df_collapses_codons_to_protein_level(tmp_path):
+    """write_enrich_df is the seam where codon-level counts collapse back to
+    protein-level for scoring: two codon rows of the same hgvs sum into one
+    row in the Enrich2 TSV (issue #23, 'scores merged' scope)."""
+    variant_df = pd.DataFrame(
+        {
+            "hgvs": ["p.(G10A)", "p.(G10A)", "p.(R11R)"],
+            "count": [5, 3, 2],
+            "mutation_type": ["M", "M", "S"],
+            "codon": ["AAA", "GGT", "CGT"],
+        }
+    )
+    out = tmp_path / "sample.tsv"
+    write_enrich_df(out, variant_df, noprocess=True)
+
+    result = pd.read_csv(out, sep="\t")
+    # One row per protein-level hgvs.
+    assert result["hgvs"].tolist().count("p.(G10A)") == 1
+    assert result.loc[result["hgvs"] == "p.(G10A)", "count"].iloc[0] == 8  # 5 + 3
+    assert result.loc[result["hgvs"] == "p.(R11R)", "count"].iloc[0] == 2
+
+
+def test_real_benchmark_library_collapses_to_protein_level(fixtures_dir, tmp_path):
+    """End-to-end on the real file: S2T observed via both designed codons (ACG,
+    ACT) lands on separate rows, then collapses to one summed p.(S2T) row in
+    the Enrich2 TSV that scoring consumes."""
+    designed = pd.read_csv(
+        fixtures_dir / "benchmark_variants.csv", encoding="utf-8-sig"
+    )
+    designed["codon"] = designed["codon"].fillna("")
+
+    gatk_list = [
+        ["100", "0", "0", "1", "x", "1", "2:AGC>ACG", "M:S>T", "S2T"],
+        ["40", "0", "0", "1", "x", "1", "2:AGC>ACT", "M:S>T", "S2T"],
+    ]
+    variants_df, *_ = process_variants_file(
+        gatk_list, designed, "M" * 300, max_deletion_length=3, noprocess=False
+    )
+    s2t = variants_df[variants_df["name"] == "S2T"].set_index("codon")["count"]
+    assert s2t["ACG"] == 100
+    assert s2t["ACT"] == 40
+
+    out = tmp_path / "benchmark_sample.tsv"
+    write_enrich_df(out, variants_df, noprocess=False)
+    enrich = pd.read_csv(out, sep="\t")
+    s2t_rows = enrich[enrich["hgvs"] == "p.(S2T)"]
+    assert len(s2t_rows) == 1
+    assert s2t_rows["count"].iloc[0] == 140  # 100 + 40
