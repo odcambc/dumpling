@@ -138,11 +138,38 @@ def test_process_insdel():
         "A10_B11insdelCC",
     ]
     # For demonstration, we pass noprocess=True
-    result = process_insdel(line, "MAGICREFSEQ", noprocess=True)
+    result = process_insdel(line, "MAGICREFSEQ", noprocess=True, max_deletion_length=3)
     assert result["count"] == 7
     assert result["mutation_type"] in ["ID", "D", "Z"], "Depending on your logic"
     assert "insdel" in result["mutation"] or "ID_" in result["mutation"]
     assert result["rejected"] is False
+
+
+def test_process_insdel_max_deletion_length_gate():
+    """A recoverable insdel (net deletion length 5) is accepted as a deletion
+    only when within max_deletion_length. The gate was dropped in 28dbec2 and
+    restored: too-long insdels are rejected (mutation_type 'Z'), a non-positive
+    limit disables the cap, and noprocess bypasses it entirely."""
+    # G10_K15insdelG: deletion_length 6, insertion 1 -> insdel_length 5;
+    # recoverable because start residue (G) == inserted residue (G).
+    line = ["5", "0", "0", "0", "A", "6", "10:x>y", "Zstuff", "G10_K15insdelG"]
+    ref = "M" * 30
+
+    within = process_insdel(line, ref, noprocess=False, max_deletion_length=5)
+    assert within["rejected"] is False
+    assert within["mutation_type"] == "D"
+    assert within["length"] == 5
+
+    too_long = process_insdel(line, ref, noprocess=False, max_deletion_length=4)
+    assert too_long["rejected"] is True
+    assert too_long["mutation_type"] == "Z"
+
+    disabled = process_insdel(line, ref, noprocess=False, max_deletion_length=0)
+    assert disabled["rejected"] is False
+    assert disabled["mutation_type"] == "D"
+
+    bypassed = process_insdel(line, ref, noprocess=True, max_deletion_length=1)
+    assert bypassed["rejected"] is False
 
 
 def test_process_single_site_no_mutation(ref_aa_sequence):
@@ -158,7 +185,9 @@ def test_process_single_site_no_mutation(ref_aa_sequence):
         "Sstuff",  # means 'synonymous' if it starts with S
         "",  # mutation is empty
     ]
-    out = process_single_site(line, ref_aa_sequence, noprocess=False)
+    out = process_single_site(
+        line, ref_aa_sequence, noprocess=False, max_deletion_length=3
+    )
     assert out["mutation_type"] == "S"
     assert out["hgvs"].startswith("p.(")
 
@@ -332,7 +361,9 @@ def test_process_single_site_unexpected_aa_is_dropped(ref_aa_sequence):
         "Xstuff",  # AA[0] is 'X', not in {S, M, N}
         "",  # mutation empty
     ]
-    out = process_single_site(line, ref_aa_sequence, noprocess=False)
+    out = process_single_site(
+        line, ref_aa_sequence, noprocess=False, max_deletion_length=3
+    )
     assert out["mutation_type"] == "X"
     assert out["rejected"] is True
     assert out["count"] == 11

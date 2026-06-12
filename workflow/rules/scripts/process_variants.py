@@ -183,7 +183,7 @@ def process_deletion(line: List[str]) -> VariantDict:
 
 
 def process_insdel(
-    line: List[str], ref_AA_sequence: str, noprocess: bool
+    line: List[str], ref_AA_sequence: str, noprocess: bool, max_deletion_length: int
 ) -> VariantDict:
     # This contains the logic for parsing insdel variants and checking for an edge
     # case where in-frame deletions are being called as insdels.
@@ -234,33 +234,48 @@ def process_insdel(
         deletion_length - insertion_length
     )  # Effective number of deleted AAs
 
+    # Max-deletion-length gate (dropped in 28dbec2, restored): a recoverable
+    # insdel is only accepted as an in-frame deletion when the net deletion is
+    # within the configured maximum. noprocess keeps everything (no filtering),
+    # and a non-positive max_deletion_length disables the cap.
+    within_limit = (
+        noprocess or max_deletion_length <= 0 or insdel_length <= max_deletion_length
+    )
+
     if (
         start_aa == insdel_aas  # start and inserted AA are the same
         or end_aa == insdel_aas  # end and inserted AA are the same
         or start_aa == end_aa  # start and end AA are the same
     ):
-        rejected = False
-        pos = start_pos + insertion_length
-        mutation_type = "D"
-        mutation = "D_" + str(insdel_length)
+        if within_limit:
+            rejected = False
+            pos = start_pos + insertion_length
+            mutation_type = "D"
+            mutation = "D_" + str(insdel_length)
 
-        if insdel_length == 1:
-            name = end_aa + str(pos) + "del"
-        elif insdel_length > 1:
-            name = (
-                ref_AA_sequence[pos - 1]
-                + str(pos)
-                + "_"
-                + ref_AA_sequence[pos + insdel_length - 2]
-                + str(pos + insdel_length - 1)
-                + "del"
-            )
+            if insdel_length == 1:
+                name = end_aa + str(pos) + "del"
+            elif insdel_length > 1:
+                name = (
+                    ref_AA_sequence[pos - 1]
+                    + str(pos)
+                    + "_"
+                    + ref_AA_sequence[pos + insdel_length - 2]
+                    + str(pos + insdel_length - 1)
+                    + "del"
+                )
+            else:
+                name = ""
+                logging.warning(
+                    "Error in insdel length calculation: insdel_length %i",
+                    insdel_length,
+                )
         else:
-            name = ""
-            logging.warning(
-                "Error in insdel length calculation: insdel_length %i",
-                insdel_length,
-            )
+            # Recoverable but exceeds max_deletion_length under filtering: leave
+            # rejected (mutation_type "Z") so the caller buckets it as an insdel.
+            # Keep the raw name so the rejected_list entry is informative and the
+            # empty-name warning below doesn't misfire.
+            name = variant
 
     else:
         if noprocess:
@@ -287,7 +302,7 @@ def process_insdel(
 
 
 def process_single_site(
-    line: List[str], ref_AA_sequence: str, noprocess: bool
+    line: List[str], ref_AA_sequence: str, noprocess: bool, max_deletion_length: int
 ) -> VariantDict:
     counts = int(line[0])
     length_NT = int(line[3])
@@ -322,7 +337,9 @@ def process_single_site(
         return insertion_dict
 
     if "insdel" in mutation:
-        insdel_dict = process_insdel(line, ref_AA_sequence, noprocess)
+        insdel_dict = process_insdel(
+            line, ref_AA_sequence, noprocess, max_deletion_length
+        )
         insdel_dict["hgvs"] = hgvs
 
         return insdel_dict
@@ -601,7 +618,9 @@ def process_variants_file(
             continue
 
         if len(mutation.split(";")) == 1:
-            variant_dict = process_single_site(line, ref_AA_sequence, noprocess)
+            variant_dict = process_single_site(
+                line, ref_AA_sequence, noprocess, max_deletion_length
+            )
             if variant_dict.get("mutation_type") == "X":
                 rejected_list.append(line)
                 rejected_stats["unexpected_mutation_counts"] += counts

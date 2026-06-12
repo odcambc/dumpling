@@ -194,7 +194,10 @@ properties:
   max_deletion_length:
     type: integer
     default: 3
-    description: Maximum length (in codons) of designed deletion in library.
+    description: >-
+      Maximum length (in codons) of a designed deletion in the library. Insdels
+      that resolve to an in-frame deletion longer than this are rejected. Set to
+      0 (or any non-positive value) to disable the length cap.
 
 required:
   - data_dir
