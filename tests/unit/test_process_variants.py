@@ -515,6 +515,32 @@ def test_process_variants_file_splits_codon_and_variant_rejections(
     assert rejected_stats["wrong_variant_counts"] == 6  # W20Y, undesigned residue
 
 
+def test_process_variants_file_buckets_insdel_and_multi_rejections(
+    designed_variants_df, ref_aa_sequence
+):
+    """Insdel and multi-site rejections land in their dedicated stat buckets,
+    not lumped into wrong_variant_counts. Both increments were dropped in
+    28dbec2 and restored alongside the codon filter."""
+    gatk_list = [
+        # Multi-site variant: ";" in the GATK mutation field.
+        ["20", "0", "0", "2", "x", "1", "10:GGT>GCT, 11:AAA>CGT", "M", "G10A;K11R"],
+        # Genuine (unrecoverable) insdel: start/end/inserted residues all differ.
+        ["15", "0", "0", "2", "x", "2", "37:GGT>TCA", "Zstuff", "G37_I38insdelS"],
+    ]
+    _, rejected_list, rejected_stats, *_ = process_variants_file(
+        gatk_list,
+        designed_variants_df,
+        ref_aa_sequence,
+        max_deletion_length=3,
+        noprocess=False,
+    )
+    assert len(rejected_list) == 2
+    assert rejected_stats["multi_variant_counts"] == 20
+    assert rejected_stats["insdel_variant_counts"] == 15
+    # Not misfiled into the generic bucket.
+    assert rejected_stats["wrong_variant_counts"] == 0
+
+
 def test_process_variants_file_deletion_matches_empty_codon(
     designed_variants_df, ref_aa_sequence
 ):

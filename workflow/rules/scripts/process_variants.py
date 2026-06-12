@@ -654,14 +654,28 @@ def process_variants_file(
 
             if variant_dict["rejected"]:
                 rejected_list.append(line)
-                # Split the rejection: a designed residue observed via an
-                # undesigned codon is a "wrong codon" (off-target synonymous);
-                # anything else is an unexpected variant entirely.
-                if name in designed_names:
+                # Classify the rejection into its dedicated stat bucket. Order
+                # matters: a multi-site call carries a ";" in the GATK mutation
+                # field and is built as a "Z" dict above, so it must be caught
+                # before the generic "Z" (insdel) test. (insdel_variant_counts
+                # and multi_variant_counts were dropped in 28dbec2 alongside the
+                # codon filter; restored here.)
+                if len(mutation.split(";")) > 1:
+                    rejected_stats["multi_variant_counts"] = (
+                        rejected_stats["multi_variant_counts"] + counts
+                    )
+                elif variant_dict.get("mutation_type") == "Z":
+                    rejected_stats["insdel_variant_counts"] = (
+                        rejected_stats["insdel_variant_counts"] + counts
+                    )
+                elif name in designed_names:
+                    # Designed residue observed via an undesigned codon
+                    # (off-target synonymous).
                     rejected_stats["wrong_codon_counts"] = (
                         rejected_stats["wrong_codon_counts"] + counts
                     )
                 else:
+                    # Residue change not in the library at all.
                     rejected_stats["wrong_variant_counts"] = (
                         rejected_stats["wrong_variant_counts"] + counts
                     )
