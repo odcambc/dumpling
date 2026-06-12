@@ -158,6 +158,16 @@ properties:
     type: boolean
     default: false
     description: Flag for whether to run Enrich2 in addition to the chosen scoring backend.
+  keep_enrich_h5:
+    type: boolean
+    default: false
+    description: |
+      Whether to keep Enrich2's intermediate HDF5 (.h5) store files. dumpling
+      only consumes Enrich2's exported tsv scores, so by default (false) the
+      stores are declared as Snakemake temp() outputs and removed once scoring
+      completes, reclaiming disk space (Snakemake owns the deletion — the
+      pipeline never calls rm/find itself). Set true to retain them for
+      debugging Enrich2 internals. No effect unless enrich2 is true.
   deposit_to_mavedb:
     type: boolean
     default: true

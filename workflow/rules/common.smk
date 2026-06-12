@@ -17,6 +17,7 @@ from script_utils import (  # noqa: E402
     validate_experiment_time_or_bin,
     validate_scoring_backend_mode,
 )
+from generate_enrich_configs import expected_enrich_h5_basenames  # noqa: E402
 
 
 def get_file_from_sample(wildcards):
@@ -86,6 +87,29 @@ def get_enrich2_input(wildcards):
             "results/{{experiment_name}}/processed_counts/enrich_format/{samples}.tsv",
             samples=samples,
         )
+
+
+def enrich_h5_output_files():
+    """Full paths of Enrich2's intermediate .h5 stores for this experiment (#16).
+
+    Built at parse time from the experiment metadata so run_enrich can declare
+    them as Snakemake temp() outputs — letting Snakemake delete them (and only
+    them) once scoring completes, instead of the pipeline shelling out to rm.
+    The per-store basenames are concrete (derived from conditions / replicates
+    / timepoints via expected_enrich_h5_basenames); only experiment_name stays
+    a wildcard so the paths match run_enrich's tsv output.
+
+    Returns [] unless Enrich2 is actually enabled: the rule is always defined
+    regardless of config["enrich2"], and the h5 enumeration relies on the
+    timecourse "time" column that only the Enrich2 path requires, so computing
+    it unconditionally could fail parse for non-Enrich2 runs.
+    """
+    if not config["enrich2"]:
+        return []
+    basenames = expected_enrich_h5_basenames(
+        experiments, experimental_conditions, config["tiled"], experiment
+    )
+    return [f"results/{{experiment_name}}/enrich/{name}" for name in basenames]
 
 
 def get_input(wildcards):
@@ -236,6 +260,7 @@ config.setdefault("lilace_seed", None)
 config.setdefault("rosace_aa_local", False)
 config.setdefault("mem_rosace_aa", 16000)
 config.setdefault("deposit_to_mavedb", True)
+config.setdefault("keep_enrich_h5", False)
 config.setdefault("aligner", "bbmap")
 if config["aligner"] not in ("bbmap", "minimap2"):
     raise ValueError(

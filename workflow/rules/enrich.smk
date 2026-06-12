@@ -18,7 +18,16 @@ rule run_enrich:
         get_enrich2_input,
         config="results/{experiment_name}/enrich/{experiment_name}_config.json",
     output:
-        "results/{experiment_name}/enrich/tsv/{experiment_name}_exp/main_identifiers_scores.tsv",
+        # The tsv scores (the only artifact dumpling consumes) plus Enrich2's
+        # intermediate HDF5 stores. Unless the user opts to keep them
+        # (keep_enrich_h5), the stores are declared temp() so Snakemake deletes
+        # them once scoring completes — no rm/find in the pipeline (issue #16).
+        # When keeping, they're left undeclared so they persist as side-effects
+        # (and a naming mismatch can't fail the run).
+        [
+            "results/{experiment_name}/enrich/tsv/{experiment_name}_exp/main_identifiers_scores.tsv"
+        ]
+        + ([] if config["keep_enrich_h5"] else [temp(f) for f in enrich_h5_output_files()]),
     benchmark:
         "benchmarks/{experiment_name}/{experiment_name}.enrich.benchmark.txt"
     log:

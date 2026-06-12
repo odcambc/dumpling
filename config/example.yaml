@@ -74,6 +74,11 @@ oligo_file: "config/oligos/example_oligos.csv"
 #                  effects. Both lilace and rosace_aa require parsed variant
 #                  metadata and are incompatible with noprocess: true.
 # enrich2: Set to true to run Enrich2 in addition to backend scoring.
+# keep_enrich_h5: Set to true to keep Enrich2's intermediate .h5 store files.
+#                 Default false: only the exported tsv scores are kept; the
+#                 large .h5 stores are declared Snakemake temp() outputs and
+#                 removed once scoring completes (saving space). No effect
+#                 unless enrich2 is true.
 # deposit_to_mavedb: Set to false to skip MaveDB-formatted CSV emission. Default
 #                    true; ships `results/{experiment}/deposit/mavedb/{cond}_mavedb.csv`
 #                    per experimental condition, directly uploadable to MaveDB.
@@ -100,6 +105,7 @@ oligo_file: "config/oligos/example_oligos.csv"
 orf: "141-1568"
 scoring_backend: rosace
 enrich2: true
+keep_enrich_h5: false
 deposit_to_mavedb: true
 deposit_to_cosmos: false
 remove_zeros: true

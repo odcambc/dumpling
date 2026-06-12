@@ -10,6 +10,7 @@ import shutil
 import subprocess
 
 import pytest
+import yaml
 
 
 def snakemake_available():
@@ -133,6 +134,141 @@ contaminants:
             # Check if it's a missing file error (expected) vs syntax error (not expected)
             assert "SyntaxError" not in result.stderr, f"Syntax error: {result.stderr}"
             assert "NameError" not in result.stderr, f"Name error: {result.stderr}"
+
+    def _enrich_config(self, fixtures_dir, repo_root, data_dir, **overrides):
+        """Mock config for the Enrich2 path. data_dir holds stub fastqs so the
+        full DAG builds (common.smk + baseline_qc resolve every sample's fastq
+        pair at parse time). overrides patch individual keys (e.g. keep_enrich_h5).
+        """
+        resources_dir = repo_root / "resources"
+        cfg = {
+            "experiment": "test_experiment",
+            "data_dir": str(data_dir),
+            "ref_dir": str(fixtures_dir),
+            "experiment_file": str(fixtures_dir / "mock_experiment.csv"),
+            "reference": "mock_reference.fasta",
+            "variants_file": str(fixtures_dir / "mock_variants.csv"),
+            "oligo_file": str(fixtures_dir / "mock_oligos.csv"),
+            "orf": "1-300",
+            "enrich2": True,
+            "noprocess": True,
+            "run_qc": False,
+            "baseline_condition": "baseline",
+            "remove_zeros": False,
+            "regenerate_variants": False,
+            "kmers": 15,
+            "sam": "1.3",
+            "mem": 4,
+            "mem_fastqc": 1024,
+            "min_q": 30,
+            "min_variant_obs": 3,
+            "max_deletion_length": 3,
+            "samtools_local": False,
+            "rosace_local": False,
+            "adapters": str(resources_dir / "adapters.fa"),
+            "contaminants": [str(resources_dir / "sequencing_artifacts.fa.gz")],
+        }
+        cfg.update(overrides)
+        return yaml.safe_dump(cfg)
+
+    def _run_enrich_dry_run(self, repo_root, config_file):
+        return subprocess.run(
+            [
+                "snakemake",
+                "-s",
+                str(repo_root / "workflow" / "Snakefile"),
+                "--configfile",
+                str(config_file),
+                "--dry-run",
+                "-p",
+                "--cores",
+                "1",
+                "results/test_experiment/enrich/tsv/"
+                "test_experiment_exp/main_identifiers_scores.tsv",
+            ],
+            capture_output=True,
+            text=True,
+            cwd=str(repo_root),
+        )
+
+    @staticmethod
+    def _run_enrich_output_line(stdout):
+        """The `output:` line of the scheduled run_enrich job, or '' if absent."""
+        lines = stdout.splitlines()
+        for i, line in enumerate(lines):
+            if line.strip() == "rule run_enrich:":
+                for follow in lines[i : i + 12]:
+                    if follow.strip().startswith("output:"):
+                        return follow
+        return ""
+
+    def test_dry_run_enrich_declares_h5_as_temp_outputs(
+        self, repo_root, fixtures_dir, tmp_path
+    ):
+        """Issue #16: with enrich2 on, run_enrich declares Enrich2's .h5 stores
+        as outputs so Snakemake (not a pipeline rm/find) manages them. The
+        predicted store set must match the mock experiment: cond_A rep1 (T0-T2)
+        and rep2 (T0-T2); baseline is not a scored condition.
+
+        The other dry-run tests all set enrich2: false, so run_enrich and the
+        temp-output enumeration are otherwise never exercised.
+        """
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        (data_dir / "mock_reads_R1.fastq.gz").touch()
+        (data_dir / "mock_reads_R2.fastq.gz").touch()
+
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text(self._enrich_config(fixtures_dir, repo_root, data_dir))
+
+        result = self._run_enrich_dry_run(repo_root, config_file)
+        assert result.returncode == 0, (
+            f"Enrich2 dry-run failed:\nSTDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
+        )
+
+        output_line = self._run_enrich_output_line(result.stdout)
+        assert output_line, f"run_enrich not scheduled:\n{result.stdout}"
+        # Every predicted store appears as a declared output of run_enrich.
+        for store in [
+            "test_experiment_exp.h5",
+            "cond_A_R1_sel.h5",
+            "cond_A_R2_sel.h5",
+            "cond_A_rep1_T0_lib.h5",
+            "cond_A_rep1_T2_lib.h5",
+            "cond_A_rep2_T0_lib.h5",
+        ]:
+            assert store in output_line, f"{store} not declared:\n{output_line}"
+        # Baseline is not scored, so no baseline stores are declared.
+        assert "baseline" not in output_line
+
+    def test_dry_run_keep_enrich_h5_declares_only_scores(
+        self, repo_root, fixtures_dir, tmp_path
+    ):
+        """keep_enrich_h5: true leaves the stores undeclared (they persist as
+        side-effects), so run_enrich declares only the tsv scores."""
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        (data_dir / "mock_reads_R1.fastq.gz").touch()
+        (data_dir / "mock_reads_R2.fastq.gz").touch()
+
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text(
+            self._enrich_config(
+                fixtures_dir, repo_root, data_dir, keep_enrich_h5=True
+            )
+        )
+
+        result = self._run_enrich_dry_run(repo_root, config_file)
+        assert result.returncode == 0, (
+            f"Enrich2 dry-run failed:\nSTDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
+        )
+
+        output_line = self._run_enrich_output_line(result.stdout)
+        assert output_line, f"run_enrich not scheduled:\n{result.stdout}"
+        assert ".h5" not in output_line, (
+            f"keep_enrich_h5=true should declare no .h5 outputs:\n{output_line}"
+        )
+        assert "main_identifiers_scores.tsv" in output_line
 
     def test_dry_run_with_lilace_backend(self, repo_root, fixtures_dir, tmp_path):
         """Dry-run with scoring_backend=lilace should construct the DAG without crashing

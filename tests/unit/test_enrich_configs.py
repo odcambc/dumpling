@@ -5,6 +5,9 @@ import pytest
 
 from workflow.rules.scripts.generate_enrich_configs import (
     _run,
+    enrich_library_label,
+    enrich_selection_label,
+    expected_enrich_h5_basenames,
     generate_config,
     remove_missing_t0,
     remove_truncated_replicates,
@@ -197,3 +200,128 @@ def test_run_raises_when_all_conditions_dropped(tmp_path, mock_snakemake):
 
     with pytest.raises(ValueError, match="No conditions remain"):
         _run(_make_snakemake(mock_snakemake, csv, out))
+
+
+# ---------------------------------------------------------------------------
+# expected_enrich_h5_basenames: predicts the .h5 stores Enrich2 writes so
+# run_enrich can declare them as temp() outputs (issue #16). Must match what
+# generate_config emits as object names, hence the shared label helpers.
+# ---------------------------------------------------------------------------
+
+
+class TestEnrichLabels:
+    def test_selection_label_untiled(self):
+        assert enrich_selection_label("cond_A", 1, use_tile=False) == "cond_A_R1"
+
+    def test_selection_label_tiled(self):
+        assert (
+            enrich_selection_label("cond_A", 1, use_tile=True, tile=2)
+            == "cond_A_R1_tile2"
+        )
+
+    def test_library_label_untiled(self):
+        assert (
+            enrich_library_label("cond_A", 1, 0, use_tile=False) == "cond_A_rep1_T0"
+        )
+
+    def test_library_label_tiled(self):
+        assert (
+            enrich_library_label("cond_A", 1, 0, use_tile=True, tile=2)
+            == "cond_A_rep1_T0_tile2"
+        )
+
+
+class TestExpectedEnrichH5Basenames:
+    def test_matches_committed_example_layout(self):
+        """Pinned against the real results/example_experiment/enrich tree:
+        cond_A has rep1 (T0-T3) and rep2 (T0-T2); cond_B has rep1 (T0-T3).
+        The predicted store set must equal exactly the .h5 files Enrich2 wrote
+        there — this is what guards the temp() declaration against drift."""
+        rows = []
+        for time in (0, 1, 2, 3):
+            rows.append({"condition": "cond_A", "replicate": 1, "time": time})
+        for time in (0, 1, 2):
+            rows.append({"condition": "cond_A", "replicate": 2, "time": time})
+        for time in (0, 1, 2, 3):
+            rows.append({"condition": "cond_B", "replicate": 1, "time": time})
+        for i, row in enumerate(rows):
+            row["sample"] = f"s{i}"
+        df = pd.DataFrame(rows)
+
+        names = expected_enrich_h5_basenames(
+            df, ["cond_A", "cond_B"], tiled=False, experiment_name="example_experiment"
+        )
+
+        assert set(names) == {
+            "example_experiment_exp.h5",
+            "cond_A_R1_sel.h5",
+            "cond_A_R2_sel.h5",
+            "cond_A_rep1_T0_lib.h5",
+            "cond_A_rep1_T1_lib.h5",
+            "cond_A_rep1_T2_lib.h5",
+            "cond_A_rep1_T3_lib.h5",
+            "cond_A_rep2_T0_lib.h5",
+            "cond_A_rep2_T1_lib.h5",
+            "cond_A_rep2_T2_lib.h5",
+            "cond_B_R1_sel.h5",
+            "cond_B_rep1_T0_lib.h5",
+            "cond_B_rep1_T1_lib.h5",
+            "cond_B_rep1_T2_lib.h5",
+            "cond_B_rep1_T3_lib.h5",
+        }
+
+    def test_excludes_filtered_out_replicates(self):
+        """A replicate dropped by the T0 / minimum-timepoint filtering must not
+        contribute store files — otherwise temp() would declare an output
+        Enrich2 never writes and the run would fail."""
+        rows = [
+            # cond_A rep1: valid (T0, T1)
+            {"sample": "a0", "condition": "cond_A", "replicate": 1, "time": 0},
+            {"sample": "a1", "condition": "cond_A", "replicate": 1, "time": 1},
+            # cond_A rep2: only one timepoint -> dropped by truncation filter
+            {"sample": "a2", "condition": "cond_A", "replicate": 2, "time": 0},
+            # cond_B rep1: no T0 -> dropped by missing-T0 filter
+            {"sample": "b1", "condition": "cond_B", "replicate": 1, "time": 1},
+            {"sample": "b2", "condition": "cond_B", "replicate": 1, "time": 2},
+        ]
+        df = pd.DataFrame(rows)
+        names = expected_enrich_h5_basenames(
+            df, ["cond_A", "cond_B"], tiled=False, experiment_name="exp"
+        )
+        assert set(names) == {
+            "exp_exp.h5",
+            "cond_A_R1_sel.h5",
+            "cond_A_rep1_T0_lib.h5",
+            "cond_A_rep1_T1_lib.h5",
+        }
+
+    def test_agrees_with_generated_config_object_names(self):
+        """Anti-drift: every selection/library object name generate_config puts
+        in the config JSON must have a matching _sel.h5 / _lib.h5 in the
+        predicted store set, since Enrich2 names each store after its object."""
+        rows = [
+            {"sample": "a0", "condition": "cond_A", "replicate": 1, "time": 0},
+            {"sample": "a1", "condition": "cond_A", "replicate": 1, "time": 1},
+            {"sample": "a2", "condition": "cond_A", "replicate": 1, "time": 2},
+        ]
+        df = pd.DataFrame(rows)
+        config_lines = generate_config(
+            ["cond_A"], df, "/tsv/", "/out/", tiled=False, experiment_name="exp"
+        )
+        config_names = {
+            line.split('"name": "')[1].rstrip('",').rstrip('"')
+            for line in config_lines
+            if '"name": "' in line
+        }
+        stores = set(
+            expected_enrich_h5_basenames(
+                df, ["cond_A"], tiled=False, experiment_name="exp"
+            )
+        )
+        # Selection object "cond_A_R1" -> "cond_A_R1_sel.h5";
+        # library object "cond_A_rep1_T0" -> "cond_A_rep1_T0_lib.h5".
+        for name in config_names:
+            if name.startswith("cond_A_R") and "_rep" not in name:
+                assert f"{name}_sel.h5" in stores, name
+            elif "_rep" in name:
+                assert f"{name}_lib.h5" in stores, name
