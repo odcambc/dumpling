@@ -12,6 +12,7 @@ from script_utils import run_script, translate_orf
 
 # Define constants
 PRE_SPAN = 15  # Number of bases in window to map
+SEED_K = 15  # k-mer length for anchoring oligos to the reference (issue #27)
 
 
 def name_to_hgvs(name):
@@ -73,6 +74,10 @@ def designed_variants(oligo_csv, ref, offset, is_circular=False):
     variant_list = []
     ref_len = len(ref)
 
+    # Reference k-mer index for sequence-based identification (issue #27), built
+    # once and reused across all oligos.
+    kmer_index = build_reference_kmer_index(ref)
+
     p = pathlib.Path(oligo_csv)
     p.parent.mkdir(parents=True, exist_ok=True)
 
@@ -93,11 +98,29 @@ def designed_variants(oligo_csv, ref, offset, is_circular=False):
                 # Initialize variables to None to detect which pattern matched
                 variant_data = {}
 
+                # Issue #27: identify the variant from the oligo SEQUENCE first.
+                # The name-based regexes below run only as a fallback when the
+                # sequence can't be confidently resolved (e.g. terminal codons,
+                # circular refs, multi-edit oligos).
+                seq_variant = identify_variant_from_sequence(
+                    line[1], ref, offset, is_circular, kmer_index
+                )
+                if seq_variant is not None:
+                    variant_data = seq_variant
+                    # Carry the subpool/chunk number from the name when present
+                    # (metadata only; not used for variant identity).
+                    chunk_match = regex.search(r"-([0-9]+)_", line[0])
+                    if chunk_match:
+                        variant_data["chunk"] = int(chunk_match.group(1))
+                    logging.debug(
+                        f"Line {i}: resolved by sequence -> {variant_data['name']}"
+                    )
+
                 # Match substitutions
                 variant_sub = regex.search(
                     r".*_DMS-([0-9]+)_([a-zA-Z]+)([0-9]+)([a-zA-Z]+)", line[0]
                 )
-                if variant_sub:
+                if variant_sub and not variant_data:
                     chunk = int(variant_sub.group(1))
                     # Is this a synonymous mutation?
                     if variant_sub.group(2) == variant_sub.group(4):
@@ -440,6 +463,242 @@ def extract_codon(
             f"post_split: {re.split(re.escape(post_codon), oligo_sequence, flags=re.IGNORECASE)}"
         )
     return ""
+
+
+def build_reference_kmer_index(ref, k=SEED_K):
+    """Map each length-k reference substring to the 0-based positions where it
+    occurs. Built once per reference and reused across oligos so sequence-based
+    identification stays ~O(oligo length) per oligo (issue #27)."""
+    ref = str(ref).upper()
+    index: dict = {}
+    for i in range(len(ref) - k + 1):
+        index.setdefault(ref[i : i + k], []).append(i)
+    return index
+
+
+def _extend_match_right(oligo, ref, i, d):
+    """First oligo index >= i where the exact match along diagonal d breaks
+    (ref index = oligo index + d)."""
+    n, m = len(oligo), len(ref)
+    while i < n and 0 <= i + d < m and oligo[i] == ref[i + d]:
+        i += 1
+    return i
+
+
+def _extend_match_left(oligo, ref, i, d):
+    """Leftmost oligo index of the exact match ending just before oligo[i]
+    along diagonal d."""
+    while i - 1 >= 0 and 0 <= i - 1 + d < len(ref) and oligo[i - 1] == ref[i - 1 + d]:
+        i -= 1
+    return i
+
+
+def _seq_substitution(oligo, ref, d, ref_edit_start, ref_edit_end, orf_codon_start):
+    """Build a substitution/synonymous variant_data dict from a same-length edit,
+    or None if it isn't a clean single-codon change."""
+    if ref_edit_end <= ref_edit_start or ref_edit_start < orf_codon_start:
+        return None
+    # Expand the minimal differing region to ORF codon boundaries; require it to
+    # land within exactly one codon (multi-codon changes -> name fallback).
+    first_codon = orf_codon_start + 3 * ((ref_edit_start - orf_codon_start) // 3)
+    last_codon_end = orf_codon_start + 3 * (
+        ((ref_edit_end - 1) - orf_codon_start) // 3 + 1
+    )
+    if last_codon_end - first_codon != 3:
+        return None
+    ref_codon = ref[first_codon : first_codon + 3]
+    oligo_codon = oligo[first_codon - d : first_codon - d + 3]
+    if len(ref_codon) != 3 or len(oligo_codon) != 3:
+        return None
+    wt_aa = str(Seq(ref_codon).translate())
+    mut_aa = str(Seq(oligo_codon).translate())
+    pos = (first_codon - orf_codon_start) // 3 + 1
+    name = wt_aa + str(pos) + mut_aa
+    return {
+        "count": 0,
+        "pos": pos,
+        "mutation_type": "S" if wt_aa == mut_aa else "M",
+        "name": name,
+        "codon": oligo_codon,
+        "mutant": mut_aa,
+        "length": 1,
+        "hgvs": name_to_hgvs(name),
+        "chunk": 0,
+    }
+
+
+def _resolve_substitution(oligo, ref, d, orf_codon_start):
+    """Resolve a same-diagonal (no-indel) edit by trimming the per-oligo adapter
+    mismatches at each end of the gene window, then scanning for the differing
+    bases. Works even when one flank is shorter than the seed k-mer (e.g. a
+    variant near the gene start), where the two-flank bracket can't anchor."""
+    lo = max(0, -d)
+    hi = min(len(oligo), len(ref) - d)
+    if lo >= hi:
+        return None
+    # Trim leading/trailing adapter (mismatch) so the window starts and ends on
+    # a reference-matching base — i.e. the gene fragment on this diagonal.
+    a = lo
+    while a < hi and oligo[a] != ref[a + d]:
+        a += 1
+    b = hi
+    while b > a and oligo[b - 1] != ref[b - 1 + d]:
+        b -= 1
+    if a >= b:
+        return None
+    mism = [i for i in range(a, b) if oligo[i] != ref[i + d]]
+    if not mism:
+        return None  # DNA-identical to the reference: nothing to call
+    return _seq_substitution(
+        oligo, ref, d, mism[0] + d, mism[-1] + d + 1, orf_codon_start
+    )
+
+
+def _seq_deletion(oligo, ref, d5, length, ref_edit_start, orf_codon_start):
+    """Build an in-frame deletion variant_data dict, or None if it isn't a clean
+    codon-aligned whole-codon deletion. `length` is the deleted base count taken
+    from the diagonal difference (robust to flank/edit base coincidences); the
+    position is snapped to a codon boundary and the reconstruction verified."""
+    if length <= 0 or length % 3 != 0 or ref_edit_start < orf_codon_start:
+        return None
+    # Snap to the codon boundary at/just-left of the bracketed start: greedy
+    # exact-match extension can push the boundary into the deletion when a
+    # flanking base equals a deleted base (indel left-alignment ambiguity).
+    cstart = orf_codon_start + 3 * ((ref_edit_start - orf_codon_start) // 3)
+    junction = cstart - d5  # oligo index where the 3' flank resumes
+    if junction < 0 or cstart + length > len(ref):
+        return None
+    # Verify: removing ref[cstart:cstart+length] reproduces the oligo here.
+    win = ref[cstart + length : cstart + length + 21]
+    if win and oligo[junction : junction + len(win)] != win:
+        return None
+    num_codons = length // 3
+    start_pos = (cstart - orf_codon_start) // 3 + 1
+    start_aa = str(Seq(ref[cstart : cstart + 3]).translate())
+    if num_codons == 1:
+        name = start_aa + str(start_pos) + "del"
+    else:
+        end_codon_start = cstart + length - 3
+        end_aa = str(Seq(ref[end_codon_start : end_codon_start + 3]).translate())
+        name = (
+            start_aa
+            + str(start_pos)
+            + "_"
+            + end_aa
+            + str(start_pos + num_codons - 1)
+            + "del"
+        )
+    return {
+        "count": 0,
+        "pos": start_pos,
+        "mutation_type": "D",
+        "name": name,
+        "codon": "",
+        "mutant": "D_" + str(num_codons),
+        "length": num_codons,
+        "hgvs": name_to_hgvs(name),
+        "chunk": 0,
+    }
+
+
+def _seq_insertion(oligo, ref, d5, length, ref_edit_start, orf_codon_start):
+    """Build an in-frame insertion variant_data dict, or None if it isn't a clean
+    codon-aligned whole-codon insertion. `length` is the inserted base count from
+    the diagonal difference; the insertion point is snapped to a codon boundary
+    and the reconstruction verified."""
+    if length <= 0 or length % 3 != 0 or ref_edit_start < orf_codon_start:
+        return None
+    ipos = orf_codon_start + 3 * ((ref_edit_start - orf_codon_start) // 3)
+    oj = ipos - d5  # oligo index where the inserted bases begin
+    pos = (ipos - orf_codon_start) // 3  # codon just before the insertion
+    if oj < 0 or oj + length > len(oligo) or pos < 1 or ipos + 3 > len(ref):
+        return None
+    inserted = oligo[oj : oj + length]
+    # Verify: oligo after the inserted bases continues with ref[ipos:].
+    win = ref[ipos : ipos + 21]
+    if win and oligo[oj + length : oj + length + len(win)] != win:
+        return None
+    start_aa = str(Seq(ref[ipos - 3 : ipos]).translate())
+    end_aa = str(Seq(ref[ipos : ipos + 3]).translate())
+    aa_string = "".join(
+        str(Seq(inserted[i : i + 3]).translate()) for i in range(0, len(inserted), 3)
+    )
+    name = start_aa + str(pos) + "_" + end_aa + str(pos + 1) + "ins" + aa_string
+    return {
+        "count": 0,
+        "pos": pos,
+        "mutation_type": "I",
+        "name": name,
+        "codon": inserted,
+        "mutant": "I_" + str(length // 3),
+        "length": length // 3,
+        "hgvs": name_to_hgvs(name),
+        "chunk": 0,
+    }
+
+
+def identify_variant_from_sequence(
+    oligo, ref, offset, is_circular=False, kmer_index=None, k=SEED_K
+):
+    """Identify a designed variant from the oligo SEQUENCE vs the reference,
+    independent of the oligo name (issue #27).
+
+    Each oligo holds a reference-matching gene fragment flanked by adapter
+    sequence that does not match the reference (and varies per subpool). The
+    fragment is located by exact k-mer anchoring; the single localized edit
+    between two reference-matching flanks is classified as substitution,
+    synonymous, in-frame deletion, or in-frame insertion. Returns a variant_data
+    dict in the same shape as the name-based path, or None when the edit can't be
+    confidently resolved (caller falls back to name parsing).
+
+    Assumes a linear reference and one localized edit per oligo (the DMS design
+    guarantee); returns None for circular references and ambiguous/multi-edit
+    oligos.
+    """
+    if is_circular:
+        return None
+    oligo = str(oligo).upper()
+    ref = str(ref).upper()
+    if kmer_index is None:
+        kmer_index = build_reference_kmer_index(ref, k)
+
+    # 0-based ref index of the ORF's first codon (== orf_start - 1; the legacy
+    # `offset` is orf_start - 4, so orf_codon_start = offset + 3).
+    orf_codon_start = offset + 3
+
+    # Diagonal votes: d = ref_pos - oligo_pos for each exact k-mer hit. Gene-flank
+    # k-mers vote their diagonal; per-subpool adapters don't match the reference
+    # and contribute nothing, so the gene fragment is found without knowing them.
+    hits = []
+    for i in range(len(oligo) - k + 1):
+        for j in kmer_index.get(oligo[i : i + k], ()):
+            hits.append((i, j - i))
+    if not hits:
+        return None
+
+    # 5' flank diagonal = diagonal of the leftmost hit; 3' flank diagonal =
+    # diagonal of the rightmost hit. Equal for a substitution; differ by the
+    # indel length otherwise.
+    left_i, d5 = min(hits, key=lambda h: h[0])
+    right_i, d3 = max(hits, key=lambda h: h[0])
+
+    # Substitution / synonymous: a single diagonal. Resolve by trimming adapter
+    # and scanning the gene window — this also handles a flank too short to seed
+    # (variant near the gene start), where a two-flank bracket can't anchor.
+    if d5 == d3:
+        return _resolve_substitution(oligo, ref, d5, orf_codon_start)
+
+    # Indel: two diagonals. The 5' flank end (in ref) marks where the edit
+    # begins; the deleted/inserted length is the diagonal difference. The
+    # helpers snap that start to a codon boundary and verify the reconstruction.
+    e5 = _extend_match_right(oligo, ref, left_i, d5)  # end of 5' flank (oligo, excl.)
+    ref_edit_start = e5 + d5
+    if not (0 <= ref_edit_start <= len(ref)):
+        return None
+
+    if d3 - d5 > 0:  # ref longer than oligo -> deletion
+        return _seq_deletion(oligo, ref, d5, d3 - d5, ref_edit_start, orf_codon_start)
+    return _seq_insertion(oligo, ref, d5, d5 - d3, ref_edit_start, orf_codon_start)
 
 
 def check_designed_df(df) -> bool:

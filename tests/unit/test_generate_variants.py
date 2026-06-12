@@ -14,6 +14,7 @@ from workflow.rules.scripts.generate_variants import (
     designed_variants,
     extract_codon,
     get_sequence_segment,
+    identify_variant_from_sequence,
     name_to_hgvs,
     write_designed_csv,
 )
@@ -415,6 +416,171 @@ class TestDeduplicateDesignedVariants(unittest.TestCase):
                 os.path.exists(report),
                 "dedup conflict should write the offending rows to dup_report_path",
             )
+
+
+class TestSequenceBasedIdentification(unittest.TestCase):
+    """Issue #27: identify designed variants from the oligo SEQUENCE vs the
+    reference, independent of the oligo name. Adapters vary per oligo and do not
+    match the reference."""
+
+    # A 24-codon ORF with varied codons (no long internal repeats) so anchoring
+    # is unambiguous. ORF starts at base 1, so offset = orf_start - 4 = -3.
+    REF_CODONS = [
+        "ATG",
+        "AAG",
+        "CTG",
+        "GTC",
+        "TTC",
+        "TGG",
+        "GAA",
+        "CAC",
+        "GAT",
+        "CGT",
+        "ACC",
+        "AGC",
+        "CCG",
+        "GGT",
+        "TAT",
+        "AAC",
+        "CAG",
+        "GAG",
+        "TTA",
+        "GCA",
+        "TCT",
+        "ATC",
+        "CGA",
+        "GTG",
+    ]
+    REF = "".join(REF_CODONS)
+    OFFSET = -3
+
+    def _oligo(
+        self,
+        adapter5,
+        adapter3,
+        mutate=None,
+        new_codon=None,
+        delete=None,
+        insert_after=None,
+        ins_codons=None,
+    ):
+        """Assemble an oligo: adapter5 + (gene with one edit) + adapter3.
+        `mutate`/`delete`/`insert_after` are 0-based codon indices."""
+        cs = self.REF_CODONS.copy()
+        if mutate is not None:
+            cs[mutate] = new_codon
+        if delete is not None:
+            for j in sorted(delete, reverse=True):
+                del cs[j]
+        if insert_after is not None:
+            cs = (
+                self.REF_CODONS[: insert_after + 1]
+                + list(ins_codons)
+                + self.REF_CODONS[insert_after + 1 :]
+            )
+        return adapter5 + "".join(cs) + adapter3
+
+    def _id(self, oligo):
+        return identify_variant_from_sequence(oligo, self.REF, self.OFFSET)
+
+    def test_substitution_missense(self):
+        # codon 10 (idx 9) CGT(R) -> GCT(A)  => R10A
+        o = self._oligo("TTGCACTGACTGAC", "GACTGACGTTGCAA", mutate=9, new_codon="GCT")
+        v = self._id(o)
+        self.assertEqual(v["name"], "R10A")
+        self.assertEqual(v["pos"], 10)
+        self.assertEqual(v["mutation_type"], "M")
+        self.assertEqual(v["codon"], "GCT")
+        self.assertEqual(v["mutant"], "A")
+
+    def test_substitution_synonymous(self):
+        # codon 5 (idx 4) TTC(F) -> TTT(F)  => F5F
+        o = self._oligo("CCAGGTTACTGAC", "GTACAGTTGCA", mutate=4, new_codon="TTT")
+        v = self._id(o)
+        self.assertEqual(v["name"], "F5F")
+        self.assertEqual(v["mutation_type"], "S")
+
+    def test_deletion_single_codon(self):
+        # delete codon 8 (idx 7) CAC(H) => H8del
+        o = self._oligo("ACACACACACACAC", "TGTGTGTGTGTGTG", delete=[7])
+        v = self._id(o)
+        self.assertEqual(v["name"], "H8del")
+        self.assertEqual(v["mutation_type"], "D")
+        self.assertEqual(v["length"], 1)
+
+    def test_deletion_two_codons(self):
+        # delete codons 8,9 (idx 7,8) H,D => H8_D9del
+        o = self._oligo("ACACACACACACAC", "TGTGTGTGTGTGTG", delete=[7, 8])
+        v = self._id(o)
+        self.assertEqual(v["name"], "H8_D9del")
+        self.assertEqual(v["length"], 2)
+
+    def test_insertion(self):
+        # insert codon AAA(K) after codon 6 (idx 5) => W6_E7insK
+        o = self._oligo(
+            "ACACACACACACAC", "TGTGTGTGTGTGTG", insert_after=5, ins_codons=["AAA"]
+        )
+        v = self._id(o)
+        self.assertEqual(v["mutation_type"], "I")
+        self.assertTrue(v["name"].endswith("insK"))
+        self.assertEqual(v["codon"], "AAA")
+
+    def test_adapter_independence(self):
+        # Same variant (R10A) with two DIFFERENT non-reference adapters resolves
+        # identically — proving the gene fragment is found per-oligo.
+        o1 = self._oligo("TTGCACTGACTGAC", "GACTGACGTTGCAA", mutate=9, new_codon="GCT")
+        o2 = self._oligo("AAACCCTTTGGGAA", "CCCAAATTTGGGTT", mutate=9, new_codon="GCT")
+        self.assertEqual(self._id(o1)["name"], self._id(o2)["name"], "R10A")
+
+    def test_multi_change_returns_none(self):
+        # Two separated substitutions in one oligo -> ambiguous -> None (fallback).
+        o = self._oligo("ACACACACACACAC", "TGTGTGTGTGTGTG", mutate=9, new_codon="GCT")
+        # introduce a second change at codon 4 by editing the assembled string
+        cs = self.REF_CODONS.copy()
+        cs[9] = "GCT"
+        cs[4] = "AAA"
+        o = "ACACACACACACAC" + "".join(cs) + "TGTGTGTGTGTGTG"
+        self.assertIsNone(self._id(o))
+
+    def test_terminal_codon_falls_back(self):
+        # Edit in the first codon has no 5' flank -> sequence ID returns None so
+        # the name path can take over.
+        o = self._oligo("ACACACACACACAC", "TGTGTGTGTGTGTG", mutate=0, new_codon="CTG")
+        self.assertIsNone(self._id(o))
+
+    def test_designed_variants_end_to_end_ignores_names(self):
+        """End-to-end through designed_variants with NON-DIMPLE oligo names: if
+        the variants still resolve correctly, identity came from the sequence,
+        not the name (the whole point of issue #27)."""
+        rows = [
+            (
+                "oligo_0001",
+                self._oligo(
+                    "TTGCACTGACTGAC", "GACTGACGTTGCAA", mutate=9, new_codon="GCT"
+                ),
+            ),  # R10A
+            (
+                "random_name",
+                self._oligo(
+                    "AAACCCTTTGGGAA", "CCCAAATTTGGGTT", mutate=4, new_codon="TTT"
+                ),
+            ),  # F5F (syn)
+            (
+                "xyz",
+                self._oligo("ACACACACACACAC", "TGTGTGTGTGTGTG", delete=[7]),
+            ),  # H8del
+        ]
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as tf:
+            temp_name = tf.name
+            tf.write("name,sequence\n")
+            for name, seq in rows:
+                tf.write(f"{name},{seq}\n")
+
+        variants = designed_variants(temp_name, self.REF, self.OFFSET)
+        os.unlink(temp_name)
+
+        names = {v["name"] for v in variants}
+        self.assertEqual(names, {"R10A", "F5F", "H8del"})
 
 
 class TestIntegration(unittest.TestCase):
