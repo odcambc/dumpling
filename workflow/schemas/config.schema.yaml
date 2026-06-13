@@ -137,6 +137,40 @@ properties:
     type: integer
     default: 16000
     description: memory for Lilace (in Mb)
+  mem_bbduk:
+    type: integer
+    default: 2000
+    description: |
+      Memory allocation for each bbduk step in the trim/clean/correct rule (in
+      Mb). Becomes the rule's resources mem_mb (the trim_clean_correct rule
+      requests 2*mem_bbduk + mem_bbmerge, for its concurrent JVMs); the bbduk
+      -Xmx heap is derived a headroom below it. Used by cluster schedulers.
+  mem_bbmerge:
+    type: integer
+    default: 2000
+    description: Memory allocation for the bbmerge step in trim/clean/correct (in Mb).
+  mem_bbmap:
+    type: integer
+    default: 12000
+    description: |
+      Memory allocation for bbmap mapping and index building (in Mb). bbmap is
+      the heaviest mapping step (~8.5 GB RSS on real DMS data); the -Xmx heap is
+      derived a headroom below this. Becomes resources mem_mb for the scheduler.
+  mem_minimap2:
+    type: integer
+    default: 1000
+    description: Memory allocation for minimap2 mapping and index building (in Mb).
+  mem_gatk:
+    type: integer
+    default: 6000
+    description: |
+      Memory allocation for the GATK AnalyzeSaturationMutagenesis rule (in Mb).
+      The GATK JVM heap is pinned a headroom below this via --java-options so it
+      doesn't overrun the cgroup allocation on a cluster.
+  mem_process_sample:
+    type: integer
+    default: 2000
+    description: Memory allocation for the per-sample variant-processing rule (in Mb).
   lilace_seed:
     type:
       - integer

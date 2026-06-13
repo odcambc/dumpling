@@ -33,6 +33,8 @@ rule process_sample:
     params:
         regenerate_variants=config["regenerate_variants"],
         gatk_dir="results/{experiment}/gatk/",
+    resources:
+        mem_mb=config["mem_process_sample"],
     benchmark:
         "benchmarks/{experiment}/{sample_prefix}.process_sample.benchmark.txt"
     log:

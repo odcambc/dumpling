@@ -307,6 +307,44 @@ snakemake -s workflow/Snakefile --software-deployment-method conda --cores 8
 The maximum number of cores can be specified with the `--cores` flag. The `--software-deployment-method conda` flag
 tells Snakemake to use conda to create the environment specified within each rule.
 
+For a local run that also respects per-rule memory budgets, use the bundled local profile:
+
+```bash
+snakemake --profile workflow/profiles/default --cores 16
+```
+
+### Running on a cluster
+
+dumpling ships a SLURM profile (`workflow/profiles/slurm`). Snakemake runs on the
+login node and submits one `sbatch` job per rule instance; each job executes
+inside the [prebuilt container](#using-the-prebuilt-container-recommended) on the
+compute nodes. Every heavy rule declares `threads` and `resources: mem_mb`
+(tunable via the `mem_*` config knobs), which Snakemake translates into
+`--cpus-per-task` / `--mem` / `--time`.
+
+1. On the login node, create the thin submitting environment (Snakemake + the
+   SLURM executor plugin only):
+
+   ```bash
+   conda env create -f cluster_env.yaml
+   conda activate dumpling_cluster
+   ```
+
+2. Set your site's SLURM account and partition by uncommenting `slurm_account`
+   / `slurm_partition` under `default-resources` in `workflow/profiles/slurm/config.yaml`
+   (these are the only values that can't be defaulted). Adjust `mem_*` budgets in
+   your config if the defaults don't fit your data — read `benchmarks/{experiment}/`
+   `max_rss` from a real run to size them.
+
+3. Launch:
+
+   ```bash
+   snakemake --profile workflow/profiles/slurm --software-deployment-method apptainer
+   ```
+
+To validate the profile without submitting anything (e.g. to check resources and
+account settings resolve), add `--dry-run`.
+
 ### Output files
 
 The pipeline generates a variety of output files. These are organized into the following directories:

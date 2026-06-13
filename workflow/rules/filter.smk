@@ -27,8 +27,14 @@ rule trim_clean_correct:
     params:
         adapters=adapters_ref,
         contaminants=contaminants_ref,
-        mem=config["mem"],
+        heap_bbduk=java_heap_gb(config["mem_bbduk"]),
+        heap_bbmerge=java_heap_gb(config["mem_bbmerge"]),
         compression_flags=bbtools_compression_flags,
+    resources:
+        # Three BBTools JVMs run concurrently in the pipe (two bbduk + one
+        # bbmerge), so the scheduler allocation covers their sum; each JVM's
+        # -Xmx sits a headroom below its own per-tool budget.
+        mem_mb=2 * config["mem_bbduk"] + config["mem_bbmerge"],
     benchmark:
         "benchmarks/{experiment}/{sample_prefix}.trim_clean_correct.benchmark.txt"
     log:
@@ -43,7 +49,7 @@ rule trim_clean_correct:
         # Inter-stage payload is uncompressed interleaved FASTQ on stdin/stdout;
         # only the final bbmerge write to disk uses the compression flags.
         "( bbduk.sh "
-        "-Xmx{params.mem}g "
+        "-Xmx{params.heap_bbduk}g "
         "in1={input.R1} in2={input.R2} "
         "ref={params.adapters} ktrim=r k=23 mink=10 hdist=1 tpe tbo "
         "out=stdout.fq interleaved=t "
@@ -55,14 +61,14 @@ rule trim_clean_correct:
         "stats={output.trim_stats} "
         "overwrite=false t=5 gcbins=auto 2> {log.bbduk_trim} "
         "| bbduk.sh "
-        "-Xmx{params.mem}g "
+        "-Xmx{params.heap_bbduk}g "
         "in=stdin.fq interleaved=t "
         "ref={params.contaminants} k=31 "
         "out=stdout.fq interleaved=t "
         "stats={output.contam_stats} "
         "overwrite=false t=5 2> {log.bbduk_clean} "
         "| bbmerge.sh "
-        "-Xmx{params.mem}g "
+        "-Xmx{params.heap_bbmerge}g "
         "in=stdin.fq interleaved=t "
         "out1={output.R1_ec} out2={output.R2_ec} "
         "ihist={output.ihist} "

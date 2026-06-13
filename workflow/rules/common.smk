@@ -11,6 +11,7 @@ if str(_SCRIPTS_DIR) not in sys.path:
 from script_utils import (  # noqa: E402
     file_digest,
     get_cosmos_phenotype_conditions,
+    java_heap_gb,
     load_experiments,
     resolve_fastq_pair,
     translate_legacy_bbtools_compression,
@@ -263,20 +264,21 @@ config.setdefault("deposit_to_mavedb", True)
 config.setdefault("keep_enrich_h5", False)
 config.setdefault("aligner", "bbmap")
 
-# Per-tool memory budgets (GB). Used for both Java -Xmx flags inside the
-# BBTools/GATK rule shells AND `resources: mem_mb` declarations consumed
-# by cluster schedulers. Defaults sized from BBTools/GATK upstream
-# documentation plus a safety factor; tune per site by re-running the
-# pipeline with --benchmark on real data and reading max_rss from
-# benchmarks/{experiment}/. The legacy single-knob `config["mem"]` is
-# still honored as a fallback where rule shells reference {params.mem};
-# see schemas/config.schema.yaml for the migration note.
-config.setdefault("mem_bbduk", 2)
-config.setdefault("mem_bbmerge", 2)
-config.setdefault("mem_bbmap", 12)
-config.setdefault("mem_minimap2", 1)
-config.setdefault("mem_gatk", 6)
-config.setdefault("mem_process_sample", 2)
+# Per-tool memory allocations (MB), matching the unit of the existing
+# mem_fastqc / mem_rosace / mem_lilace knobs. Each becomes a rule's
+# `resources: mem_mb`, which a cluster scheduler turns into `sbatch --mem`.
+# For the Java (BBTools/GATK) rules the `-Xmx` heap is derived a fixed
+# headroom BELOW this allocation via script_utils.java_heap_gb, so the heap
+# fits inside the cgroup limit. Defaults sized from BBTools/GATK upstream docs
+# plus a safety factor; tune per site by reading max_rss from
+# benchmarks/{experiment}/ on real data. (These supersede the single global
+# `config["mem"]` knob for these rules; mem is left for any out-of-tree use.)
+config.setdefault("mem_bbduk", 2000)
+config.setdefault("mem_bbmerge", 2000)
+config.setdefault("mem_bbmap", 12000)
+config.setdefault("mem_minimap2", 1000)
+config.setdefault("mem_gatk", 6000)
+config.setdefault("mem_process_sample", 2000)
 
 if config["aligner"] not in ("bbmap", "minimap2"):
     raise ValueError(

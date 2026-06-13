@@ -241,6 +241,26 @@ def validate_scoring_backend_mode(config: dict) -> None:
         )
 
 
+def java_heap_gb(mem_mb, headroom_mb=2000):
+    """Java ``-Xmx`` heap size (whole GB) that fits inside a ``mem_mb`` cgroup
+    allocation, leaving headroom for the JVM's own overhead.
+
+    On a SLURM cluster ``--mem`` is a hard cgroup limit: a JVM whose heap
+    equals the limit gets OOM-killed the moment its non-heap footprint
+    (metaspace, thread stacks, direct/native buffers, GC structures) lands on
+    top. So the heap is sized a fixed ``headroom_mb`` below the rule's memory
+    allocation. The result is floored at 1 GB so the light BBTools steps (whose
+    allocation is only ~2 GB) still get a usable heap rather than 0.
+
+    ``mem_mb`` is the rule's ``resources: mem_mb`` (megabytes); the return value
+    feeds ``-Xmx{n}g``. We divide by 1000 (not 1024) on purpose — it yields a
+    slightly smaller, conservative heap that stays comfortably under the
+    1024-based ``g`` suffix. Lives here (rather than inline in a rule) so the
+    headroom policy is unit-testable, mirroring the other helpers in this module.
+    """
+    return max(1, (mem_mb - headroom_mb) // 1000)
+
+
 def get_cosmos_phenotype_conditions(experiments, baseline_condition):
     """Return experimental conditions ordered by their cosmos phenotype slot.
 

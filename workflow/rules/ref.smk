@@ -94,15 +94,17 @@ if config["aligner"] == "bbmap":
             # against the same reference skip the ~5s rebuild.
             index_dir=directory(f"ref/bbmap/{experiment}_{ref_digest}"),
         params:
-            mem=config["mem"],
+            heap=java_heap_gb(config["mem_bbmap"]),
             kmers=config["kmers"],
             compression_flags=bbtools_compression_flags,
+        resources:
+            mem_mb=config["mem_bbmap"],
         threads: 16
         log:
             f"logs/{experiment}/bbmap/{reference_name}.bbmap_index.log",
         shell:
             "bbmap.sh "
-            "-Xmx{params.mem}g "
+            "-Xmx{params.heap}g "
             "ref={input} "
             "path={output.index_dir} "
             "build=1 "
@@ -124,6 +126,8 @@ elif config["aligner"] == "minimap2":
             # ref_digest, collision-safe, persisting saves the rebuild on
             # repeat runs against the same reference.
             index=f"ref/minimap2/{experiment}_{ref_digest}.mmi",
+        resources:
+            mem_mb=config["mem_minimap2"],
         threads: 4
         log:
             f"logs/{experiment}/minimap2/{reference_name}.minimap2_index.log",

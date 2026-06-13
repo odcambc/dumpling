@@ -5,6 +5,7 @@ from Bio.Seq import Seq
 from workflow.rules.scripts.script_utils import (
     file_digest,
     get_cosmos_phenotype_conditions,
+    java_heap_gb,
     load_experiments,
     run_script,
     translate_orf,
@@ -326,3 +327,36 @@ class TestGetCosmosPhenotypeConditions:
         df = self._experiments([("cond_A", 1), ("cond_B", 3)])
         with pytest.raises(ValueError, match="contiguous"):
             get_cosmos_phenotype_conditions(df, "baseline")
+
+
+class TestJavaHeapGb:
+    """Java -Xmx heap sizing for cluster rules (issue #13): the heap must sit a
+    headroom below the rule's mem_mb cgroup allocation so the JVM isn't
+    OOM-killed by its own overhead."""
+
+    def test_large_allocation_leaves_headroom(self):
+        # bbmap: 12000 MB allocation -> 10 GB heap (2 GB headroom).
+        assert java_heap_gb(12000) == 10
+
+    def test_gatk_allocation(self):
+        # gatk: 6000 MB -> 4 GB heap.
+        assert java_heap_gb(6000) == 4
+
+    def test_small_allocation_floors_at_1gb(self):
+        # bbduk/bbmerge: 2000 MB allocation would compute 0 GB; floor to 1 so
+        # the JVM still gets a usable heap rather than -Xmx0g.
+        assert java_heap_gb(2000) == 1
+
+    def test_never_returns_zero_or_negative(self):
+        # Even a tiny allocation never yields a non-positive heap.
+        assert java_heap_gb(500) == 1
+        assert java_heap_gb(0) == 1
+
+    def test_heap_strictly_below_allocation(self):
+        # The invariant that matters: -Xmx (in MB) stays under the cgroup mem_mb
+        # across the realistic budget range, so the JVM has room for overhead.
+        for mem_mb in (2000, 4000, 6000, 12000, 16000):
+            assert java_heap_gb(mem_mb) * 1024 < mem_mb
+
+    def test_headroom_is_configurable(self):
+        assert java_heap_gb(12000, headroom_mb=4000) == 8
