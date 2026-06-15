@@ -149,7 +149,6 @@ def get_input(wildcards):
             # MaveDB-format deposit CSVs per experimental condition: the
             # score table plus a row-aligned raw-count table. Both are cheap
             # (~seconds) post-processing of the scoring output, so default-on.
-            # prepare_sra stays manual-only (ships placeholder fields).
             input_list.extend(
                 expand(
                     "results/{experiment_name}/deposit/mavedb/{conditions}_mavedb.csv",
@@ -332,7 +331,12 @@ reference_name = Path(config["reference"]).stem
 # user-supplied file. The `prepare_reference` rule (ref.smk) rewrites the
 # first `>` line to `>{reference_name}` so the FASTA contig name matches
 # the filename stem — Upstream #19. The raw user file is left untouched.
-normalized_reference_file = Path("ref") / config["reference"]
+# Use only the basename (.name): if `reference` is an absolute path or
+# carries directory components, `Path("ref") / <absolute>` would collapse to
+# the original location and prepare_reference would overwrite the user's own
+# FASTA. Stripping to the basename guarantees the rewrite always lands under
+# the workflow-managed ref/ directory.
+normalized_reference_file = Path("ref") / Path(config["reference"]).name
 
 adapters_ref = pass_names(config["adapters"])
 contaminants_ref = pass_names(config["contaminants"])

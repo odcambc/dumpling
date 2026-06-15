@@ -106,23 +106,3 @@ is a tracked future optimization (tasks.md). See docs/cosmos_export_design.md.
         "../envs/cosmos.yaml"
     script:
         "scripts/run_cosmos.py"
-
-
-rule prepare_sra:
-    """Prepare SRA submission metadata and FASTQ file list.
-
-Run with:
-snakemake results/<experiment>/deposit/sra/sra_metadata.tsv
-"""
-    input:
-        experiment_file=config["experiment_file"],
-    output:
-        metadata="results/{experiment_name}/deposit/sra/sra_metadata.tsv",
-        filelist="results/{experiment_name}/deposit/sra/sra_files.txt",
-    log:
-        "logs/{experiment_name}/deposit/sra.log",
-    params:
-        data_dir=config["data_dir"],
-        sra_config=config.get("sra", {}),
-    script:
-        "scripts/prepare_sra.py"

@@ -236,9 +236,7 @@ properties:
       produced alongside the regular scoring outputs — the format_mavedb
       rule's output is cheap (~seconds, runs after scoring completes) and
       directly uploadable to MaveDB. Set to false to skip deposit-format
-      generation. `prepare_sra` stays manual-only regardless of this flag
-      because its output ships placeholder fields (instrument_model,
-      biosample_accession) the user has to fill in.
+      generation.
   remove_zeros:
     type: boolean
     default: false
