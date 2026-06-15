@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Bootstrap the dumpling devcontainer:
 #   1. Create / update the canonical conda env from dumpling_env.yaml.
-#   2. (--with-dev-deps only) install the python dev requirements
-#      (pytest + pytest-mock) into dumpling_env.
+#   2. (--with-dev-deps only) install the python dev dependency group
+#      (from pyproject.toml's [dependency-groups] dev) into dumpling_env.
 #   3. Install the system-R packages the unit-test suite reads.
 #   4. Pre-warm all three scoring backends (rosace, lilace, rosace_aa)
 #      via the existing snakemake install rules. After this, a user
@@ -35,8 +35,11 @@ echo "[postCreate] creating/updating dumpling_env conda environment"
 conda env create -f dumpling_env.yaml || conda env update -f dumpling_env.yaml
 
 if [[ "$WITH_DEV_DEPS" -eq 1 ]]; then
-  echo "[postCreate] installing python dev requirements into dumpling_env"
-  /opt/conda/envs/dumpling_env/bin/pip install -r requirements-dev.txt
+  echo "[postCreate] installing python dev dependency group into dumpling_env"
+  # PEP 735 dependency group from pyproject.toml (pip >= 25.1, present in the
+  # python 3.13 dumpling_env). Sources the dev deps from the single pyproject
+  # source of truth instead of a separate requirements file.
+  /opt/conda/envs/dumpling_env/bin/pip install --group dev
 fi
 
 echo "[postCreate] installing system-R packages for the unit-test suite"
