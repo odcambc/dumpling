@@ -28,7 +28,7 @@ properties:
       optional cosmos phenotype slot for this sample's condition (1, 2, ...).
       Maps the condition's scores to cosmos beta_hat_N/se_hat_N. Must agree
       across all rows of a condition; leave blank to exclude from the cosmos
-      export. Only used when deposit_to_cosmos is true.
+      export. Only used when run_cosmos is true.
 
 required:
   - sample

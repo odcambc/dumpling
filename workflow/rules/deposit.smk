@@ -55,7 +55,7 @@ rule format_cosmos:
     """Format per-condition variant scores into a single cosmos input CSV.
 
 Run with:
-snakemake results/<experiment>/deposit/cosmos/<experiment>_cosmos.csv
+snakemake results/<experiment>/cosmos/<experiment>_cosmos.csv
 
 Unlike format_mavedb (one file per condition), this is multi-condition: it
 joins the score CSVs of every condition assigned a `phenotype` slot in the
@@ -70,13 +70,42 @@ slot order. See docs/cosmos_export_design.md.
             allow_missing=True,
         ),
     output:
-        cosmos="results/{experiment_name}/deposit/cosmos/{experiment_name}_cosmos.csv",
+        cosmos="results/{experiment_name}/cosmos/{experiment_name}_cosmos.csv",
     log:
-        "logs/{experiment_name}/deposit/cosmos.log",
+        "logs/{experiment_name}/cosmos.log",
     params:
         backend=scoring_backend,
     script:
         "scripts/format_cosmos.py"
+
+
+rule run_cosmos:
+    """Run cosmos on the formatted input: the per-position direct/indirect
+effect decomposition across the two phenotype conditions (slots 1 -> 2).
+
+Run with:
+snakemake results/<experiment>/cosmos/<experiment>_cosmos_results.csv
+
+NOTE: cosmos fits a model PER POSITION (~tens of seconds each) and this runs
+them serially, so a large library takes hours. Parallelizing across positions
+is a tracked future optimization (tasks.md). See docs/cosmos_export_design.md.
+"""
+    input:
+        cosmos="results/{experiment_name}/cosmos/{experiment_name}_cosmos.csv",
+    output:
+        results="results/{experiment_name}/cosmos/{experiment_name}_cosmos_results.csv",
+    log:
+        "logs/{experiment_name}/cosmos_run.log",
+    params:
+        # The two phenotype conditions in slot order (slot 1 -> beta_hat_1 ->
+        # cosmos x; slot 2 -> beta_hat_2 -> cosmos y). Labels only.
+        phenotypes=cosmos_phenotype_conditions,
+    resources:
+        mem_mb=config["mem_cosmos"],
+    conda:
+        "../envs/cosmos.yaml"
+    script:
+        "scripts/run_cosmos.py"
 
 
 rule prepare_sra:

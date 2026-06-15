@@ -162,12 +162,21 @@ def get_input(wildcards):
                     conditions=experimental_conditions,
                 )
             )
-        if config.get("deposit_to_cosmos") and cosmos_phenotype_conditions:
-            # Single multi-condition cosmos table, gated on at least one
-            # condition declaring a `phenotype` slot in the experiment CSV.
+        if config.get("run_cosmos"):
+            # Run cosmos as part of the build (like enrich2: an analysis layered
+            # on top of the chosen scoring backend's per-condition scores). The
+            # results pull format_cosmos -> run_cosmos. cosmos models exactly two
+            # sequential phenotypes, so require two phenotype-assigned conditions.
+            if len(cosmos_phenotype_conditions) != 2:
+                raise ValueError(
+                    "run_cosmos requires exactly two conditions assigned phenotype "
+                    "slots 1 and 2 in the experiment CSV (cosmos models two "
+                    f"sequential phenotypes); got {len(cosmos_phenotype_conditions)}: "
+                    f"{cosmos_phenotype_conditions}."
+                )
             input_list.extend(
                 expand(
-                    "results/{experiment_name}/deposit/cosmos/{experiment_name}_cosmos.csv",
+                    "results/{experiment_name}/cosmos/{experiment_name}_cosmos_results.csv",
                     experiment_name=config["experiment"],
                 )
             )
@@ -279,6 +288,7 @@ config.setdefault("mem_bbmap", 12000)
 config.setdefault("mem_minimap2", 1000)
 config.setdefault("mem_gatk", 6000)
 config.setdefault("mem_process_sample", 2000)
+config.setdefault("mem_cosmos", 4000)
 
 if config["aligner"] not in ("bbmap", "minimap2"):
     raise ValueError(

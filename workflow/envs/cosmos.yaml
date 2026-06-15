@@ -1,0 +1,16 @@
+channels:
+  - conda-forge
+  - bioconda
+  - nodefaults
+dependencies:
+  # cosmos (pimentellab/cosmos) requires Python >= 3.12.
+  - python>=3.12
+  - pip
+  - pip:
+      # cosmos is pip-only (not on conda). It pulls its own pure-Python stack
+      # (numpy 2.x, scipy, scikit-learn, arviz, xarray, seaborn). No Stan/cmdstan
+      # — unlike rosace/lilace, this env has no compile step.
+      - cosmos-dms
+      # arviz (a cosmos dep) imports matplotlib.style.core, removed in
+      # matplotlib 3.11; pin below it so `import cosmos` doesn't AttributeError.
+      - matplotlib<3.11

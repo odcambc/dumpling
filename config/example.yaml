@@ -83,11 +83,17 @@ oligo_file: "config/oligos/example_oligos.csv"
 #                    true; ships `results/{experiment}/deposit/mavedb/{cond}_mavedb.csv`
 #                    per experimental condition, directly uploadable to MaveDB.
 #                    Cheap (~seconds after scoring) so on by default.
-# deposit_to_cosmos: Set to true to emit a single cosmos (pimentellab/cosmos)
-#                    multi-phenotype input CSV at
-#                    `results/{experiment}/deposit/cosmos/{experiment}_cosmos.csv`.
-#                    Requires assigning conditions a `phenotype` slot (1, 2, ...)
-#                    in the experiment CSV. Off by default (opt-in).
+# run_cosmos: Set to true to run cosmos (pimentellab/cosmos) as part of the
+#             build — like enrich2, an analysis on top of the chosen scoring
+#             backend. Produces the per-position direct/indirect decomposition
+#             `results/{experiment}/cosmos/{experiment}_cosmos_results.csv`
+#             (format_cosmos prepares its input). Requires exactly two conditions
+#             assigned `phenotype` slots 1 and 2 in the experiment CSV (cosmos
+#             models two sequential phenotypes). Off by default. NOTE: cosmos
+#             fits a model per position (~tens of seconds each, serial), so
+#             enabling it can add hours on a large library. Tune via the optional
+#             `cosmos:` config block (include_type/exclude_type/
+#             x_gmm_n_components/min_num_variants_per_group).
 # noprocess: Set to True to skip variant filtering based on designed variants.
 # run_qc: Set to False to skip QC steps (fastqc and multiqc)
 #
@@ -107,7 +113,7 @@ scoring_backend: rosace
 enrich2: true
 keep_enrich_h5: false
 deposit_to_mavedb: true
-deposit_to_cosmos: false
+run_cosmos: false
 remove_zeros: true
 regenerate_variants: false
 noprocess: false

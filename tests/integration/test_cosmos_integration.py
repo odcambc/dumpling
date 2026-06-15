@@ -2,15 +2,18 @@
 End-to-end tests for the cosmos export (issue: cosmos deposit format).
 
 The unit tests in tests/unit/test_format_cosmos.py cover the formatting logic in
-isolation. These add the two things that were missing:
+isolation. These add the end-to-end coverage:
 
-  - TestCosmosDagConstruction: the format_cosmos rule actually wires into the
-    pipeline DAG when deposit_to_cosmos is on, pulling each phenotype-assigned
-    condition's scores in slot order. Dry-run, needs snakemake; no scoring runs.
-  - TestCosmosLoadsInDMSData: a representative emitted CSV actually loads into
-    the real cosmos package (DMSData). Skipped unless `cosmos` is importable —
-    this is the only check that validates the column contract against cosmos
-    itself rather than against our reading of its source.
+  - TestCosmosDagConstruction: format_cosmos AND run_cosmos wire into the DAG
+    (format pulls each phenotype's scores in slot order; run consumes format's
+    wide CSV — triggered by targeting run_cosmos's output). Dry-run, needs
+    snakemake.
+  - TestCosmosLoadsInDMSData: a representative emitted CSV loads into the real
+    cosmos package (DMSData), incl. the outer-join NA case. Skipped unless
+    `cosmos` is importable.
+  - TestCosmosRun: actually runs cosmos via run_cosmos.run_cosmos and checks the
+    per-position decomposition output. SLOW (cosmos fits per position); skipped
+    unless `cosmos` is importable.
 
 See docs/cosmos_export_design.md.
 """
@@ -21,15 +24,19 @@ import subprocess
 import sys
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import pytest
 import yaml
 
-SCRIPTS_DIR = Path(__file__).resolve().parents[1].parent / "workflow" / "rules" / "scripts"
+SCRIPTS_DIR = (
+    Path(__file__).resolve().parents[1].parent / "workflow" / "rules" / "scripts"
+)
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
 import format_cosmos  # noqa: E402
+import run_cosmos  # noqa: E402
 
 
 def snakemake_available():
@@ -61,7 +68,7 @@ class TestCosmosDagConstruction:
                 "orf": "1-300",
                 "scoring_backend": "rosace",
                 "enrich2": False,
-                "deposit_to_cosmos": True,
+                "run_cosmos": True,
                 "deposit_to_mavedb": False,
                 "noprocess": True,
                 "run_qc": False,
@@ -102,7 +109,7 @@ class TestCosmosDagConstruction:
                 "--dry-run",
                 "--cores",
                 "1",
-                "results/test_experiment/deposit/cosmos/test_experiment_cosmos.csv",
+                "results/test_experiment/cosmos/test_experiment_cosmos.csv",
             ],
             capture_output=True,
             text=True,
@@ -128,7 +135,57 @@ class TestCosmosDagConstruction:
         a = input_line.find("cond_A_scores.csv")
         b = input_line.find("cond_B_scores.csv")
         assert a != -1 and b != -1, f"missing score inputs:\n{input_line}"
-        assert a < b, f"score inputs not in slot order (cond_A before cond_B):\n{input_line}"
+        assert (
+            a < b
+        ), f"score inputs not in slot order (cond_A before cond_B):\n{input_line}"
+
+    def test_run_cosmos_scheduled_consuming_format_output(
+        self, repo_root, fixtures_dir, tmp_path
+    ):
+        """The run_cosmos rule wires into the DAG, taking format_cosmos's wide
+        CSV as input and emitting the per-position results CSV. Dry-run only —
+        no actual cosmos fitting."""
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        (data_dir / "mock_reads_R1.fastq.gz").touch()
+        (data_dir / "mock_reads_R2.fastq.gz").touch()
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text(self._config(repo_root, fixtures_dir, data_dir))
+
+        result = subprocess.run(
+            [
+                "snakemake",
+                "-s",
+                str(repo_root / "workflow" / "Snakefile"),
+                "--configfile",
+                str(config_file),
+                "--dry-run",
+                "--cores",
+                "1",
+                "results/test_experiment/cosmos/"
+                "test_experiment_cosmos_results.csv",
+            ],
+            capture_output=True,
+            text=True,
+            cwd=str(repo_root),
+        )
+        combined = result.stdout + result.stderr
+        assert result.returncode == 0, f"run_cosmos dry-run failed:\n{combined}"
+
+        lines = combined.splitlines()
+        input_line = ""
+        for i, line in enumerate(lines):
+            if line.strip() == "rule run_cosmos:":
+                for follow in lines[i : i + 8]:
+                    if follow.strip().startswith("input:"):
+                        input_line = follow
+                        break
+                break
+        assert input_line, f"run_cosmos not scheduled:\n{combined}"
+        # Its input is format_cosmos's wide CSV (the prep stage feeds the run).
+        assert (
+            "test_experiment_cosmos.csv" in input_line
+        ), f"run_cosmos not consuming the format_cosmos output:\n{input_line}"
 
 
 # -----------------------------------------------------------------------------
@@ -198,7 +255,15 @@ class TestCosmosLoadsInDMSData:
         # Append a variant present only in condition A -> NA in beta_hat_2.
         a_only = pd.DataFrame(
             [("p.(X3onlyA)", 3, "A", "A", "missense", 0.5, 0.1)],
-            columns=["variants", "position", "wildtype", "mutation", "type", "mean", "sd"],
+            columns=[
+                "variants",
+                "position",
+                "wildtype",
+                "mutation",
+                "type",
+                "mean",
+                "sd",
+            ],
         )
         a_only.to_csv(p1, mode="a", header=False, index=False)
 
@@ -219,3 +284,79 @@ class TestCosmosLoadsInDMSData:
         # Loads without error and keeps the NA row (no silent drop).
         retained = getattr(data, "data", df)
         assert len(retained) == n_before
+
+
+def _make_noisy_two_phenotype_scores(tmp_path, n_positions=3, per_pos=16):
+    """Two per-condition score CSVs with a real mediated structure
+    (beta_2 ~ 0.7*beta_1 + noise) so cosmos's per-position fit converges.
+    Deterministic via a fixed seed."""
+    rng = np.random.default_rng(1)
+    aas = "ACDEFGHIKLMNPQRSTVWY"
+    rows1, rows2 = [], []
+    for pos in range(1, n_positions + 1):
+        base = rng.normal(0, 1)
+        for j in range(per_pos):
+            aa = aas[j % len(aas)]
+            v = f"p.(X{pos}{aa})"
+            b1 = base + rng.normal(0, 0.6)
+            b2 = 0.7 * b1 + rng.normal(0, 0.6)
+            rows1.append((v, pos, aa, aa, "missense", b1, 0.1))
+            rows2.append((v, pos, aa, aa, "missense", b2, 0.1))
+    cols = ["variants", "position", "wildtype", "mutation", "type", "mean", "sd"]
+    p1, p2 = tmp_path / "cond_A_scores.csv", tmp_path / "cond_B_scores.csv"
+    pd.DataFrame(rows1, columns=cols).to_csv(p1, index=False)
+    pd.DataFrame(rows2, columns=cols).to_csv(p2, index=False)
+    return p1, p2
+
+
+@pytest.mark.slow
+@pytest.mark.skipif(
+    not cosmos_available(),
+    reason="cosmos package not installed (uv sync --extra cosmos)",
+)
+class TestCosmosRun:
+    """Actually run cosmos end-to-end via run_cosmos.run_cosmos. SLOW: cosmos
+    fits a model per position (~tens of seconds each), so this is capped to a
+    few positions. Validates that the run produces the per-position
+    decomposition the rule promises."""
+
+    def test_run_produces_per_position_summary(self, tmp_path):
+        p1, p2 = _make_noisy_two_phenotype_scores(tmp_path, n_positions=3)
+        cosmos_in = tmp_path / "cosmos_in.csv"
+        cols = format_cosmos._BACKEND_DEFAULTS["rosace"]
+        format_cosmos.format_cosmos([str(p1), str(p2)], "rosace", cols, str(cosmos_in))
+
+        out = tmp_path / "cosmos_results.csv"
+        run_cosmos.run_cosmos(
+            str(cosmos_in),
+            ["abundance", "activity"],
+            str(out),
+            min_num_variants_per_group=10,
+        )
+
+        res = pd.read_csv(out)
+        # cosmos's per-position decomposition: tau (direct) and gamma (mediated),
+        # one row per position group.
+        for col in ["position", "tau_mean", "tau_std", "gamma_mean", "gamma_std"]:
+            assert (
+                col in res.columns
+            ), f"missing cosmos summary column {col}: {list(res.columns)}"
+        assert len(res) >= 1
+        # gamma (mediated effect) is fit for every retained position.
+        assert res["gamma_mean"].notna().any()
+
+    def test_run_rejects_non_two_phenotypes(self, tmp_path):
+        # cosmos models exactly two sequential phenotypes; one (or three) must
+        # fail loud rather than silently mis-fit.
+        cosmos_in = tmp_path / "in.csv"
+        pd.DataFrame(
+            {
+                "variants": ["p.(G2A)"],
+                "group": [2],
+                "type": ["missense"],
+                "beta_hat_1": [1.0],
+                "se_hat_1": [0.1],
+            }
+        ).to_csv(cosmos_in, index=False)
+        with pytest.raises(ValueError, match="exactly 2 phenotypes"):
+            run_cosmos.run_cosmos(str(cosmos_in), ["only_one"], str(tmp_path / "o.csv"))

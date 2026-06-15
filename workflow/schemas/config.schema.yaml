@@ -171,6 +171,30 @@ properties:
     type: integer
     default: 2000
     description: Memory allocation for the per-sample variant-processing rule (in Mb).
+  mem_cosmos:
+    type: integer
+    default: 4000
+    description: Memory allocation for the run_cosmos rule (in Mb).
+  run_cosmos:
+    type: boolean
+    default: false
+    description: |
+      Run cosmos (pimentellab/cosmos) as part of the build, like `enrich2`:
+      an analysis layered on top of the chosen scoring backend, producing the
+      per-position direct/indirect decomposition
+      `results/{experiment}/cosmos/{experiment}_cosmos_results.csv`
+      (format_cosmos prepares its input). Requires exactly two conditions
+      assigned `phenotype` slots 1 and 2 in the experiment CSV (cosmos models
+      two sequential phenotypes). Off by default (opt-in) — NOTE cosmos fits a
+      model per position (~tens of seconds each, serial), so enabling it can add
+      hours on a large library. Tune via the `cosmos` settings block.
+  cosmos:
+    type: object
+    description: |
+      Optional cosmos run settings (used by run_cosmos). All keys optional with
+      sensible defaults: include_type
+      (default ["missense"]), exclude_type (synonymous/nonsense + indel labels),
+      x_gmm_n_components (default 2), min_num_variants_per_group (default 10).
   lilace_seed:
     type:
       - integer
