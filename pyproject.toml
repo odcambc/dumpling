@@ -1,0 +1,53 @@
+# Python DEV/TEST layer for dumpling, managed by uv.
+#
+#   uv sync                 # create .venv with the dev group (full test suite)
+#   uv sync --extra cosmos  # + the optional cosmos validation test deps
+#   uv run pytest
+#
+# This is ONLY the pure-Python test/lint layer. The pipeline RUNTIME (BBTools,
+# GATK, minimap2, samtools, R + Rosace/Lilace, CmdStan, Enrich2) is not
+# pip-installable and runs via the conda envs / the prebuilt container — see
+# dumpling_env.yaml and the README. `package = false` keeps this a *virtual*
+# project: uv never tries to build/install "dumpling" itself (snakemake runs the
+# workflow from source), so this file is inert to everything except uv.
+
+[project]
+name = "dumpling"
+version = "0.2.0"
+description = "Snakemake pipeline for deep mutational scanning analysis"
+requires-python = ">=3.12"
+# No runtime deps: dumpling is a Snakemake workflow, not an importable library.
+dependencies = []
+
+[project.optional-dependencies]
+# Opt-in extra for the real-cosmos validation test
+# (tests/integration/test_cosmos_integration.py::TestCosmosLoadsInDMSData),
+# which is skip-guarded and skips without it. Kept out of the dev group only
+# because it pulls a heavy stack (numpy 2.x, arviz, xarray, scikit-learn) most
+# runs don't need — not for any version conflict (the .venv is isolated).
+# matplotlib<3.11: arviz imports matplotlib.style.core, removed in 3.11.
+cosmos = [
+    "cosmos-dms",
+    "matplotlib<3.11",
+]
+
+[dependency-groups]
+# The default dev/test layer. `uv sync` installs this group; running the full
+# suite needs all of it (script imports + snakemake for the dry-run DAG tests).
+dev = [
+    "pytest",
+    "pytest-mock",
+    "pandas",
+    "biopython",
+    "regex",
+    "jsonschema",
+    "pyyaml",
+    "mavehgvs",
+    "snakemake",
+    "ruff",
+    "snakefmt",
+    "pre-commit",
+]
+
+[tool.uv]
+package = false

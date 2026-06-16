@@ -1,15 +1,17 @@
 import csv
 import logging
-import pathlib
 import os
-import pandas as pd
-from Bio import SeqIO
+import pathlib
 
+import pandas as pd
 import process_variants
+from Bio import SeqIO
 from script_utils import run_script, translate_orf
 
 
-def process_gatk_file(gatk_output_file, designed_df, ref_AA_sequence, max_deletion_length, noprocess):
+def process_gatk_file(
+    gatk_output_file, designed_df, ref_AA_sequence, max_deletion_length, noprocess
+):
     """
     Process a GATK CSV file.
     * Read the GATK CSV file.
@@ -54,7 +56,13 @@ def process_sample(
     logging.debug("Reading GATK file: %s", gatk_output_file)
 
     filtered_df, rejected_df, rejected_stats, accepted_stats, total_stats = (
-        process_gatk_file(gatk_output_file, designed_df, ref_AA_sequence, max_deletion_length, noprocess)
+        process_gatk_file(
+            gatk_output_file,
+            designed_df,
+            ref_AA_sequence,
+            max_deletion_length,
+            noprocess,
+        )
     )
     logging.debug("Finished processing GATK file")
 
@@ -74,9 +82,7 @@ def process_sample(
     filtered_df.to_csv(processed_file, index=False)
 
     # Write rejected variants
-    rejected_file = os.path.join(
-        output_dir, "rejected", f"rejected_{sample_name}.csv"
-    )
+    rejected_file = os.path.join(output_dir, "rejected", f"rejected_{sample_name}.csv")
     p = pathlib.Path(rejected_file)
     p.parent.mkdir(parents=True, exist_ok=True)
     with p.open("w") as f:
@@ -137,6 +143,11 @@ def _run(snakemake):
                 "Check 'variants_file' path in config YAML."
             )
         designed_df = pd.read_csv(designed_variants_file, encoding="utf-8-sig")
+        # Codon-less variants (deletions/insdels) store an empty codon, which
+        # pd.read_csv parses as NaN; coerce to "" so (name, codon) matching
+        # against the observed side (issue #23) works for those rows.
+        if "codon" in designed_df.columns:
+            designed_df["codon"] = designed_df["codon"].fillna("")
         logging.info("Designed variants length: %d", len(designed_df))
 
     process_sample(

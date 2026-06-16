@@ -56,7 +56,15 @@ properties:
     enum:
       - rosace
       - lilace
-    description: Scoring backend to run for variant effect inference.
+      - rosace_aa
+    description: |
+      Scoring backend to run for variant effect inference. `rosace` (default)
+      produces per-variant scalar scores; `lilace` is the alternative
+      mean-variance model; `rosace_aa` (pimentellab/rosace-aa) extends rosace
+      with position + amino-acid substitution effect decomposition. Both
+      `lilace` and `rosace_aa` require parsed variant metadata
+      (wildtype/mutation/type columns) and are incompatible with
+      `noprocess: true` — validate_scoring_backend_mode rejects the combo.
   rosace_local:
     type: boolean
     default: false
@@ -65,10 +73,28 @@ properties:
     type: boolean
     default: false
     description: Flag for whether to use Lilace installed on system-wide R or through a conda-controlled R environment.
-  bbtools_use_bgzip:
+  rosace_aa_local:
     type: boolean
-    default: true
-    description: Flag for whether BBTools should use bgzip for compressed IO. Set to false to fall back to pigz/unpigz on systems where BBTools hangs with bgzip.
+    default: false
+    description: Flag for whether to use rosace-aa installed on system-wide R or through a conda-controlled R environment.
+  bbtools_compression:
+    type: string
+    default: pigz
+    enum:
+      - pigz
+      - bgzip
+      - none
+    description: |
+      BBTools (de)compression backend for fastq IO.
+      pigz (default) parallelizes across each rule's threads, typically saving
+      30-40s/sample on 8GB+ compressed inputs vs the single-threaded bgzip path.
+      bgzip uses BBTools' built-in bgzip; equivalent to the old
+      `bbtools_use_bgzip: true` knob.
+      none disables bgzip and falls back to gzip; equivalent to the old
+      `bbtools_use_bgzip: false` knob (kept for systems where pigz isn't
+      available or BBTools hangs with bgzip).
+      The deprecated `bbtools_use_bgzip` bool is still accepted with a
+      deprecation warning; it is translated to bgzip/none accordingly.
   aligner:
     type: string
     default: bbmap
@@ -103,14 +129,114 @@ properties:
     type: integer
     default: 16000
     description: memory for Rosace (in Mb)
+  mem_rosace_aa:
+    type: integer
+    default: 16000
+    description: memory for rosace-aa (in Mb)
   mem_lilace:
     type: integer
     default: 16000
     description: memory for Lilace (in Mb)
-  enrich2:
+  mem_bbduk:
+    type: integer
+    default: 2000
+    description: |
+      Memory allocation for each bbduk step in the trim/clean/correct rule (in
+      Mb). Becomes the rule's resources mem_mb (the trim_clean_correct rule
+      requests 2*mem_bbduk + mem_bbmerge, for its concurrent JVMs); the bbduk
+      -Xmx heap is derived a headroom below it. Used by cluster schedulers.
+  mem_bbmerge:
+    type: integer
+    default: 2000
+    description: Memory allocation for the bbmerge step in trim/clean/correct (in Mb).
+  mem_bbmap:
+    type: integer
+    default: 12000
+    description: |
+      Memory allocation for bbmap mapping and index building (in Mb). bbmap is
+      the heaviest mapping step (~8.5 GB RSS on real DMS data); the -Xmx heap is
+      derived a headroom below this. Becomes resources mem_mb for the scheduler.
+  mem_minimap2:
+    type: integer
+    default: 1000
+    description: Memory allocation for minimap2 mapping and index building (in Mb).
+  mem_gatk:
+    type: integer
+    default: 6000
+    description: |
+      Memory allocation for the GATK AnalyzeSaturationMutagenesis rule (in Mb).
+      The GATK JVM heap is pinned a headroom below this via --java-options so it
+      doesn't overrun the cgroup allocation on a cluster.
+  mem_process_sample:
+    type: integer
+    default: 2000
+    description: Memory allocation for the per-sample variant-processing rule (in Mb).
+  mem_cosmos:
+    type: integer
+    default: 4000
+    description: Memory allocation for the run_cosmos rule (in Mb).
+  run_cosmos:
     type: boolean
     default: false
+    description: |
+      Run cosmos (pimentellab/cosmos) as part of the build, like `enrich2`:
+      an analysis layered on top of the chosen scoring backend, producing the
+      per-position direct/indirect decomposition
+      `results/{experiment}/cosmos/{experiment}_cosmos_results.csv`
+      (format_cosmos prepares its input). Requires exactly two conditions
+      assigned `phenotype` slots 1 and 2 in the experiment CSV (cosmos models
+      two sequential phenotypes). Off by default (opt-in) — NOTE cosmos fits a
+      model per position (~tens of seconds each, serial), so enabling it can add
+      hours on a large library. Tune via the `cosmos` settings block.
+  cosmos:
+    type: object
+    description: |
+      Optional cosmos run settings (used by run_cosmos). All keys optional with
+      sensible defaults: include_type
+      (default ["missense"]), exclude_type (synonymous/nonsense + indel labels),
+      x_gmm_n_components (default 2), min_num_variants_per_group (default 10).
+  lilace_seed:
+    type:
+      - integer
+      - "null"
+    default: null
+    description: |
+      Random seed passed to lilace::lilace_fit_model's Stan sampling.
+      null (default) means a fresh seed is generated at rule-invocation
+      time from Sys.time() salted with the condition name; the chosen
+      seed is always logged so users can grep the rule log to reproduce.
+      Set to a positive integer to make the chain init bit-identical
+      across runs.
+      Rosace's equivalent seed is hardcoded to 100 upstream (in
+      rosace::MCMCRunStan) and not configurable here; rosace runs are
+      already bit-identical across reruns by construction. There is
+      intentionally no `rosace_seed` knob — adding one would silently
+      no-op because RunRosace doesn't accept a seed argument.
+  enrich2:
+    type: boolean
+    default: true
     description: Flag for whether to run Enrich2 in addition to the chosen scoring backend.
+  keep_enrich_h5:
+    type: boolean
+    default: false
+    description: |
+      Whether to keep Enrich2's intermediate HDF5 (.h5) store files. dumpling
+      only consumes Enrich2's exported tsv scores, so by default (false) the
+      stores are declared as Snakemake temp() outputs and removed once scoring
+      completes, reclaiming disk space (Snakemake owns the deletion — the
+      pipeline never calls rm/find itself). Set true to retain them for
+      debugging Enrich2 internals. No effect unless enrich2 is true.
+  deposit_to_mavedb:
+    type: boolean
+    default: true
+    description: |
+      Flag for whether to emit a MaveDB-formatted score CSV per experimental
+      condition as part of the default `all` target. When true (default),
+      `results/{experiment}/deposit/mavedb/{condition}_mavedb.csv` is
+      produced alongside the regular scoring outputs — the format_mavedb
+      rule's output is cheap (~seconds, runs after scoring completes) and
+      directly uploadable to MaveDB. Set to false to skip deposit-format
+      generation.
   remove_zeros:
     type: boolean
     default: false
@@ -133,8 +259,11 @@ properties:
     description: Name of condition containing baseline samples. Scores will not be generated for this condition.
   max_deletion_length:
     type: integer
-    default: 3
-    description: Maximum length (in codons) of designed deletion in library.
+    default: 0
+    description: >-
+      Maximum length (in codons) of a designed deletion in the library. Insdels
+      that resolve to an in-frame deletion longer than this are rejected. Set to
+      0 (or any non-positive value) to disable the length cap.
 
 required:
   - data_dir

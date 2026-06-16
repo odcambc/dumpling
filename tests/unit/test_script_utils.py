@@ -4,6 +4,8 @@ from Bio.Seq import Seq
 
 from workflow.rules.scripts.script_utils import (
     file_digest,
+    get_cosmos_phenotype_conditions,
+    java_heap_gb,
     load_experiments,
     run_script,
     translate_orf,
@@ -226,7 +228,13 @@ class TestValidateExperimentTimeOrBin:
 class TestValidateScoringBackendMode:
     """Lilace's Stan model requires a synonymous control set and has no
     total-counts fallback. noprocess mode doesn't produce trustworthy
-    synonymous labels, so the combination must be rejected at parse time."""
+    synonymous labels, so the combination must be rejected at parse time.
+
+    rosace-aa hits the same problem plus a stricter version: its
+    RunRosace.Rosace signature requires wt.col/mut.col/ctrl.col +
+    aa.code. The noprocess path produces none of those, so the combination
+    is structurally invalid.
+    """
 
     def test_lilace_with_noprocess_rejected(self):
         config = {"scoring_backend": "lilace", "noprocess": True}
@@ -235,6 +243,15 @@ class TestValidateScoringBackendMode:
 
     def test_lilace_without_noprocess_passes(self):
         config = {"scoring_backend": "lilace", "noprocess": False}
+        validate_scoring_backend_mode(config)
+
+    def test_rosace_aa_with_noprocess_rejected(self):
+        config = {"scoring_backend": "rosace_aa", "noprocess": True}
+        with pytest.raises(ValueError, match="rosace_aa.*incompatible.*noprocess"):
+            validate_scoring_backend_mode(config)
+
+    def test_rosace_aa_without_noprocess_passes(self):
+        config = {"scoring_backend": "rosace_aa", "noprocess": False}
         validate_scoring_backend_mode(config)
 
     def test_rosace_with_noprocess_passes(self):
@@ -249,3 +266,97 @@ class TestValidateScoringBackendMode:
         """Defaults aren't this function's job — schema validation fills
         them in. An empty config shouldn't crash here."""
         validate_scoring_backend_mode({})
+
+
+class TestGetCosmosPhenotypeConditions:
+    """The optional `phenotype` column assigns each condition a cosmos slot N
+    (-> beta_hat_N). Validation lives here so it's testable off the Snakemake
+    include."""
+
+    @staticmethod
+    def _experiments(rows):
+        # rows: list of (condition, phenotype-or-None); two sample rows each to
+        # exercise the per-condition agreement check.
+        data = []
+        for cond, pheno in rows:
+            for rep in (1, 2):
+                data.append(
+                    {
+                        "sample": f"{cond}_{rep}",
+                        "condition": cond,
+                        "phenotype": pheno,
+                    }
+                )
+        return pd.DataFrame(data)
+
+    def test_no_phenotype_column_returns_empty(self):
+        df = pd.DataFrame({"sample": ["s1"], "condition": ["cond_A"]})
+        assert get_cosmos_phenotype_conditions(df, "baseline") == []
+
+    def test_all_blank_returns_empty(self):
+        df = self._experiments([("cond_A", None), ("baseline", None)])
+        assert get_cosmos_phenotype_conditions(df, "baseline") == []
+
+    def test_returns_conditions_in_slot_order(self):
+        # Declared out of slot order; result must be ordered by slot (1, 2).
+        df = self._experiments([("cond_B", 2), ("cond_A", 1), ("baseline", None)])
+        assert get_cosmos_phenotype_conditions(df, "baseline") == ["cond_A", "cond_B"]
+
+    def test_conflicting_slots_within_condition_raises(self):
+        df = pd.DataFrame(
+            [
+                {"sample": "a1", "condition": "cond_A", "phenotype": 1},
+                {"sample": "a2", "condition": "cond_A", "phenotype": 2},
+            ]
+        )
+        with pytest.raises(ValueError, match="conflicting phenotype slots"):
+            get_cosmos_phenotype_conditions(df, "baseline")
+
+    def test_baseline_with_slot_raises(self):
+        df = self._experiments([("cond_A", 1), ("baseline", 2)])
+        with pytest.raises(ValueError, match="[Bb]aseline"):
+            get_cosmos_phenotype_conditions(df, "baseline")
+
+    def test_duplicate_slots_raise(self):
+        df = self._experiments([("cond_A", 1), ("cond_B", 1)])
+        with pytest.raises(ValueError, match="[Dd]uplicate"):
+            get_cosmos_phenotype_conditions(df, "baseline")
+
+    def test_non_contiguous_slots_raise(self):
+        # Slots 1 and 3 (gap at 2) — cosmos requires beta_hat_1..N with no gaps.
+        df = self._experiments([("cond_A", 1), ("cond_B", 3)])
+        with pytest.raises(ValueError, match="contiguous"):
+            get_cosmos_phenotype_conditions(df, "baseline")
+
+
+class TestJavaHeapGb:
+    """Java -Xmx heap sizing for cluster rules (issue #13): the heap must sit a
+    headroom below the rule's mem_mb cgroup allocation so the JVM isn't
+    OOM-killed by its own overhead."""
+
+    def test_large_allocation_leaves_headroom(self):
+        # bbmap: 12000 MB allocation -> 10 GB heap (2 GB headroom).
+        assert java_heap_gb(12000) == 10
+
+    def test_gatk_allocation(self):
+        # gatk: 6000 MB -> 4 GB heap.
+        assert java_heap_gb(6000) == 4
+
+    def test_small_allocation_floors_at_1gb(self):
+        # bbduk/bbmerge: 2000 MB allocation would compute 0 GB; floor to 1 so
+        # the JVM still gets a usable heap rather than -Xmx0g.
+        assert java_heap_gb(2000) == 1
+
+    def test_never_returns_zero_or_negative(self):
+        # Even a tiny allocation never yields a non-positive heap.
+        assert java_heap_gb(500) == 1
+        assert java_heap_gb(0) == 1
+
+    def test_heap_strictly_below_allocation(self):
+        # The invariant that matters: -Xmx (in MB) stays under the cgroup mem_mb
+        # across the realistic budget range, so the JVM has room for overhead.
+        for mem_mb in (2000, 4000, 6000, 12000, 16000):
+            assert java_heap_gb(mem_mb) * 1024 < mem_mb
+
+    def test_headroom_is_configurable(self):
+        assert java_heap_gb(12000, headroom_mb=4000) == 8

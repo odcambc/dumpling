@@ -2,13 +2,94 @@ import logging
 
 from script_utils import load_experiments, run_script
 
-
 # The hierarchy of the enrich2 config file elements is as follows:
 # experiment
 #   conditions
 #    tiles (if applicable: implemented as individual conditions)
 #     replicates
 #      timepoints/bins (individual samples)
+
+
+def enrich_selection_label(condition, replicate, use_tile, tile=None):
+    """Enrich2 selection-object name for a condition/replicate.
+
+    This is the base name Enrich2 uses for the selection's HDF5 store
+    (``<label>_sel.h5``). Shared by ``generate_config`` (which writes it into
+    the config JSON, so it becomes the Enrich2 object name) and by
+    ``expected_enrich_h5_basenames`` (which predicts the store files for
+    temp() cleanup), so the two can't drift. See issue #16.
+    """
+    if use_tile:
+        return f"{condition}_R{replicate}_tile{tile}"
+    return f"{condition}_R{replicate}"
+
+
+def enrich_library_label(condition, replicate, time, use_tile, tile=None):
+    """Enrich2 library (SeqLib) object name for a condition/replicate/timepoint.
+
+    Base name of the library's HDF5 store (``<label>_lib.h5``). See
+    ``enrich_selection_label``.
+    """
+    if use_tile:
+        return f"{condition}_rep{replicate}_T{time}_tile{tile}"
+    return f"{condition}_rep{replicate}_T{time}"
+
+
+def expected_enrich_h5_basenames(experiments, conditions, tiled, experiment_name):
+    """Basenames of every HDF5 store Enrich2 writes for this experiment (#16).
+
+    Enrich2 emits one ``.h5`` store per object it builds: the experiment
+    (``<experiment_name>_exp.h5``), each selection
+    (``<enrich_selection_label>_sel.h5``), and each library
+    (``<enrich_library_label>_lib.h5``). dumpling consumes only the exported
+    tsv scores, so these stores are pure intermediates — common.smk declares
+    them as Snakemake ``temp()`` outputs of ``run_enrich`` so Snakemake itself
+    deletes them (and only them) once scoring completes. No ``rm``/``find`` in
+    the pipeline.
+
+    The returned set must match what Enrich2 actually produces, which is
+    exactly the objects ``generate_config`` writes into the config after the
+    same T0 / minimum-timepoint filtering. We therefore apply the identical
+    filtering (``remove_missing_t0`` then ``remove_truncated_replicates``) and
+    reuse the same label helpers. Verified against the committed
+    ``results/example_experiment/enrich`` layout.
+
+    Caveat: this couples to Enrich2's ``<object-name>_<class>.h5`` naming. If a
+    declared store is not produced (e.g. Enrich2 skips an object), Snakemake
+    fails the run with a missing-output error rather than silently leaving
+    files — a loud failure by design.
+    """
+    experiments = remove_missing_t0(experiments, conditions, tiled)
+    experiments = remove_truncated_replicates(experiments, conditions, tiled)
+    surviving = set(experiments["condition"].unique())
+    conditions = [c for c in conditions if c in surviving]
+
+    use_tile = tiled and "tile" in experiments.columns
+    basenames = [f"{experiment_name}_exp.h5"]
+    for condition in conditions:
+        if use_tile:
+            tiles = experiments.loc[
+                experiments["condition"] == condition, "tile"
+            ].unique()
+        else:
+            tiles = [None]
+        for tile in tiles:
+            cond_subset = experiments.loc[
+                (experiments["condition"] == condition)
+                & ((experiments["tile"] == tile) if use_tile else True)
+            ]
+            for replicate in cond_subset["replicate"].unique():
+                basenames.append(
+                    enrich_selection_label(condition, replicate, use_tile, tile)
+                    + "_sel.h5"
+                )
+                rep_subset = cond_subset.loc[cond_subset["replicate"] == replicate]
+                for time in rep_subset["time"].unique():
+                    basenames.append(
+                        enrich_library_label(condition, replicate, time, use_tile, tile)
+                        + "_lib.h5"
+                    )
+    return basenames
 
 
 def remove_truncated_replicates(experiments, conditions, tiled):
@@ -202,10 +283,12 @@ def generate_config(
                         ),
                         "sample",
                     ].iloc[0]
-                    name = (
-                        f"{condition}_rep{replicate}_T{time}_tile{tile}"
-                        if (tiled and "tile" in experiments.columns)
-                        else f"{condition}_rep{replicate}_T{time}"
+                    name = enrich_library_label(
+                        condition,
+                        replicate,
+                        time,
+                        tiled and "tile" in experiments.columns,
+                        tile,
                     )
 
                     enrich2_config.append("\t\t\t\t{")
@@ -221,11 +304,13 @@ def generate_config(
                     )
 
                 enrich2_config.append("\t\t\t],")
-                enrich2_config.append(
-                    f'\t\t\t"name": "{condition}_R{replicate}_tile{tile}"'
-                    if (tiled and "tile" in experiments.columns)
-                    else f'\t\t\t"name": "{condition}_R{replicate}"'
+                selection_label = enrich_selection_label(
+                    condition,
+                    replicate,
+                    tiled and "tile" in experiments.columns,
+                    tile,
                 )
+                enrich2_config.append(f'\t\t\t"name": "{selection_label}"')
                 enrich2_config.append(
                     "\t\t}," if replicate != replicates[-1] else "\t\t}"
                 )

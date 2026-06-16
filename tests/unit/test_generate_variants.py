@@ -1,17 +1,21 @@
-import unittest
-from unittest.mock import patch
+import csv
 import logging
 import os
 import tempfile
-import csv
+import unittest
+from unittest.mock import patch
+
+import pandas as pd
 
 # Import the functions you want to test directly
 # Adjust if the script is named differently or in a different location
 from workflow.rules.scripts.generate_variants import (
-    name_to_hgvs,
-    get_sequence_segment,
-    extract_codon,
+    deduplicate_designed_variants,
     designed_variants,
+    extract_codon,
+    get_sequence_segment,
+    identify_variant_from_sequence,
+    name_to_hgvs,
     write_designed_csv,
 )
 
@@ -139,9 +143,7 @@ class TestOligoProcessing(unittest.TestCase):
         """Test processing deletion variants."""
         with tempfile.NamedTemporaryFile(delete=False) as temp_file:
             temp_name = temp_file.name
-            temp_file.write(
-                b"name,sequence\ntest_delete-1_3-5,ACTAGCTAGCGCTAGCTAGCT\n"
-            )
+            temp_file.write(b"name,sequence\ntest_delete-1_3-5,ACTAGCTAGCGCTAGCTAGCT\n")
 
         # Mock the reference sequence
         ref = "ATGGCTAGCATGGCTAGCATGGCTAGCATGGCTAGCATGGCTAGC"
@@ -166,9 +168,7 @@ class TestOligoProcessing(unittest.TestCase):
             temp_name = temp_file.name
             # Note: no trailing "-<pos>" — would previously crash with
             # TypeError: int() argument must be a string ... not 'NoneType'
-            temp_file.write(
-                b"name,sequence\ntest_delete-1_3,ACTAGCTAGCGCTAGCTAGCT\n"
-            )
+            temp_file.write(b"name,sequence\ntest_delete-1_3,ACTAGCTAGCGCTAGCTAGCT\n")
 
         ref = "ATGGCTAGCATGGCTAGCATGGCTAGCATGGCTAGCATGGCTAGC"
         offset = 1
@@ -305,7 +305,9 @@ class TestOligoProcessing(unittest.TestCase):
             designed_variants(temp_name, ref, offset)
 
         self.assertTrue(
-            any("anchor" in msg.lower() and "flank" in msg.lower() for msg in cm.output),
+            any(
+                "anchor" in msg.lower() and "flank" in msg.lower() for msg in cm.output
+            ),
             f"Expected a flank-anchoring warning. Got: {cm.output}",
         )
 
@@ -359,6 +361,250 @@ class TestOligoProcessing(unittest.TestCase):
         os.unlink(temp_name)
 
 
+class TestDeduplicateDesignedVariants(unittest.TestCase):
+    """Dedup must keep variants that share a protein name but differ by codon
+    (issue #23), while still collapsing genuine duplicates."""
+
+    def _row(self, name, codon, chunk=1):
+        return {
+            "count": 0,
+            "pos": 10,
+            "mutation_type": "M",
+            "name": name,
+            "codon": codon,
+            "mutant": name[-1],
+            "length": 1,
+            "hgvs": f"p.({name})",
+            "chunk": chunk,
+        }
+
+    def test_distinct_codons_for_same_name_are_preserved(self):
+        """Two designed variants with the same protein name but different
+        codons must both survive deduplication."""
+        df = pd.DataFrame([self._row("G10A", "GCT"), self._row("G10A", "GCA")])
+        result = deduplicate_designed_variants(df)
+        self.assertEqual(len(result), 2)
+        self.assertEqual(
+            set(result.loc[result["name"] == "G10A", "codon"]),
+            {"GCT", "GCA"},
+        )
+
+    def test_identical_name_codon_rows_collapse(self):
+        """A genuinely duplicated (name, codon) pair (here differing only in an
+        otherwise-reducible field) collapses to a single row."""
+        df = pd.DataFrame(
+            [self._row("G10A", "GCT", chunk=1), self._row("G10A", "GCT", chunk=2)]
+        )
+        result = deduplicate_designed_variants(df)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result.iloc[0]["codon"], "GCT")
+
+    def test_conflicting_name_codon_pair_raises(self):
+        """The same (name, codon) with conflicting values in a non-reducible
+        key column (here mutation_type) cannot be merged and must raise."""
+        a = self._row("G10A", "GCT")
+        b = self._row("G10A", "GCT")
+        b["mutation_type"] = "S"  # conflict that survives the groupby
+        df = pd.DataFrame([a, b])
+        # The error path dumps the offending rows for debugging; it must honor
+        # the given dup_report_path (and create parent dirs), not write to cwd.
+        with tempfile.TemporaryDirectory() as tmp:
+            report = os.path.join(tmp, "nested", "duped_variants.csv")
+            with self.assertRaises(Exception):
+                deduplicate_designed_variants(df, dup_report_path=report)
+            self.assertTrue(
+                os.path.exists(report),
+                "dedup conflict should write the offending rows to dup_report_path",
+            )
+
+
+class TestSequenceBasedIdentification(unittest.TestCase):
+    """Issue #27: identify designed variants from the oligo SEQUENCE vs the
+    reference, independent of the oligo name. Adapters vary per oligo and do not
+    match the reference."""
+
+    # A 24-codon ORF with varied codons (no long internal repeats) so anchoring
+    # is unambiguous. ORF starts at base 1, so offset = orf_start - 4 = -3.
+    REF_CODONS = [
+        "ATG",
+        "AAG",
+        "CTG",
+        "GTC",
+        "TTC",
+        "TGG",
+        "GAA",
+        "CAC",
+        "GAT",
+        "CGT",
+        "ACC",
+        "AGC",
+        "CCG",
+        "GGT",
+        "TAT",
+        "AAC",
+        "CAG",
+        "GAG",
+        "TTA",
+        "GCA",
+        "TCT",
+        "ATC",
+        "CGA",
+        "GTG",
+    ]
+    REF = "".join(REF_CODONS)
+    OFFSET = -3
+
+    def _oligo(
+        self,
+        adapter5,
+        adapter3,
+        mutate=None,
+        new_codon=None,
+        delete=None,
+        insert_after=None,
+        ins_codons=None,
+    ):
+        """Assemble an oligo: adapter5 + (gene with one edit) + adapter3.
+        `mutate`/`delete`/`insert_after` are 0-based codon indices."""
+        cs = self.REF_CODONS.copy()
+        if mutate is not None:
+            cs[mutate] = new_codon
+        if delete is not None:
+            for j in sorted(delete, reverse=True):
+                del cs[j]
+        if insert_after is not None:
+            cs = (
+                self.REF_CODONS[: insert_after + 1]
+                + list(ins_codons)
+                + self.REF_CODONS[insert_after + 1 :]
+            )
+        return adapter5 + "".join(cs) + adapter3
+
+    def _id(self, oligo):
+        return identify_variant_from_sequence(oligo, self.REF, self.OFFSET)
+
+    def test_substitution_missense(self):
+        # codon 10 (idx 9) CGT(R) -> GCT(A)  => R10A
+        o = self._oligo("TTGCACTGACTGAC", "GACTGACGTTGCAA", mutate=9, new_codon="GCT")
+        v = self._id(o)
+        self.assertEqual(v["name"], "R10A")
+        self.assertEqual(v["pos"], 10)
+        self.assertEqual(v["mutation_type"], "M")
+        self.assertEqual(v["codon"], "GCT")
+        self.assertEqual(v["mutant"], "A")
+
+    def test_substitution_synonymous(self):
+        # codon 5 (idx 4) TTC(F) -> TTT(F)  => F5F
+        o = self._oligo("CCAGGTTACTGAC", "GTACAGTTGCA", mutate=4, new_codon="TTT")
+        v = self._id(o)
+        self.assertEqual(v["name"], "F5F")
+        self.assertEqual(v["mutation_type"], "S")
+
+    def test_deletion_single_codon(self):
+        # delete codon 8 (idx 7) CAC(H) => H8del
+        o = self._oligo("ACACACACACACAC", "TGTGTGTGTGTGTG", delete=[7])
+        v = self._id(o)
+        self.assertEqual(v["name"], "H8del")
+        self.assertEqual(v["mutation_type"], "D")
+        self.assertEqual(v["length"], 1)
+
+    def test_deletion_two_codons(self):
+        # delete codons 8,9 (idx 7,8) H,D => H8_D9del
+        o = self._oligo("ACACACACACACAC", "TGTGTGTGTGTGTG", delete=[7, 8])
+        v = self._id(o)
+        self.assertEqual(v["name"], "H8_D9del")
+        self.assertEqual(v["length"], 2)
+
+    def test_insertion(self):
+        # insert codon AAA(K) after codon 6 (idx 5) => W6_E7insK
+        o = self._oligo(
+            "ACACACACACACAC", "TGTGTGTGTGTGTG", insert_after=5, ins_codons=["AAA"]
+        )
+        v = self._id(o)
+        self.assertEqual(v["mutation_type"], "I")
+        self.assertTrue(v["name"].endswith("insK"))
+        self.assertEqual(v["codon"], "AAA")
+
+    def test_substitution_to_stop_uses_X(self):
+        # codon 10 (idx 9) CGT(R) -> TAA(stop). Pipeline names stops 'X', not '*'.
+        o = self._oligo("TTGCACTGACTGAC", "GACTGACGTTGCAA", mutate=9, new_codon="TAA")
+        v = self._id(o)
+        self.assertEqual(v["name"], "R10X")
+        self.assertEqual(v["mutant"], "X")
+
+    def test_adapter_coincidental_match_at_gene_boundary(self):
+        # A tile covering codons 1-15 with a substitution at codon 5, whose 3'
+        # adapter *coincidentally starts with the base the reference has just
+        # after the tile*. Base-level gap detection misreads that as a second
+        # edit; the codon-frame walk does not. (Regression for real CFTR data.)
+        cs = self.REF_CODONS[:15]
+        cs[4] = "TTT"  # codon 5 -> F (was F? REF_CODONS[4]=TTC=F) ; use a missense
+        cs[4] = "GCG"  # F5A
+        tile = "".join(cs)
+        next_ref_base = self.REF_CODONS[15][0]  # base immediately after the tile
+        oligo = "ACACACACACACAC" + tile + next_ref_base + "TTTTTTTTTTTT"
+        v = self._id(oligo)
+        self.assertIsNotNone(v)
+        self.assertEqual(v["name"], "F5A")
+
+    def test_adapter_independence(self):
+        # Same variant (R10A) with two DIFFERENT non-reference adapters resolves
+        # identically — proving the gene fragment is found per-oligo.
+        o1 = self._oligo("TTGCACTGACTGAC", "GACTGACGTTGCAA", mutate=9, new_codon="GCT")
+        o2 = self._oligo("AAACCCTTTGGGAA", "CCCAAATTTGGGTT", mutate=9, new_codon="GCT")
+        self.assertEqual(self._id(o1)["name"], self._id(o2)["name"], "R10A")
+
+    def test_multi_change_returns_none(self):
+        # Two separated substitutions in one oligo -> ambiguous -> None (fallback).
+        o = self._oligo("ACACACACACACAC", "TGTGTGTGTGTGTG", mutate=9, new_codon="GCT")
+        # introduce a second change at codon 4 by editing the assembled string
+        cs = self.REF_CODONS.copy()
+        cs[9] = "GCT"
+        cs[4] = "AAA"
+        o = "ACACACACACACAC" + "".join(cs) + "TGTGTGTGTGTGTG"
+        self.assertIsNone(self._id(o))
+
+    def test_terminal_codon_falls_back(self):
+        # Edit in the first codon has no 5' flank -> sequence ID returns None so
+        # the name path can take over.
+        o = self._oligo("ACACACACACACAC", "TGTGTGTGTGTGTG", mutate=0, new_codon="CTG")
+        self.assertIsNone(self._id(o))
+
+    def test_designed_variants_end_to_end_ignores_names(self):
+        """End-to-end through designed_variants with NON-DIMPLE oligo names: if
+        the variants still resolve correctly, identity came from the sequence,
+        not the name (the whole point of issue #27)."""
+        rows = [
+            (
+                "oligo_0001",
+                self._oligo(
+                    "TTGCACTGACTGAC", "GACTGACGTTGCAA", mutate=9, new_codon="GCT"
+                ),
+            ),  # R10A
+            (
+                "random_name",
+                self._oligo(
+                    "AAACCCTTTGGGAA", "CCCAAATTTGGGTT", mutate=4, new_codon="TTT"
+                ),
+            ),  # F5F (syn)
+            (
+                "xyz",
+                self._oligo("ACACACACACACAC", "TGTGTGTGTGTGTG", delete=[7]),
+            ),  # H8del
+        ]
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as tf:
+            temp_name = tf.name
+            tf.write("name,sequence\n")
+            for name, seq in rows:
+                tf.write(f"{name},{seq}\n")
+
+        variants = designed_variants(temp_name, self.REF, self.OFFSET)
+        os.unlink(temp_name)
+
+        names = {v["name"] for v in variants}
+        self.assertEqual(names, {"R10A", "F5F", "H8del"})
+
+
 class TestIntegration(unittest.TestCase):
     """Integration tests to test the full workflow."""
 
@@ -398,7 +644,10 @@ class TestIntegration(unittest.TestCase):
 
         # For demonstration, we'll just run the main components manually
         variants = designed_variants(
-            self.oligo_file_name, self.ref_sequence, 1, False  # offset  # is_circular
+            self.oligo_file_name,
+            self.ref_sequence,
+            1,
+            False,  # offset  # is_circular
         )
 
         header = [

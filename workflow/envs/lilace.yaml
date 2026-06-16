@@ -3,7 +3,12 @@ channels:
   - bioconda
   - nodefaults
 dependencies:
-  - r-base
+  # Pin to R 4.5.x to match renv.lock's declared R version. R 4.6
+  # (released 2026-04-24) broke source compiles of rlang/S7/yaml
+  # and via cascade ~half the lockfile. Bump in lockstep with
+  # renv.lock's "R": "Version" and the matching r-apt pin in
+  # .devcontainer/devcontainer.json.
+  - r-base=4.5
   - r-nloptr
   - nlopt
   - libxml2

@@ -10,11 +10,15 @@ if str(_SCRIPTS_DIR) not in sys.path:
 
 from script_utils import (  # noqa: E402
     file_digest,
+    get_cosmos_phenotype_conditions,
+    java_heap_gb,
     load_experiments,
     resolve_fastq_pair,
+    translate_legacy_bbtools_compression,
     validate_experiment_time_or_bin,
     validate_scoring_backend_mode,
 )
+from generate_enrich_configs import expected_enrich_h5_basenames  # noqa: E402
 
 
 def get_file_from_sample(wildcards):
@@ -86,6 +90,29 @@ def get_enrich2_input(wildcards):
         )
 
 
+def enrich_h5_output_files():
+    """Full paths of Enrich2's intermediate .h5 stores for this experiment (#16).
+
+    Built at parse time from the experiment metadata so run_enrich can declare
+    them as Snakemake temp() outputs — letting Snakemake delete them (and only
+    them) once scoring completes, instead of the pipeline shelling out to rm.
+    The per-store basenames are concrete (derived from conditions / replicates
+    / timepoints via expected_enrich_h5_basenames); only experiment_name stays
+    a wildcard so the paths match run_enrich's tsv output.
+
+    Returns [] unless Enrich2 is actually enabled: the rule is always defined
+    regardless of config["enrich2"], and the h5 enumeration relies on the
+    timecourse "time" column that only the Enrich2 path requires, so computing
+    it unconditionally could fail parse for non-Enrich2 runs.
+    """
+    if not config["enrich2"]:
+        return []
+    basenames = expected_enrich_h5_basenames(
+        experiments, experimental_conditions, config["tiled"], experiment
+    )
+    return [f"results/{{experiment_name}}/enrich/{name}" for name in basenames]
+
+
 def get_input(wildcards):
     """Generate the input files for the dummy rule all.
     This is necessary to allow optional pipeline outputs."""
@@ -115,6 +142,40 @@ def get_input(wildcards):
             input_list.extend(
                 expand(
                     "results/{experiment_name}/enrich/tsv/{experiment_name}_exp/main_identifiers_scores.tsv",
+                    experiment_name=config["experiment"],
+                )
+            )
+        if config["deposit_to_mavedb"]:
+            # MaveDB-format deposit CSVs per experimental condition: the
+            # score table plus a row-aligned raw-count table. Both are cheap
+            # (~seconds) post-processing of the scoring output, so default-on.
+            input_list.extend(
+                expand(
+                    "results/{experiment_name}/deposit/mavedb/{conditions}_mavedb.csv",
+                    experiment_name=config["experiment"],
+                    conditions=experimental_conditions,
+                )
+                + expand(
+                    "results/{experiment_name}/deposit/mavedb/{conditions}_mavedb_counts.csv",
+                    experiment_name=config["experiment"],
+                    conditions=experimental_conditions,
+                )
+            )
+        if config.get("run_cosmos"):
+            # Run cosmos as part of the build (like enrich2: an analysis layered
+            # on top of the chosen scoring backend's per-condition scores). The
+            # results pull format_cosmos -> run_cosmos. cosmos models exactly two
+            # sequential phenotypes, so require two phenotype-assigned conditions.
+            if len(cosmos_phenotype_conditions) != 2:
+                raise ValueError(
+                    "run_cosmos requires exactly two conditions assigned phenotype "
+                    "slots 1 and 2 in the experiment CSV (cosmos models two "
+                    f"sequential phenotypes); got {len(cosmos_phenotype_conditions)}: "
+                    f"{cosmos_phenotype_conditions}."
+                )
+            input_list.extend(
+                expand(
+                    "results/{experiment_name}/cosmos/{experiment_name}_cosmos_results.csv",
                     experiment_name=config["experiment"],
                 )
             )
@@ -198,11 +259,36 @@ def validate_config(config):
 
 
 # Validate config and experiment files
-config.setdefault("bbtools_use_bgzip", True)
+for _warning in translate_legacy_bbtools_compression(config):
+    print(_warning, file=sys.stderr)
+config.setdefault("bbtools_compression", "pigz")
 config.setdefault("scoring_backend", "rosace")
 config.setdefault("lilace_local", False)
 config.setdefault("mem_lilace", 16000)
+config.setdefault("lilace_seed", None)
+config.setdefault("rosace_aa_local", False)
+config.setdefault("mem_rosace_aa", 16000)
+config.setdefault("deposit_to_mavedb", True)
+config.setdefault("keep_enrich_h5", False)
 config.setdefault("aligner", "bbmap")
+
+# Per-tool memory allocations (MB), matching the unit of the existing
+# mem_fastqc / mem_rosace / mem_lilace knobs. Each becomes a rule's
+# `resources: mem_mb`, which a cluster scheduler turns into `sbatch --mem`.
+# For the Java (BBTools/GATK) rules the `-Xmx` heap is derived a fixed
+# headroom BELOW this allocation via script_utils.java_heap_gb, so the heap
+# fits inside the cgroup limit. Defaults sized from BBTools/GATK upstream docs
+# plus a safety factor; tune per site by reading max_rss from
+# benchmarks/{experiment}/ on real data. (These supersede the single global
+# `config["mem"]` knob for these rules; mem is left for any out-of-tree use.)
+config.setdefault("mem_bbduk", 2000)
+config.setdefault("mem_bbmerge", 2000)
+config.setdefault("mem_bbmap", 12000)
+config.setdefault("mem_minimap2", 1000)
+config.setdefault("mem_gatk", 6000)
+config.setdefault("mem_process_sample", 2000)
+config.setdefault("mem_cosmos", 4000)
+
 if config["aligner"] not in ("bbmap", "minimap2"):
     raise ValueError(
         f"Unsupported aligner '{config['aligner']}'. "
@@ -226,6 +312,13 @@ conditions = set(experiments["condition"])
 experimental_conditions = sorted(conditions - set([config["baseline_condition"]]))
 scoring_backend = config["scoring_backend"]
 
+# Conditions assigned a cosmos phenotype slot (via the optional `phenotype`
+# column in the experiment CSV), in slot order. [] when the cosmos export is
+# off. Validation lives in script_utils alongside the other experiment checks.
+cosmos_phenotype_conditions = get_cosmos_phenotype_conditions(
+    experiments, config["baseline_condition"]
+)
+
 
 # Load additional files
 variants_file = config["variants_file"]
@@ -233,6 +326,17 @@ oligo_file = config["oligo_file"]
 
 reference_file = Path(config["ref_dir"]) / config["reference"]
 reference_name = Path(config["reference"]).stem
+# Downstream consumers (index, dict, BBMap/minimap2 index, GATK ASM,
+# generate_variants) read from this normalized path instead of the raw
+# user-supplied file. The `prepare_reference` rule (ref.smk) rewrites the
+# first `>` line to `>{reference_name}` so the FASTA contig name matches
+# the filename stem — Upstream #19. The raw user file is left untouched.
+# Use only the basename (.name): if `reference` is an absolute path or
+# carries directory components, `Path("ref") / <absolute>` would collapse to
+# the original location and prepare_reference would overwrite the user's own
+# FASTA. Stripping to the basename guarantees the rewrite always lands under
+# the workflow-managed ref/ directory.
+normalized_reference_file = Path("ref") / Path(config["reference"]).name
 
 adapters_ref = pass_names(config["adapters"])
 contaminants_ref = pass_names(config["contaminants"])
@@ -240,7 +344,39 @@ contaminants_ref = pass_names(config["contaminants"])
 # Set configuration variables
 samtools_local = config["samtools_local"]
 noprocess = config["noprocess"]
-bbtools_compression_flags = "" if config["bbtools_use_bgzip"] else "bgzip=f unbgzip=f "
+
+
+def bbtools_compression_flags(wildcards, threads):
+    """Emit the BBTools (de)compression flag string for the configured mode.
+
+    `usepigz=t unpigz=t` are universal across BBTools 39.x (verified on
+    bbduk, bbmap, bbmerge). The audit-time spec also included
+    `pigzthreads={threads}` and `unpigzthreads={threads}`, but BBMerge 39.13
+    rejects those as unknown parameters and aborts. pigz spawned by BBTools
+    without an explicit thread count uses its own default (online CPU
+    count), which still yields the parallel-vs-serial win we wanted. Cluster
+    oversubscription is bounded by rule scheduling rather than per-pigz
+    thread caps.
+
+    `bgzip=f unbgzip=f` are still passed so BBTools' default bgzip path is
+    explicitly turned off; otherwise some tools default to bgzip even when
+    pigz is enabled.
+
+    Trailing space is intentional so the rule shell template doesn't need
+    to inject one between this and the next flag.
+    """
+    mode = config["bbtools_compression"]
+    if mode == "pigz":
+        return "usepigz=t unpigz=t bgzip=f unbgzip=f "
+    if mode == "bgzip":
+        return ""
+    if mode == "none":
+        return "bgzip=f unbgzip=f "
+    raise ValueError(
+        f"Unsupported bbtools_compression: {mode!r}. "
+        "Expected one of: pigz, bgzip, none."
+    )
+
 
 # Set up tiled experiments
 if "tile" not in experiments.columns:

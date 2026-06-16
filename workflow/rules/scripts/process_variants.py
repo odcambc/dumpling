@@ -1,12 +1,11 @@
-from typing import Dict, Iterable, Iterator, List, Tuple, Any, Union
 import csv
-import pathlib
 import logging
-import Bio.Seq
+import pathlib
+from typing import Dict, Iterable, Iterator, List, Tuple, Union
 
+import Bio.Seq
 import pandas as pd
 import regex
-
 
 # Type aliases
 VariantDict = Dict[str, Union[int, str, bool]]
@@ -52,6 +51,28 @@ variantCounts_colnames: List[str] = [
 
 def name_to_hgvs(name: str) -> str:
     return "p.(" + name + ")"
+
+
+def normalize_match_codon(codon: str) -> str:
+    """Normalize a processed variant's codon to the bare ALT codon(s) used as
+    the designed-variants `codon` column, so observed and designed rows can be
+    matched on (name, codon) (issue #23).
+
+    GATK reports substitution codons as `pos:ref>alt` (e.g. `10:CAA>GCT`),
+    while the designed file stores only the ALT codon (`GCT`). Insertions are
+    already bare concatenated codons (process_insertion), and deletions /
+    insdels carry no codon (`""`). Multi-segment fields (multi-codon variants)
+    have each segment's ALT concatenated; such variants are not present in a
+    single-codon designed library, so they simply fail the (name, codon)
+    membership test rather than matching anything.
+    """
+    codon = str(codon)
+    if not codon or codon == "nan":
+        return ""
+    if ">" not in codon:
+        # Already a bare codon (insertions).
+        return codon
+    return "".join(segment.split(">")[1] for segment in codon.split(", "))
 
 
 def read_gatk_csv(file: Union[str, pathlib.Path]) -> Iterator[List[str]]:
@@ -162,7 +183,7 @@ def process_deletion(line: List[str]) -> VariantDict:
 
 
 def process_insdel(
-    line: List[str], ref_AA_sequence: str, noprocess: bool
+    line: List[str], ref_AA_sequence: str, noprocess: bool, max_deletion_length: int
 ) -> VariantDict:
     # This contains the logic for parsing insdel variants and checking for an edge
     # case where in-frame deletions are being called as insdels.
@@ -213,33 +234,48 @@ def process_insdel(
         deletion_length - insertion_length
     )  # Effective number of deleted AAs
 
+    # Max-deletion-length gate (dropped in 28dbec2, restored): a recoverable
+    # insdel is only accepted as an in-frame deletion when the net deletion is
+    # within the configured maximum. noprocess keeps everything (no filtering),
+    # and a non-positive max_deletion_length disables the cap.
+    within_limit = (
+        noprocess or max_deletion_length <= 0 or insdel_length <= max_deletion_length
+    )
+
     if (
         start_aa == insdel_aas  # start and inserted AA are the same
         or end_aa == insdel_aas  # end and inserted AA are the same
         or start_aa == end_aa  # start and end AA are the same
     ):
-        rejected = False
-        pos = start_pos + insertion_length
-        mutation_type = "D"
-        mutation = "D_" + str(insdel_length)
+        if within_limit:
+            rejected = False
+            pos = start_pos + insertion_length
+            mutation_type = "D"
+            mutation = "D_" + str(insdel_length)
 
-        if insdel_length == 1:
-            name = end_aa + str(pos) + "del"
-        elif insdel_length > 1:
-            name = (
-                ref_AA_sequence[pos - 1]
-                + str(pos)
-                + "_"
-                + ref_AA_sequence[pos + insdel_length - 2]
-                + str(pos + insdel_length - 1)
-                + "del"
-            )
+            if insdel_length == 1:
+                name = end_aa + str(pos) + "del"
+            elif insdel_length > 1:
+                name = (
+                    ref_AA_sequence[pos - 1]
+                    + str(pos)
+                    + "_"
+                    + ref_AA_sequence[pos + insdel_length - 2]
+                    + str(pos + insdel_length - 1)
+                    + "del"
+                )
+            else:
+                name = ""
+                logging.warning(
+                    "Error in insdel length calculation: insdel_length %i",
+                    insdel_length,
+                )
         else:
-            name = ""
-            logging.warning(
-                "Error in insdel length calculation: insdel_length %i",
-                insdel_length,
-            )
+            # Recoverable but exceeds max_deletion_length under filtering: leave
+            # rejected (mutation_type "Z") so the caller buckets it as an insdel.
+            # Keep the raw name so the rejected_list entry is informative and the
+            # empty-name warning below doesn't misfire.
+            name = variant
 
     else:
         if noprocess:
@@ -266,7 +302,7 @@ def process_insdel(
 
 
 def process_single_site(
-    line: List[str], ref_AA_sequence: str, noprocess: bool
+    line: List[str], ref_AA_sequence: str, noprocess: bool, max_deletion_length: int
 ) -> VariantDict:
     counts = int(line[0])
     length_NT = int(line[3])
@@ -301,7 +337,9 @@ def process_single_site(
         return insertion_dict
 
     if "insdel" in mutation:
-        insdel_dict = process_insdel(line, ref_AA_sequence, noprocess)
+        insdel_dict = process_insdel(
+            line, ref_AA_sequence, noprocess, max_deletion_length
+        )
         insdel_dict["hgvs"] = hgvs
 
         return insdel_dict
@@ -362,7 +400,10 @@ def process_single_site(
         logging.warning(
             "Dropping unexpected mutation row (AA=%r mutation=%r codon=%r counts=%d): "
             "expected S/M/N at AA[0]",
-            AA, mutation, codon, counts,
+            AA,
+            mutation,
+            codon,
+            counts,
         )
         count = counts
         rejected = True
@@ -517,8 +558,10 @@ def process_variants_file(
     # path. The hot loop below previously updated variants_df with a boolean-mask
     # `.loc[mask, "count"] += counts` once per GATK row, which is O(reads × designed
     # variants) — the dominant runtime cost on 100s-of-GB fastq inputs. Accumulate
-    # into a dict here, then do a single vectorized join after the loop.
-    observed_counts: Dict[str, int] = {}
+    # into a dict here, then do a single vectorized join after the loop. Keyed on
+    # (name, codon) so distinct codons for the same protein change accumulate
+    # separately (issue #23).
+    observed_counts: Dict[Tuple[str, str], int] = {}
 
     if noprocess:
         variants_df = pd.DataFrame()
@@ -526,9 +569,21 @@ def process_variants_file(
         # under noprocess we don't filter against a designed library at all, so
         # an empty set is fine.
         variant_names: set = set()
+        # Protein-level names, used to tell "right residue, wrong codon" apart
+        # from "residue not designed at all" when rejecting.
+        designed_names: set = set()
     else:
         variants_df = designed_variants_df.copy(deep=True)
-        variant_names = set(variants_df["name"])
+        # An empty designed codon (deletions/insdels) round-trips through
+        # pd.read_csv as NaN; coerce to "" so (name, "") matches the observed
+        # side, which uses "" for codon-less variants.
+        variants_df["codon"] = variants_df["codon"].fillna("")
+        # Match on the (name, codon) pair, not name alone.
+        variant_names = set(zip(variants_df["name"], variants_df["codon"]))
+        # Protein-level names alone, to classify rejections: a read whose
+        # residue change is designed but whose codon is not is a "wrong codon"
+        # (off-target synonymous), distinct from an entirely unexpected variant.
+        designed_names = set(variants_df["name"])
 
     for line in gatk_list:
         counts = int(line[0])
@@ -542,7 +597,6 @@ def process_variants_file(
         length = -1
         mutation_type = ""
         variant = ""
-        name = ""
         count = 0
         pos = -1
         rejected = False
@@ -564,7 +618,9 @@ def process_variants_file(
             continue
 
         if len(mutation.split(";")) == 1:
-            variant_dict = process_single_site(line, ref_AA_sequence, noprocess)
+            variant_dict = process_single_site(
+                line, ref_AA_sequence, noprocess, max_deletion_length
+            )
             if variant_dict.get("mutation_type") == "X":
                 rejected_list.append(line)
                 rejected_stats["unexpected_mutation_counts"] += counts
@@ -605,10 +661,11 @@ def process_variants_file(
         # designed variants dataframe. If it is not, we will reject it.
         else:
             try:
-                if variant_dict["name"] in variant_names:
-                    variant_dict["rejected"] = False
-                else:
-                    variant_dict["rejected"] = True
+                # Match on (name, codon): the same protein change encoded by a
+                # different codon is a different designed variant (issue #23).
+                name = variant_dict["name"]
+                key = (name, normalize_match_codon(variant_dict.get("codon", "")))
+                variant_dict["rejected"] = key not in variant_names
             except KeyError:
                 logging.warning("Error in variant processing")
                 logging.warning(line)
@@ -616,19 +673,40 @@ def process_variants_file(
 
             if variant_dict["rejected"]:
                 rejected_list.append(line)
-                rejected_stats["wrong_variant_counts"] = (
-                    rejected_stats["wrong_variant_counts"] + counts
-                )
+                # Classify the rejection into its dedicated stat bucket. Order
+                # matters: a multi-site call carries a ";" in the GATK mutation
+                # field and is built as a "Z" dict above, so it must be caught
+                # before the generic "Z" (insdel) test. (insdel_variant_counts
+                # and multi_variant_counts were dropped in 28dbec2 alongside the
+                # codon filter; restored here.)
+                if len(mutation.split(";")) > 1:
+                    rejected_stats["multi_variant_counts"] = (
+                        rejected_stats["multi_variant_counts"] + counts
+                    )
+                elif variant_dict.get("mutation_type") == "Z":
+                    rejected_stats["insdel_variant_counts"] = (
+                        rejected_stats["insdel_variant_counts"] + counts
+                    )
+                elif name in designed_names:
+                    # Designed residue observed via an undesigned codon
+                    # (off-target synonymous).
+                    rejected_stats["wrong_codon_counts"] = (
+                        rejected_stats["wrong_codon_counts"] + counts
+                    )
+                else:
+                    # Residue change not in the library at all.
+                    rejected_stats["wrong_variant_counts"] = (
+                        rejected_stats["wrong_variant_counts"] + counts
+                    )
                 continue
 
             accepted_stats, rejected_stats = update_stats(
                 accepted_stats, rejected_stats, variant_dict
             )
 
-            # Accept: accumulate counts under the variant's name. A single
+            # Accept: accumulate counts under the (name, codon) key. A single
             # vectorized merge into variants_df happens after the loop.
-            name = variant_dict["name"]
-            observed_counts[name] = observed_counts.get(name, 0) + int(counts)
+            observed_counts[key] = observed_counts.get(key, 0) + int(counts)
 
     total_stats["total_rejected_counts"] = (
         rejected_stats["outside_orf_counts"]
@@ -656,13 +734,16 @@ def process_variants_file(
             variants_df.rename(columns={"mutation": "mutant"}, inplace=True)
     else:
         # Vectorized merge: replace the boolean-mask-per-row update with a
-        # single .map() + add. variants_df["name"] looks each name up in the
-        # accumulator dict (O(N) total); names not in the dict get NaN, which
-        # we fill with 0 before adding. This collapses what was an
-        # O(reads × designed variants) hot path to O(reads + designed variants).
+        # single keyed lookup + add. Each designed row's (name, codon) pair is
+        # looked up in the accumulator dict (O(N) total); pairs not observed
+        # contribute 0. This collapses what was an O(reads × designed variants)
+        # hot path to O(reads + designed variants).
         if observed_counts:
-            additions = (
-                variants_df["name"].map(observed_counts).fillna(0).astype(int)
+            keys = zip(variants_df["name"], variants_df["codon"])
+            additions = pd.Series(
+                [observed_counts.get(key, 0) for key in keys],
+                index=variants_df.index,
+                dtype=int,
             )
             variants_df["count"] = variants_df["count"] + additions
 
@@ -677,11 +758,25 @@ def write_enrich_df(
     else:
         wt_summed = None
 
+    # Collapse codon-level rows back to one row per protein-level hgvs. A library
+    # may design the same protein variant with multiple codons (issue #23);
+    # those are tracked separately upstream, but scoring is protein-level, so
+    # their counts are summed here. This is a no-op when hgvs is already unique
+    # (single-codon libraries, noprocess path). sort=False preserves
+    # first-appearance order. Guard the empty/all-rejected case where the frame
+    # has no columns to group on.
+    if variant_df.empty or "hgvs" not in variant_df.columns:
+        collapsed = pd.DataFrame(columns=["hgvs", "count"])
+    else:
+        collapsed = variant_df.groupby("hgvs", as_index=False, sort=False)[
+            "count"
+        ].sum()
+
     p = pathlib.Path(file)
     p.parent.mkdir(parents=True, exist_ok=True)
 
     with p.open("w+") as f:
-        variant_df.to_csv(f, columns=["hgvs", "count"], index=False, sep="\t")
+        collapsed.to_csv(f, columns=["hgvs", "count"], index=False, sep="\t")
         if wt_summed is not None:
             f.write("_wt\t" + str(wt_summed))
 

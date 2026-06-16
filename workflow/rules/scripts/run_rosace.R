@@ -228,6 +228,12 @@ build_counts_for_replicate <- function(df_subset, experiment_name) {
         "results/", experiment_name, "/processed_counts/enrich_format/",
         sample_name, ".tsv"
       )
+      if (!file.exists(file_name)) {
+        stop(sprintf(
+          "Expected per-sample count file is missing: %s. Did upstream GATK / process_counts fail for sample '%s'?",
+          file_name, sample_name
+        ))
+      }
       this_count <- read_tsv(file_name)
 
       if (anyDuplicated(this_count$hgvs) > 0) {
@@ -397,6 +403,18 @@ run_rosace_for_condition <- function(rosace_obj, experiment_name, expt_condition
 
   rosace_dir <- file.path("results", experiment_name, "rosace")
   message(sprintf("Running ROSACE for condition: %s", expt_condition))
+  # Surface rosace's Stan seed for parity with run_lilace.R's
+  # lilace_seed logging. Unlike lilace, rosace::RunRosace doesn't accept
+  # a seed argument — MCMCRunStan hardcodes seed = 100 internally
+  # (pimentellab/rosace R/runROSACE.R). That means rosace runs are
+  # already deterministic across reruns; users wanting a different chain
+  # init must patch rosace upstream or use scoring_backend='lilace'.
+  message(
+    "Rosace Stan seed: 100 (hardcoded in rosace::MCMCRunStan upstream). ",
+    "Rosace runs are bit-identical across reruns by construction; ",
+    "for configurable seeds, use scoring_backend='lilace' with the ",
+    "lilace_seed config knob."
+  )
 
   # If we are using the noprocess flag, variant data will not be parsed.
   # Therefore we cannot use the type or position as controls.

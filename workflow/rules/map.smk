@@ -20,8 +20,10 @@ if config["aligner"] == "bbmap":
         params:
             sam=config["sam"],
             kmers=config["kmers"],
-            mem=config["mem"],
+            heap=java_heap_gb(config["mem_bbmap"]),
             compression_flags=bbtools_compression_flags,
+        resources:
+            mem_mb=config["mem_bbmap"],
         benchmark:
             "benchmarks/{experiment}/{sample_prefix}.bbmap_map.benchmark.txt"
         log:
@@ -33,7 +35,7 @@ if config["aligner"] == "bbmap":
             "[ -f {input.index_dir}/ref/genome/1/chr1.chrom.gz ] "
             "|| (echo 'BBMap index missing chrom file: {input.index_dir}/ref/genome/1/chr1.chrom.gz' >&2; exit 1); "
             "( bbmap.sh "
-            "-Xmx{params.mem}g "
+            "-Xmx{params.heap}g "
             "in1={input.R1_ec} "
             "in2={input.R2_ec} "
             "sam={params.sam} 32bit=t "
@@ -90,6 +92,9 @@ elif config["aligner"] == "minimap2":
             bam=temp("results/{experiment}/{sample_prefix}.mapped.bam"),
             stats="stats/{experiment}/{sample_prefix}_samtools_stats.txt",
             flagstat="stats/{experiment}/{sample_prefix}_samtools_flagstat.txt",
+        resources:
+            # minimap2 is not a JVM, so no -Xmx; just the scheduler allocation.
+            mem_mb=config["mem_minimap2"],
         benchmark:
             "benchmarks/{experiment}/{sample_prefix}.minimap2_map.benchmark.txt"
         log:

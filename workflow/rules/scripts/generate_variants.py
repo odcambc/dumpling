@@ -1,18 +1,18 @@
-import pathlib
 import csv
-import regex
-import re
 import logging
-from Bio.Seq import Seq
-from Bio import SeqIO
-from Bio.SeqUtils import seq1
+import pathlib
+import re
 
 import pandas as pd
-
+import regex
+from Bio import SeqIO
+from Bio.Seq import Seq
+from Bio.SeqUtils import seq1
 from script_utils import run_script, translate_orf
 
 # Define constants
 PRE_SPAN = 15  # Number of bases in window to map
+SEED_K = 15  # k-mer length for anchoring oligos to the reference (issue #27)
 
 
 def name_to_hgvs(name):
@@ -74,6 +74,10 @@ def designed_variants(oligo_csv, ref, offset, is_circular=False):
     variant_list = []
     ref_len = len(ref)
 
+    # Reference k-mer index for sequence-based identification (issue #27), built
+    # once and reused across all oligos.
+    kmer_index = build_reference_kmer_index(ref)
+
     p = pathlib.Path(oligo_csv)
     p.parent.mkdir(parents=True, exist_ok=True)
 
@@ -94,11 +98,29 @@ def designed_variants(oligo_csv, ref, offset, is_circular=False):
                 # Initialize variables to None to detect which pattern matched
                 variant_data = {}
 
+                # Issue #27: identify the variant from the oligo SEQUENCE first.
+                # The name-based regexes below run only as a fallback when the
+                # sequence can't be confidently resolved (e.g. terminal codons,
+                # circular refs, multi-edit oligos).
+                seq_variant = identify_variant_from_sequence(
+                    line[1], ref, offset, is_circular, kmer_index
+                )
+                if seq_variant is not None:
+                    variant_data = seq_variant
+                    # Carry the subpool/chunk number from the name when present
+                    # (metadata only; not used for variant identity).
+                    chunk_match = regex.search(r"-([0-9]+)_", line[0])
+                    if chunk_match:
+                        variant_data["chunk"] = int(chunk_match.group(1))
+                    logging.debug(
+                        f"Line {i}: resolved by sequence -> {variant_data['name']}"
+                    )
+
                 # Match substitutions
                 variant_sub = regex.search(
                     r".*_DMS-([0-9]+)_([a-zA-Z]+)([0-9]+)([a-zA-Z]+)", line[0]
                 )
-                if variant_sub:
+                if variant_sub and not variant_data:
                     chunk = int(variant_sub.group(1))
                     # Is this a synonymous mutation?
                     if variant_sub.group(2) == variant_sub.group(4):
@@ -427,7 +449,7 @@ def extract_codon(
             return oligo_sequence[expected_codon_pos : expected_codon_pos + 3]
 
     # If all attempts fail, log and return empty string
-    logging.warning(f"Could not find codon. Check offset value and reference sequence.")
+    logging.warning("Could not find codon. Check offset value and reference sequence.")
     logging.warning(
         f"codon_n: {codon_n}, pre_start: {codon_pos - PRE_SPAN}, post_end: {codon_pos + PRE_SPAN + 3}"
     )
@@ -441,6 +463,298 @@ def extract_codon(
             f"post_split: {re.split(re.escape(post_codon), oligo_sequence, flags=re.IGNORECASE)}"
         )
     return ""
+
+
+def _translate(codon):
+    """Translate a codon to a 1-letter amino acid, using 'X' for a stop codon to
+    match the rest of the pipeline's convention (e.g. process_variants, which
+    names stops 'X', not '*')."""
+    return str(Seq(codon).translate()).replace("*", "X")
+
+
+def build_reference_kmer_index(ref, k=SEED_K):
+    """Map each length-k reference substring to the 0-based positions where it
+    occurs. Built once per reference and reused across oligos so sequence-based
+    identification stays ~O(oligo length) per oligo (issue #27)."""
+    ref = str(ref).upper()
+    index: dict = {}
+    for i in range(len(ref) - k + 1):
+        index.setdefault(ref[i : i + k], []).append(i)
+    return index
+
+
+def _extend_match_right(oligo, ref, i, d):
+    """First oligo index >= i where the exact match along diagonal d breaks
+    (ref index = oligo index + d)."""
+    n, m = len(oligo), len(ref)
+    while i < n and 0 <= i + d < m and oligo[i] == ref[i + d]:
+        i += 1
+    return i
+
+
+def _seq_substitution(oligo, ref, d, ref_edit_start, ref_edit_end, orf_codon_start):
+    """Build a substitution/synonymous variant_data dict from a same-length edit,
+    or None if it isn't a clean single-codon change."""
+    if ref_edit_end <= ref_edit_start or ref_edit_start < orf_codon_start:
+        return None
+    # Expand the minimal differing region to ORF codon boundaries; require it to
+    # land within exactly one codon (multi-codon changes -> name fallback).
+    first_codon = orf_codon_start + 3 * ((ref_edit_start - orf_codon_start) // 3)
+    last_codon_end = orf_codon_start + 3 * (
+        ((ref_edit_end - 1) - orf_codon_start) // 3 + 1
+    )
+    if last_codon_end - first_codon != 3:
+        return None
+    ref_codon = ref[first_codon : first_codon + 3]
+    oligo_codon = oligo[first_codon - d : first_codon - d + 3]
+    if len(ref_codon) != 3 or len(oligo_codon) != 3:
+        return None
+    wt_aa = _translate(ref_codon)
+    mut_aa = _translate(oligo_codon)
+    pos = (first_codon - orf_codon_start) // 3 + 1
+    name = wt_aa + str(pos) + mut_aa
+    return {
+        "count": 0,
+        "pos": pos,
+        "mutation_type": "S" if wt_aa == mut_aa else "M",
+        "name": name,
+        "codon": oligo_codon,
+        "mutant": mut_aa,
+        "length": 1,
+        "hgvs": name_to_hgvs(name),
+        "chunk": 0,
+    }
+
+
+def _oligo_codon(oligo, ref, d, cstart):
+    """The oligo's bases mapping to the reference codon at ref index `cstart`
+    (oligo index = ref index - d), or None if out of range."""
+    oi = cstart - d
+    if oi < 0 or oi + 3 > len(oligo):
+        return None
+    return oligo[oi : oi + 3]
+
+
+def _resolve_substitution(oligo, ref, d, orf_codon_start):
+    """Resolve a same-diagonal (no-indel) edit by comparing CODONS in the ORF
+    frame. Anchor on the longest exact matching run (the dominant gene flank),
+    then walk outward codon-by-codon: a mismatching codon counts as the edit
+    only if the codon beyond it still matches the reference (the gene continues).
+
+    Working at codon granularity makes this robust to per-oligo adapters that
+    coincidentally match a base or two at the gene boundary — those don't form a
+    matching codon, so the walk stops at the adapter instead of mistaking the
+    coincidence for a second edit."""
+    lo = max(0, -d)
+    hi = min(len(oligo), len(ref) - d)
+    if lo >= hi:
+        return None
+
+    # Longest contiguous match run on this diagonal: the dominant gene flank.
+    best_a = best_b = 0
+    i = lo
+    while i < hi:
+        if oligo[i] == ref[i + d]:
+            j = i
+            while j < hi and oligo[j] == ref[j + d]:
+                j += 1
+            if j - i > best_b - best_a:
+                best_a, best_b = i, j
+            i = j
+        else:
+            i += 1
+    if best_b - best_a < SEED_K:
+        return None  # no flank long enough to trust
+
+    # Codon boundaries inside the run (ref coords; codons start at
+    # orf_codon_start + 3k).
+    ca = best_a + d
+    ca += (-(ca - orf_codon_start)) % 3  # round up to a codon boundary
+    cb = best_b + d
+    cb -= (cb - orf_codon_start) % 3  # round down
+    if cb - ca < 3 or ca < orf_codon_start:
+        return None
+
+    edits = []
+
+    def codon_matches(cstart):
+        oc = _oligo_codon(oligo, ref, d, cstart)
+        return oc is not None and oc == ref[cstart : cstart + 3]
+
+    # Walk left from the run, then right, allowing a mismatching codon only when
+    # the next codon outward still matches (gene continues, not adapter).
+    c = ca
+    while c - 3 >= orf_codon_start:
+        if codon_matches(c - 3):
+            c -= 3
+        elif codon_matches(c - 6):
+            edits.append(c - 3)
+            c -= 3
+        else:
+            break
+    c = cb
+    while c + 3 <= len(ref):
+        if _oligo_codon(oligo, ref, d, c) is None:
+            break
+        if codon_matches(c):
+            c += 3
+        elif codon_matches(c + 3):
+            edits.append(c)
+            c += 3
+        else:
+            break
+
+    if len(edits) != 1:
+        return None
+    es = edits[0]
+    return _seq_substitution(oligo, ref, d, es, es + 3, orf_codon_start)
+
+
+def _seq_deletion(oligo, ref, d5, length, ref_edit_start, orf_codon_start):
+    """Build an in-frame deletion variant_data dict, or None if it isn't a clean
+    codon-aligned whole-codon deletion. `length` is the deleted base count taken
+    from the diagonal difference (robust to flank/edit base coincidences); the
+    position is snapped to a codon boundary and the reconstruction verified."""
+    if length <= 0 or length % 3 != 0 or ref_edit_start < orf_codon_start:
+        return None
+    # Snap to the codon boundary at/just-left of the bracketed start: greedy
+    # exact-match extension can push the boundary into the deletion when a
+    # flanking base equals a deleted base (indel left-alignment ambiguity).
+    cstart = orf_codon_start + 3 * ((ref_edit_start - orf_codon_start) // 3)
+    junction = cstart - d5  # oligo index where the 3' flank resumes
+    if junction < 0 or cstart + length > len(ref):
+        return None
+    # Verify: removing ref[cstart:cstart+length] reproduces the oligo here.
+    win = ref[cstart + length : cstart + length + 21]
+    if win and oligo[junction : junction + len(win)] != win:
+        return None
+    num_codons = length // 3
+    start_pos = (cstart - orf_codon_start) // 3 + 1
+    start_aa = _translate(ref[cstart : cstart + 3])
+    if num_codons == 1:
+        name = start_aa + str(start_pos) + "del"
+    else:
+        end_codon_start = cstart + length - 3
+        end_aa = _translate(ref[end_codon_start : end_codon_start + 3])
+        name = (
+            start_aa
+            + str(start_pos)
+            + "_"
+            + end_aa
+            + str(start_pos + num_codons - 1)
+            + "del"
+        )
+    return {
+        "count": 0,
+        "pos": start_pos,
+        "mutation_type": "D",
+        "name": name,
+        "codon": "",
+        "mutant": "D_" + str(num_codons),
+        "length": num_codons,
+        "hgvs": name_to_hgvs(name),
+        "chunk": 0,
+    }
+
+
+def _seq_insertion(oligo, ref, d5, length, ref_edit_start, orf_codon_start):
+    """Build an in-frame insertion variant_data dict, or None if it isn't a clean
+    codon-aligned whole-codon insertion. `length` is the inserted base count from
+    the diagonal difference; the insertion point is snapped to a codon boundary
+    and the reconstruction verified."""
+    if length <= 0 or length % 3 != 0 or ref_edit_start < orf_codon_start:
+        return None
+    ipos = orf_codon_start + 3 * ((ref_edit_start - orf_codon_start) // 3)
+    oj = ipos - d5  # oligo index where the inserted bases begin
+    pos = (ipos - orf_codon_start) // 3  # codon just before the insertion
+    if oj < 0 or oj + length > len(oligo) or pos < 1 or ipos + 3 > len(ref):
+        return None
+    inserted = oligo[oj : oj + length]
+    # Verify: oligo after the inserted bases continues with ref[ipos:].
+    win = ref[ipos : ipos + 21]
+    if win and oligo[oj + length : oj + length + len(win)] != win:
+        return None
+    start_aa = _translate(ref[ipos - 3 : ipos])
+    end_aa = _translate(ref[ipos : ipos + 3])
+    aa_string = "".join(
+        _translate(inserted[i : i + 3]) for i in range(0, len(inserted), 3)
+    )
+    name = start_aa + str(pos) + "_" + end_aa + str(pos + 1) + "ins" + aa_string
+    return {
+        "count": 0,
+        "pos": pos,
+        "mutation_type": "I",
+        "name": name,
+        "codon": inserted,
+        "mutant": "I_" + str(length // 3),
+        "length": length // 3,
+        "hgvs": name_to_hgvs(name),
+        "chunk": 0,
+    }
+
+
+def identify_variant_from_sequence(
+    oligo, ref, offset, is_circular=False, kmer_index=None, k=SEED_K
+):
+    """Identify a designed variant from the oligo SEQUENCE vs the reference,
+    independent of the oligo name (issue #27).
+
+    Each oligo holds a reference-matching gene fragment flanked by adapter
+    sequence that does not match the reference (and varies per subpool). The
+    fragment is located by exact k-mer anchoring; the single localized edit
+    between two reference-matching flanks is classified as substitution,
+    synonymous, in-frame deletion, or in-frame insertion. Returns a variant_data
+    dict in the same shape as the name-based path, or None when the edit can't be
+    confidently resolved (caller falls back to name parsing).
+
+    Assumes a linear reference and one localized edit per oligo (the DMS design
+    guarantee); returns None for circular references and ambiguous/multi-edit
+    oligos.
+    """
+    if is_circular:
+        return None
+    oligo = str(oligo).upper()
+    ref = str(ref).upper()
+    if kmer_index is None:
+        kmer_index = build_reference_kmer_index(ref, k)
+
+    # 0-based ref index of the ORF's first codon (== orf_start - 1; the legacy
+    # `offset` is orf_start - 4, so orf_codon_start = offset + 3).
+    orf_codon_start = offset + 3
+
+    # Diagonal votes: d = ref_pos - oligo_pos for each exact k-mer hit. Gene-flank
+    # k-mers vote their diagonal; per-subpool adapters don't match the reference
+    # and contribute nothing, so the gene fragment is found without knowing them.
+    hits = []
+    for i in range(len(oligo) - k + 1):
+        for j in kmer_index.get(oligo[i : i + k], ()):
+            hits.append((i, j - i))
+    if not hits:
+        return None
+
+    # 5' flank diagonal = diagonal of the leftmost hit; 3' flank diagonal =
+    # diagonal of the rightmost hit. Equal for a substitution; differ by the
+    # indel length otherwise.
+    left_i, d5 = min(hits, key=lambda h: h[0])
+    right_i, d3 = max(hits, key=lambda h: h[0])
+
+    # Substitution / synonymous: a single diagonal. Resolve by trimming adapter
+    # and scanning the gene window — this also handles a flank too short to seed
+    # (variant near the gene start), where a two-flank bracket can't anchor.
+    if d5 == d3:
+        return _resolve_substitution(oligo, ref, d5, orf_codon_start)
+
+    # Indel: two diagonals. The 5' flank end (in ref) marks where the edit
+    # begins; the deleted/inserted length is the diagonal difference. The
+    # helpers snap that start to a codon boundary and verify the reconstruction.
+    e5 = _extend_match_right(oligo, ref, left_i, d5)  # end of 5' flank (oligo, excl.)
+    ref_edit_start = e5 + d5
+    if not (0 <= ref_edit_start <= len(ref)):
+        return None
+
+    if d3 - d5 > 0:  # ref longer than oligo -> deletion
+        return _seq_deletion(oligo, ref, d5, d3 - d5, ref_edit_start, orf_codon_start)
+    return _seq_insertion(oligo, ref, d5, d5 - d3, ref_edit_start, orf_codon_start)
 
 
 def check_designed_df(df) -> bool:
@@ -463,6 +777,84 @@ def check_designed_df(df) -> bool:
         return False
 
     return True
+
+
+def deduplicate_designed_variants(variants_df, dup_report_path="duped.csv"):
+    """
+    Collapse genuine duplicate designed-variant rows while preserving variants
+    that share a protein-level name but differ by codon.
+
+    A library can encode the same protein change with distinct codons (e.g.
+    A10G via GGC and via GGT); per issue #23 these are kept as separate rows so
+    the rest of the pipeline can index on (name, codon). Only rows identical in
+    *both* name and codon are merged. A (name, codon) pair that survives the
+    merge with conflicting values in the other columns is an unrecoverable
+    error.
+
+    Args:
+        variants_df (pd.DataFrame): Designed variants, one row per oligo.
+        dup_report_path (str | pathlib.Path): Where to dump the offending rows
+            for debugging when an unrecoverable duplicate is found. Parent
+            directories are created as needed.
+
+    Returns:
+        pd.DataFrame: Deduplicated designed variants.
+    """
+    duplicate_rows = variants_df.duplicated().sum()
+
+    logging.info(variants_df.nunique())
+    logging.info(
+        f"Found {duplicate_rows} completely duplicate rows in the designed variants dataframe."
+    )
+
+    if duplicate_rows > 0:
+        logging.warning(
+            f"Found {duplicate_rows} duplicate rows in the designed variants dataframe. Dropping duplicates."
+        )
+        variants_df = variants_df.drop_duplicates()
+
+    # Distinct codons for the same protein name are intentional (issue #23), so
+    # the duplicate check keys on (name, codon), not name alone.
+    duplicated_pairs = (
+        variants_df.drop_duplicates().duplicated(subset=["name", "codon"]).sum()
+    )
+    if duplicated_pairs > 0:
+        logging.warning(
+            f"Found {duplicated_pairs} duplicated (name, codon) pairs in the designed variants dataframe. Attempting to deduplicate."
+        )
+
+        # `codon` joins the group key so distinct-codon variants survive; only
+        # `chunk` is reduced (taking the first when otherwise-identical rows are
+        # merged). `as_index=False` keeps the group keys as columns, so no
+        # trailing reset_index (which would inject a spurious `index` column).
+        variants_df = variants_df.groupby(
+            [
+                "count",
+                "pos",
+                "mutation_type",
+                "name",
+                "codon",
+                "mutant",
+                "length",
+                "hgvs",
+            ],
+            as_index=False,
+        ).agg({"chunk": "first"})
+
+        duplicated_pairs = variants_df.duplicated(subset=["name", "codon"]).sum()
+        if duplicated_pairs > 0:
+            report = pathlib.Path(dup_report_path)
+            report.parent.mkdir(parents=True, exist_ok=True)
+            variants_df.to_csv(report, index=False)
+            logging.error(
+                f"Found {duplicated_pairs} duplicated (name, codon) pairs with non-identical values in the designed variants dataframe. Offending rows written to {report}. Check for errors."
+            )
+            raise Exception(
+                "Found duplicated (name, codon) pairs with non-identical values. Check for errors."
+            )
+
+    logging.info("Regenerated variants.")
+    return variants_df
 
 
 def write_designed_csv(file, header, variant_list):
@@ -519,53 +911,12 @@ def _run(snakemake):
         logging.error("Error in designed variants. Check log for details.")
         raise Exception("Error in designed variants. Check log for details.")
 
-    duplicate_rows = variants_df.duplicated().sum()
-
-    logging.info(variants_df.nunique())
-    logging.info(
-        f"Found {duplicate_rows} completely duplicate rows in the designed variants dataframe."
+    # Dump offending rows under results/<experiment>/ if dedup fails, rather
+    # than the process working directory.
+    dup_report_path = (
+        pathlib.Path("results") / snakemake.config["experiment"] / "duped_variants.csv"
     )
-
-    if duplicate_rows > 0:
-        logging.warning(
-            f"Found {duplicate_rows} duplicate rows in the designed variants dataframe. Dropping duplicates."
-        )
-        variants_df = variants_df.drop_duplicates()
-
-    duplicated_names = variants_df.drop_duplicates()["name"].duplicated().sum()
-    if duplicated_names > 0:
-        logging.warning(
-            f"Found {duplicated_names} duplicated variant names in the designed variants dataframe. Attempting to deduplicate."
-        )
-
-        variants_df = (
-            variants_df.groupby(
-                [
-                    "count",
-                    "pos",
-                    "mutation_type",
-                    "name",
-                    "mutant",
-                    "length",
-                    "hgvs",
-                ],
-                as_index=False,
-            )
-            .agg({"chunk": "first", "codon": "first"})
-            .reset_index()
-        )
-
-        duplicated_names = variants_df["name"].duplicated().sum()
-        if duplicated_names > 0:
-            variants_df.to_csv("duped.csv", index=False)
-            logging.error(
-                f"Found {duplicated_names} duplicated variant names with non-identical values in the designed variants dataframe. Check for errors."
-            )
-            raise Exception(
-                "Found duplicated variant names with non-identical values. Check for errors."
-            )
-
-    logging.info("Regenerated variants.")
+    variants_df = deduplicate_designed_variants(variants_df, dup_report_path)
 
     variants_df.to_csv(variants_file, index=False)
 

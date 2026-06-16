@@ -1,7 +1,6 @@
 import logging
 
 import yaml
-
 from script_utils import run_script
 
 """Generate a MultiQC config file for the baseline samples. This will write the following

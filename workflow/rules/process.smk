@@ -2,7 +2,7 @@ rule generate_variants:
     """Runs script to generate a designed variants csv from a DIMPLE oligo csv input."""
     input:
         oligo_file=oligo_file,
-        ref_fasta=reference_file,
+        ref_fasta=normalized_reference_file,
     output:
         expand("{variants_file}", variants_file=config["variants_file"])
         if config["regenerate_variants"]
@@ -20,12 +20,12 @@ rule process_sample:
     processed CSV, and total-processing stats. Runs once per sample (parallel-
     safe; sibling invocations write to disjoint output paths)."""
     input:
+        *([config["variants_file"]] if not config["noprocess"] else []),
         gatk="results/{experiment}/gatk/{sample_prefix}.variantCounts",
         # The designed variants file is only consumed when noprocess=False
         # (i.e. when we're filtering observed variants against the designed
         # library). Under noprocess=True it's neither read nor required to
         # exist, so don't declare it as an input then.
-        *([config["variants_file"]] if not config["noprocess"] else []),
     output:
         enrich="results/{experiment}/processed_counts/enrich_format/{sample_prefix}.tsv",
         csv="results/{experiment}/processed_counts/{sample_prefix}.csv",
@@ -33,6 +33,8 @@ rule process_sample:
     params:
         regenerate_variants=config["regenerate_variants"],
         gatk_dir="results/{experiment}/gatk/",
+    resources:
+        mem_mb=config["mem_process_sample"],
     benchmark:
         "benchmarks/{experiment}/{sample_prefix}.process_sample.benchmark.txt"
     log:

@@ -1,6 +1,6 @@
 import logging
-from script_utils import load_experiments, run_script
 
+from script_utils import load_experiments, run_script
 
 """Generate a list of files specific to baseline conditionsto be used as input for MultiQC.
 This is just a list of files that will be passed using --file-list

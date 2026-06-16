@@ -1,0 +1,20 @@
+# Configuration for display in the Snakemake workflow catalog:
+# https://snakemake.github.io/snakemake-workflow-catalog
+#
+# Listing dumpling under "standardized usage" requires this file plus
+# workflow/Snakefile (present) and config/README.md (present).
+
+usage:
+  mandatory-flags:
+    # dumpling runs from the repo root with no mandatory extra flags: snakemake
+    # auto-discovers workflow/Snakefile, and a default config ships in config/.
+    # A real run points at your own config via --configfile config/<name>.yaml.
+    desc: >-
+      Supply your experiment via --configfile config/<your_experiment>.yaml
+      (the bundled default is config/example.yaml). No other flags are required.
+    flags: ""
+  software-stack-deployment:
+    conda: true              # works with `--sdm conda` (every rule has a conda: env)
+    apptainer: true          # works with `--sdm apptainer/singularity` via the containerized: image
+    apptainer+conda: false   # TODO verify: container is a single mega-env, not per-rule conda inside apptainer
+    report: false            # TODO verify: `snakemake --report report.zip` not yet tested

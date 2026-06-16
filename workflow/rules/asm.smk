@@ -2,8 +2,8 @@ rule gatk_ASM:
     """Use the GATK AnalyzeSaturationMutagenesis tool to call and count variants.
     This is the culmination of the initial variant calling pipeline."""
     input:
-        index=str(reference_file) + ".fai",
-        ref_dict=str(reference_file.parent / f"{reference_name}.dict"),
+        index=str(normalized_reference_file) + ".fai",
+        ref_dict=str(normalized_reference_file.parent / f"{reference_name}.dict"),
         bam="results/{experiment}/{sample_prefix}.mapped.bam",
     output:
         "results/{experiment}/gatk/{sample_prefix}.variantCounts",
@@ -11,14 +11,20 @@ rule gatk_ASM:
         orf=config["orf"],
         min_q=config["min_q"],
         min_variant_obs=config["min_variant_obs"],
-        ref=str(reference_file),
+        ref=str(normalized_reference_file),
+        heap=java_heap_gb(config["mem_gatk"]),
+    resources:
+        mem_mb=config["mem_gatk"],
     benchmark:
         "benchmarks/{experiment}/{sample_prefix}.gatk_asm.benchmark.txt"
     log:
         "logs/{experiment}/gatk/{sample_prefix}.gatk_asm.log",
     threads: 1
     shell:
-        "gatk AnalyzeSaturationMutagenesis "
+        # Pin the JVM heap below the cgroup --mem (via --java-options) so GATK
+        # doesn't default to a fraction of the *node's* RAM and overrun the
+        # allocation on a cluster.
+        "gatk --java-options '-Xmx{params.heap}g' AnalyzeSaturationMutagenesis "
         "-I {input.bam} "
         "-R {params.ref} "
         "--orf {params.orf} "

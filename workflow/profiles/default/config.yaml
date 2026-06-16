@@ -1,0 +1,21 @@
+# Local-execution profile for dumpling (no scheduler).
+#
+# Usage:
+#   snakemake --profile workflow/profiles/default --cores 16
+#
+# A convenience counterpart to the slurm profile so `--profile` is the one
+# consistent entry point. Snakemake still honours each rule's `threads` and
+# `resources: mem_mb` locally — it schedules jobs to fit within --cores (and an
+# optional --resources mem_mb=<machine RAM>), so the same resource declarations
+# that drive the cluster also bound a local run.
+
+# Cap total memory Snakemake will schedule concurrently (MB). Set to your
+# machine's usable RAM so it won't launch, e.g., two 12 GB bbmap jobs at once.
+# Comment out to let --cores alone govern concurrency.
+resources:
+  - mem_mb=16000
+
+rerun-triggers:
+  - mtime
+
+printshellcmds: true

@@ -41,7 +41,7 @@ main <- function() {
     # Check cmdstanr toolchain
     tryCatch(
       {
-        install_cmdstan(overwrite = FALSE)
+        install_cmdstan(version = "2.39.0", overwrite = FALSE)
       },
       warning = function(w) {
         message("cmdstan already installed. Not reinstalling.")
@@ -81,12 +81,24 @@ main <- function() {
     # Install cmdstan, catch warning if already installed
     tryCatch(
       {
-        install_cmdstan(overwrite = FALSE)
+        install_cmdstan(version = "2.39.0", overwrite = FALSE)
       },
       warning = function(w) {
         message("cmdstan already installed. Not reinstalling.")
       }
     )
+
+    # Verify rosace actually loads. renv::restore() prints errors but
+    # doesn't raise when a transitive dep fails to compile (e.g., missing
+    # system libs like libblas-dev/liblapack-dev), so without this check
+    # the marker file gets written and snakemake treats the install as
+    # done — but the next run_rosace invocation fails with a cryptic
+    # "could not find function 'CreateRosaceObject'" because rosace
+    # didn't actually install. Mirrors the corresponding check in
+    # install_lilace.R and install_rosace_aa.R.
+    if (!require(rosace)) {
+      stop("Rosace not available after renv restore. Check renv.lock and renv setup.")
+    }
   }
 
   # Write to output file upon successful installation

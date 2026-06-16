@@ -1,0 +1,66 @@
+# Snakemake profile for running dumpling on a SLURM cluster (issue #13).
+#
+# Usage, from a login node, in the thin submitting env (see cluster_env.yaml):
+#   conda env create -f cluster_env.yaml && conda activate dumpling_cluster
+#   snakemake --profile workflow/profiles/slurm \
+#             --software-deployment-method apptainer
+#
+# Snakemake runs on the login node and submits one `sbatch` job per rule
+# instance; the jobs themselves execute inside the published container
+# (workflow/Snakefile `containerized:`) on the compute nodes. Each rule's
+# `threads` and `resources: mem_mb` (see workflow/rules/*.smk) become
+# `--cpus-per-task` and `--mem`; `runtime` becomes `--time`.
+
+executor: slurm
+
+# Max number of jobs queued/running at once. Raise for big libraries.
+jobs: 100
+
+# Run each job inside the prebuilt container on the compute node. Override on
+# the command line with --software-deployment-method conda if a site lacks
+# apptainer/singularity.
+software-deployment-method:
+  - apptainer
+
+# Fallbacks for rules that don't declare their own resources (the light
+# reference/index/script rules). The heavy rules carry their own mem_mb.
+default-resources:
+  mem_mb: 4000
+  runtime: 120 # minutes
+
+  # --- SITE-SPECIFIC: uncomment and set for your cluster ---------------------
+  # SLURM account (sbatch -A) and partition/queue (sbatch -p). Left unset so
+  # the profile parses and works on clusters with a default account/partition;
+  # uncomment to target a specific one. These are the only values that cannot
+  # be validated without a real cluster.
+  # slurm_account: "myaccount"
+  # slurm_partition: "shared"
+
+# Per-rule overrides beyond what the rules declare in-workflow. Examples
+# (commented): bump a rule's memory or walltime for a large run without
+# editing the workflow.
+# set-resources:
+#   gatk_ASM:
+#     mem_mb: 12000
+#     runtime: 240
+#   map_to_reference_bbmap:
+#     runtime: 180
+
+# Resubmit a job once if it fails (e.g. node pre-emption); pair with a small
+# retries if your scheduler pre-empts often.
+restart-times: 1
+
+# Be gentle with the scheduler's RPC rate.
+max-jobs-per-second: 5
+
+# On a shared filesystem, output files can take a moment to become visible to
+# the submitting node after a job finishes; wait before declaring them missing.
+latency-wait: 60
+
+# Re-run only when inputs' mtimes change, not on params/code/software changes —
+# avoids surprise full reruns of an expensive pipeline on a cluster. Drop to
+# the default (all triggers) if you want stricter reproducibility.
+rerun-triggers:
+  - mtime
+
+printshellcmds: true

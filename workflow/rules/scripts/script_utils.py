@@ -114,9 +114,7 @@ def load_experiments(experiment_file) -> pd.DataFrame:
     enforcement) stay identical across rules. Drift between callers
     previously meant a CSV that worked for one script could break another.
     """
-    df = pd.read_csv(experiment_file, header=0, encoding="utf-8-sig").dropna(
-        how="all"
-    )
+    df = pd.read_csv(experiment_file, header=0, encoding="utf-8-sig").dropna(how="all")
     return set_index_with_unique_check(df, "sample", drop=False)
 
 
@@ -171,9 +169,49 @@ def validate_experiment_time_or_bin(experiments: pd.DataFrame) -> None:
 
     if problems:
         details = "\n  - ".join(problems)
-        raise ValueError(
-            "Invalid experiment definitions:\n  - " + details
-        )
+        raise ValueError("Invalid experiment definitions:\n  - " + details)
+
+
+def translate_legacy_bbtools_compression(config: dict) -> list[str]:
+    """Translate the deprecated `bbtools_use_bgzip` bool into `bbtools_compression`.
+
+    Returns a list of human-readable warning messages the caller should print
+    (empty list if nothing to do). Mutates `config` in place.
+
+    Mapping is byte-compatibility preserving against the prior helper:
+      `bbtools_use_bgzip: true`  →  `bbtools_compression: bgzip`
+        (old true emitted an empty flag string, letting BBTools' built-in
+        bgzip take over — same as the new `bgzip` mode)
+      `bbtools_use_bgzip: false` →  `bbtools_compression: none`
+        (old false emitted `bgzip=f unbgzip=f`, falling back to BBTools'
+        default gzip — same as the new `none` mode)
+
+    If `bbtools_compression` is already set, it wins and we just warn about
+    the redundant deprecated key. The new default (pigz, parallelized across
+    rule threads) is applied later by `config.setdefault`, so users who
+    specified neither get the faster path automatically.
+    """
+    if "bbtools_use_bgzip" not in config:
+        return []
+
+    legacy = config.pop("bbtools_use_bgzip")
+    translated = "bgzip" if legacy else "none"
+
+    if "bbtools_compression" in config:
+        return [
+            f"WARNING [dumpling]: ignoring deprecated bbtools_use_bgzip={legacy!r} "
+            f"because bbtools_compression={config['bbtools_compression']!r} is also set. "
+            f"Remove bbtools_use_bgzip from the config to silence this warning."
+        ]
+
+    config["bbtools_compression"] = translated
+    return [
+        f"WARNING [dumpling]: bbtools_use_bgzip is deprecated. Translated "
+        f"bbtools_use_bgzip={legacy!r} -> bbtools_compression={translated!r} to "
+        f"preserve prior behavior. Set bbtools_compression directly to silence "
+        f"this warning. New default is 'pigz', which parallelizes (de)compression "
+        f"across rule threads."
+    ]
 
 
 def validate_scoring_backend_mode(config: dict) -> None:
@@ -185,12 +223,89 @@ def validate_scoring_backend_mode(config: dict) -> None:
     `normalization.method = "total"`. In noprocess mode the pipeline does not
     parse HGVS into a trustworthy `synonymous` label, so the control set would
     be empty and the run would fail deep inside R after a long install step.
-    Catch it here instead.
+
+    rosace-aa hits the same wall plus a stricter one: its `RunRosace.Rosace`
+    signature requires `wt.col`, `mut.col`, `ctrl.col` and an `aa.code` setting
+    (verified against pimentellab/rosace-aa R/runROSACE.R). Those columns
+    come from process_variants and don't exist on the noprocess path. Catch
+    both backends' incompatibility here rather than deep in R.
     """
-    if config.get("noprocess") and config.get("scoring_backend") == "lilace":
+    backend = config.get("scoring_backend")
+    if config.get("noprocess") and backend in ("lilace", "rosace_aa"):
         raise ValueError(
-            "scoring_backend='lilace' is incompatible with noprocess=true. "
-            "Lilace requires a synonymous-variant control set and has no "
-            "total-counts fallback. Use scoring_backend='rosace' for "
-            "noprocess runs, or set noprocess=false."
+            f"scoring_backend={backend!r} is incompatible with noprocess=true. "
+            f"{backend} requires parsed variant metadata "
+            "(synonymous control set + wildtype/mutation columns) which the "
+            "noprocess path does not produce. Use scoring_backend='rosace' "
+            "for noprocess runs, or set noprocess=false."
         )
+
+
+def java_heap_gb(mem_mb, headroom_mb=2000):
+    """Java ``-Xmx`` heap size (whole GB) that fits inside a ``mem_mb`` cgroup
+    allocation, leaving headroom for the JVM's own overhead.
+
+    On a SLURM cluster ``--mem`` is a hard cgroup limit: a JVM whose heap
+    equals the limit gets OOM-killed the moment its non-heap footprint
+    (metaspace, thread stacks, direct/native buffers, GC structures) lands on
+    top. So the heap is sized a fixed ``headroom_mb`` below the rule's memory
+    allocation. The result is floored at 1 GB so the light BBTools steps (whose
+    allocation is only ~2 GB) still get a usable heap rather than 0.
+
+    ``mem_mb`` is the rule's ``resources: mem_mb`` (megabytes); the return value
+    feeds ``-Xmx{n}g``. We divide by 1000 (not 1024) on purpose — it yields a
+    slightly smaller, conservative heap that stays comfortably under the
+    1024-based ``g`` suffix. Lives here (rather than inline in a rule) so the
+    headroom policy is unit-testable, mirroring the other helpers in this module.
+    """
+    return max(1, (mem_mb - headroom_mb) // 1000)
+
+
+def get_cosmos_phenotype_conditions(experiments, baseline_condition):
+    """Return experimental conditions ordered by their cosmos phenotype slot.
+
+    The optional ``phenotype`` column in the experiment CSV assigns each
+    condition an integer slot N, which becomes cosmos's ``beta_hat_N`` /
+    ``se_hat_N`` pair. The column is per-sample but describes a condition, so
+    every row of a condition must agree — we fail loud on disagreement rather
+    than silently pick one. Blank/absent means the condition is excluded from
+    the cosmos export (baseline conditions, which have no score CSV, are
+    naturally left blank). Slots must form a contiguous ``1..N`` range with no
+    duplicates, since cosmos requires ``beta_hat_1..N`` with no gaps.
+
+    Returns the conditions as a list in slot order (slot 1 first); ``[]`` when
+    no slots are declared (cosmos export off).
+    """
+    if "phenotype" not in experiments.columns:
+        return []
+
+    slot_by_condition = {}
+    for condition, rows in experiments.groupby("condition"):
+        vals = rows["phenotype"].dropna().unique()
+        if len(vals) == 0:
+            continue
+        if len(vals) > 1:
+            raise ValueError(
+                f"Condition {condition!r} has conflicting phenotype slots "
+                f"{sorted(int(v) for v in vals)}; all rows of a condition must "
+                "declare the same slot (or leave it blank)."
+            )
+        if condition == baseline_condition:
+            raise ValueError(
+                f"Baseline condition {condition!r} was assigned a phenotype slot; "
+                "baselines have no scores and cannot be a cosmos phenotype."
+            )
+        slot_by_condition[condition] = int(vals[0])
+
+    if not slot_by_condition:
+        return []
+
+    slots = sorted(slot_by_condition.values())
+    if len(set(slots)) != len(slots):
+        raise ValueError(f"Duplicate cosmos phenotype slots: {slots}.")
+    if slots != list(range(1, len(slots) + 1)):
+        raise ValueError(
+            f"cosmos phenotype slots must be a contiguous 1..N range; got {slots}."
+        )
+
+    return [c for c, _ in sorted(slot_by_condition.items(), key=lambda kv: kv[1])]

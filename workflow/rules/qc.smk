@@ -10,12 +10,17 @@ else:  # minimap2
 
 
 rule multiqc_dir:
-    """Final QC: aggregate FastQC and intermediate log files into a final report with MultiQC.
-  """
+    """Final QC: aggregate FastQC and intermediate log files into a final report with MultiQC."""
     input:
         expand(_map_stats_trigger, sample_prefix=samples),
-        [f"stats/{{experiment}}/fastqc/{fastqc_names[f]['R1']}_fastqc.html" for f in files],
-        [f"stats/{{experiment}}/fastqc/{fastqc_names[f]['R2']}_fastqc.html" for f in files],
+        [
+            f"stats/{{experiment}}/fastqc/{fastqc_names[f]['R1']}_fastqc.html"
+            for f in files
+        ],
+        [
+            f"stats/{{experiment}}/fastqc/{fastqc_names[f]['R2']}_fastqc.html"
+            for f in files
+        ],
         expand(
             "results/{{experiment}}/gatk/{sample_prefix}.variantCounts",
             sample_prefix=samples,
@@ -26,12 +31,12 @@ rule multiqc_dir:
         ),
     output:
         "stats/{experiment}/{experiment}_multiqc.html",
-    params:
-        extra="-c config/multiqc_config.yaml",
-    benchmark:
-        "benchmarks/{experiment}/multiqc.benchmark.txt"
     log:
         "logs/{experiment}/multiqc.log",
+    benchmark:
+        "benchmarks/{experiment}/multiqc.benchmark.txt"
+    params:
+        extra="-c config/multiqc_config.yaml",
     wrapper:
         "v3.1.0/bio/multiqc"
 
@@ -43,14 +48,14 @@ rule fastqc:
     output:
         html="stats/{experiment}/fastqc/{fastqc_name}_fastqc.html",
         zip="stats/{experiment}/fastqc/{fastqc_name}_fastqc.zip",
-    params:
-        "--quiet",
-    benchmark:
-        "benchmarks/{experiment}/{fastqc_name}.fastqc.benchmark.txt"
     log:
         "logs/{experiment}/fastqc/{fastqc_name}.log",
+    benchmark:
+        "benchmarks/{experiment}/{fastqc_name}.fastqc.benchmark.txt"
     threads: 8
     resources:
         mem_mb=config["mem_fastqc"],
+    params:
+        "--quiet",
     wrapper:
         "v3.1.0/bio/fastqc"

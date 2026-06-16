@@ -68,8 +68,32 @@ oligo_file: "config/oligos/example_oligos.csv"
 #                      only necessary if the variants file is not already present.
 #
 # #### Scoring and Enrich2 parameters ####
-# scoring_backend: Variant scoring backend. Options: rosace (default) or lilace.
+# scoring_backend: Variant scoring backend. Options: rosace (default), lilace,
+#                  or rosace_aa. rosace_aa is an extension of rosace that
+#                  decomposes scores into position + amino-acid substitution
+#                  effects. Both lilace and rosace_aa require parsed variant
+#                  metadata and are incompatible with noprocess: true.
 # enrich2: Set to true to run Enrich2 in addition to backend scoring.
+# keep_enrich_h5: Set to true to keep Enrich2's intermediate .h5 store files.
+#                 Default false: only the exported tsv scores are kept; the
+#                 large .h5 stores are declared Snakemake temp() outputs and
+#                 removed once scoring completes (saving space). No effect
+#                 unless enrich2 is true.
+# deposit_to_mavedb: Set to false to skip MaveDB-formatted CSV emission. Default
+#                    true; ships `results/{experiment}/deposit/mavedb/{cond}_mavedb.csv`
+#                    per experimental condition, directly uploadable to MaveDB.
+#                    Cheap (~seconds after scoring) so on by default.
+# run_cosmos: Set to true to run cosmos (pimentellab/cosmos) as part of the
+#             build — like enrich2, an analysis on top of the chosen scoring
+#             backend. Produces the per-position direct/indirect decomposition
+#             `results/{experiment}/cosmos/{experiment}_cosmos_results.csv`
+#             (format_cosmos prepares its input). Requires exactly two conditions
+#             assigned `phenotype` slots 1 and 2 in the experiment CSV (cosmos
+#             models two sequential phenotypes). Off by default. NOTE: cosmos
+#             fits a model per position (~tens of seconds each, serial), so
+#             enabling it can add hours on a large library. Tune via the optional
+#             `cosmos:` config block (include_type/exclude_type/
+#             x_gmm_n_components/min_num_variants_per_group).
 # noprocess: Set to True to skip variant filtering based on designed variants.
 # run_qc: Set to False to skip QC steps (fastqc and multiqc)
 #
@@ -80,17 +104,25 @@ oligo_file: "config/oligos/example_oligos.csv"
 #                      quality of input libraries.
 #
 # max_deletion_length: The maximum length (in codons) of a designed deletion in the library.
+#                      Insdels that resolve to an in-frame deletion longer than this are
+#                      rejected. Set to 0 (or any non-positive value) to disable the cap.
 #                      Defaults to 3.
 # -----------------------------------------------------------------------------
 orf: "141-1568"
+
 scoring_backend: rosace
 enrich2: true
-remove_zeros: true
+keep_enrich_h5: false
+deposit_to_mavedb: true
+
+run_cosmos: false
+remove_zeros: false
 regenerate_variants: false
 noprocess: false
+
 run_qc: true
 baseline_condition: baseline
-max_deletion_length: 3
+max_deletion_length: 0
 
 # -----------------------------------------------------------------------------
 # Other parameters:
@@ -100,7 +132,22 @@ max_deletion_length: 3
 #
 # sam: The SAM format version to use for BBMap jobs. This should be "1.3" for most cases.
 #
-# mem: Memory to allocate for BBTools jobs with Java (mapping, trimming, merging) (in GB)
+# mem: Legacy single knob for BBTools Java heap (in GB). Superseded by the
+#      per-tool mem_* allocations below for the mapping/trimming/GATK rules;
+#      retained for any out-of-tree use.
+#
+# Per-tool memory ALLOCATIONS (in MB), one per heavy rule. Each becomes that
+# rule's `resources: mem_mb`, which a cluster scheduler turns into `sbatch
+# --mem` (see workflow/profiles/slurm). For the Java rules the -Xmx heap is
+# derived a fixed headroom below the allocation, so it fits inside the cgroup
+# limit. Defaults are sane; override only to fit a specific machine/cluster.
+#   mem_bbduk (2000), mem_bbmerge (2000): trim/clean/correct steps
+#   mem_bbmap (12000): bbmap mapping + index (heaviest step)
+#   mem_minimap2 (1000): minimap2 mapping + index
+#   mem_gatk (6000): GATK AnalyzeSaturationMutagenesis
+#   mem_process_sample (2000): per-sample variant processing
+# To run on a SLURM cluster, see the README "Running on a cluster" section and
+# `snakemake --profile workflow/profiles/slurm`.
 #
 # min_q: Used in GATK: the minimum quality score for bases to be analyzed.
 #
@@ -109,8 +156,17 @@ max_deletion_length: 3
 #                 not have a compatible samtools version.
 # rosace_local: Use locally-managed Rosace/cmdstanr instead of renv+conda rule environment.
 # lilace_local: Use locally-managed Lilace/cmdstanr instead of renv+conda rule environment.
-# bbtools_use_bgzip: Keep BBTools on bgzip for compressed IO. Set to false only if
-#                    your environment hangs in BBTools and you need to fall back to pigz/unpigz.
+# rosace_aa_local: Use locally-managed rosace-aa/cmdstanr instead of renv+conda rule environment.
+# bbtools_compression: BBTools (de)compression backend.
+#                      `pigz` (default) parallelizes across rule threads — typical
+#                       savings: 30-40 s/sample on 8 GB+ inputs.
+#                      `bgzip` uses BBTools' built-in bgzip (equivalent to the
+#                       deprecated `bbtools_use_bgzip: true`).
+#                      `none` falls back to gzip (equivalent to the deprecated
+#                       `bbtools_use_bgzip: false`); use on systems where pigz
+#                       isn't available or BBTools hangs with bgzip.
+#                      Old `bbtools_use_bgzip: true|false` is still accepted with
+#                       a deprecation warning, translated to bgzip/none accordingly.
 #
 # -----------------------------------------------------------------------------
 
@@ -119,10 +175,14 @@ sam: "1.3"
 mem: 16
 min_q: 30
 
+aligner: minimap2
+#bbtools_compression: pigz
+
 samtools_local: false
 rosace_local: false
 lilace_local: false
-bbtools_use_bgzip: true
+rosace_aa_local: false
+
 
 # -----------------------------------------------------------------------------
 # Other resources:

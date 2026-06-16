@@ -1,19 +1,18 @@
 # test_process_variants.py
 
-import pytest
 import pandas as pd
+import pytest
 
 from workflow.rules.scripts.process_variants import (
-    read_gatk_csv,
-    process_variants_file,
+    name_to_hgvs,
+    normalize_match_codon,
     parse_multi_synonymous,
-    process_insertion,
     process_deletion,
     process_insdel,
+    process_insertion,
     process_single_site,
+    process_variants_file,
     write_enrich_df,
-    write_stats_file,
-    name_to_hgvs,
 )
 
 # -------------------------
@@ -139,11 +138,38 @@ def test_process_insdel():
         "A10_B11insdelCC",
     ]
     # For demonstration, we pass noprocess=True
-    result = process_insdel(line, "MAGICREFSEQ", noprocess=True)
+    result = process_insdel(line, "MAGICREFSEQ", noprocess=True, max_deletion_length=3)
     assert result["count"] == 7
     assert result["mutation_type"] in ["ID", "D", "Z"], "Depending on your logic"
     assert "insdel" in result["mutation"] or "ID_" in result["mutation"]
     assert result["rejected"] is False
+
+
+def test_process_insdel_max_deletion_length_gate():
+    """A recoverable insdel (net deletion length 5) is accepted as a deletion
+    only when within max_deletion_length. The gate was dropped in 28dbec2 and
+    restored: too-long insdels are rejected (mutation_type 'Z'), a non-positive
+    limit disables the cap, and noprocess bypasses it entirely."""
+    # G10_K15insdelG: deletion_length 6, insertion 1 -> insdel_length 5;
+    # recoverable because start residue (G) == inserted residue (G).
+    line = ["5", "0", "0", "0", "A", "6", "10:x>y", "Zstuff", "G10_K15insdelG"]
+    ref = "M" * 30
+
+    within = process_insdel(line, ref, noprocess=False, max_deletion_length=5)
+    assert within["rejected"] is False
+    assert within["mutation_type"] == "D"
+    assert within["length"] == 5
+
+    too_long = process_insdel(line, ref, noprocess=False, max_deletion_length=4)
+    assert too_long["rejected"] is True
+    assert too_long["mutation_type"] == "Z"
+
+    disabled = process_insdel(line, ref, noprocess=False, max_deletion_length=0)
+    assert disabled["rejected"] is False
+    assert disabled["mutation_type"] == "D"
+
+    bypassed = process_insdel(line, ref, noprocess=True, max_deletion_length=1)
+    assert bypassed["rejected"] is False
 
 
 def test_process_single_site_no_mutation(ref_aa_sequence):
@@ -159,7 +185,9 @@ def test_process_single_site_no_mutation(ref_aa_sequence):
         "Sstuff",  # means 'synonymous' if it starts with S
         "",  # mutation is empty
     ]
-    out = process_single_site(line, ref_aa_sequence, noprocess=False)
+    out = process_single_site(
+        line, ref_aa_sequence, noprocess=False, max_deletion_length=3
+    )
     assert out["mutation_type"] == "S"
     assert out["hgvs"].startswith("p.(")
 
@@ -207,7 +235,7 @@ def test_process_variants_file_normal(designed_variants_df, ref_aa_sequence):
     """Check that process_variants_file, with noprocess=False, accumulates counts only
     for 'expected' variants in designed_variants_df."""
     mock_gatk_list = [
-        ["5", "0", "0.1", "1", "1774:A>C", "1", "10:CAA>AAG", "M:G>A", "G10A"],
+        ["5", "0", "0.1", "1", "1774:A>C", "1", "10:CAA>AAA", "M:G>A", "G10A"],
         [
             "2",
             "0",
@@ -260,8 +288,21 @@ def test_process_variants_file_normal(designed_variants_df, ref_aa_sequence):
 
 
 def _gatk_g10a(counts):
-    """Build a GATK row that should be recognized as the G10A variant."""
-    return [str(counts), "0", "0.1", "1", "1774:A>C", "1", "10:CAA>AAG", "M:G>A", "G10A"]
+    """Build a GATK row that should be recognized as the G10A variant.
+
+    The observed ALT codon (AAA) matches the designed G10A codon in
+    designed_variants_df, so (name, codon) matching accepts it (issue #23)."""
+    return [
+        str(counts),
+        "0",
+        "0.1",
+        "1",
+        "1774:A>C",
+        "1",
+        "10:CAA>AAA",
+        "M:G>A",
+        "G10A",
+    ]
 
 
 def test_process_variants_file_sums_duplicate_observations(
@@ -311,12 +352,18 @@ def test_process_single_site_unexpected_aa_is_dropped(ref_aa_sequence):
     rejected-stats bucket."""
     line = [
         "11",  # counts
-        "0", "0", "3", "A", "1",
+        "0",
+        "0",
+        "3",
+        "A",
+        "1",
         "10:AAA>TTT",
         "Xstuff",  # AA[0] is 'X', not in {S, M, N}
         "",  # mutation empty
     ]
-    out = process_single_site(line, ref_aa_sequence, noprocess=False)
+    out = process_single_site(
+        line, ref_aa_sequence, noprocess=False, max_deletion_length=3
+    )
     assert out["mutation_type"] == "X"
     assert out["rejected"] is True
     assert out["count"] == 11
@@ -371,9 +418,7 @@ def test_process_variants_file_all_rejected_under_noprocess_does_not_crash(
     assert len(variants_df) == 0
 
 
-def test_process_variants_file_order_independent(
-    designed_variants_df, ref_aa_sequence
-):
+def test_process_variants_file_order_independent(designed_variants_df, ref_aa_sequence):
     """Shuffling the GATK row order must not change the final counts."""
     rows = [_gatk_g10a(c) for c in (1, 5, 9, 2, 4)]
 
@@ -391,3 +436,223 @@ def test_process_variants_file_order_independent(
     reverse = run(list(reversed(rows)))
     shuffled = run([rows[2], rows[0], rows[4], rows[1], rows[3]])
     assert forward == reverse == shuffled == 21  # 1 + 5 + 9 + 2 + 4
+
+
+# -------------------------
+#  Issue #23: distinguish protein variants by codon
+# -------------------------
+
+
+def test_normalize_match_codon():
+    """The helper must turn observed codon fields into the bare ALT codon used
+    as the designed `codon` column, and leave already-bare codons / empties
+    alone."""
+    # GATK substitution form: pos:ref>alt -> alt only.
+    assert normalize_match_codon("10:CAA>GCT") == "GCT"
+    # Synonymous, ref==alt.
+    assert normalize_match_codon("2:GCT>GCT") == "GCT"
+    # Already-bare insertion codons pass through unchanged.
+    assert normalize_match_codon("ATGGCG") == "ATGGCG"
+    # Codon-less (deletions/insdels) and NaN-ish values normalize to "".
+    assert normalize_match_codon("") == ""
+    assert normalize_match_codon("nan") == ""
+    # Multi-segment: each ALT concatenated (won't match a single-codon library).
+    assert normalize_match_codon("97:CAG>CAC, 98:GGA>GGG") == "CACGGG"
+
+
+@pytest.fixture
+def two_codon_designed_df():
+    """A designed library encoding the same protein change (G10A) with two
+    distinct codons — the case issue #23 must keep separate."""
+    return pd.DataFrame(
+        {
+            "count": [0, 0],
+            "pos": [10, 10],
+            "mutation_type": ["M", "M"],
+            "name": ["G10A", "G10A"],
+            "codon": ["AAA", "GGT"],
+            "mutation": ["A", "A"],
+            "length": [1, 1],
+            "hgvs": ["p.(G10A)", "p.(G10A)"],
+        }
+    )
+
+
+def test_process_variants_file_distinguishes_codons(
+    two_codon_designed_df, ref_aa_sequence
+):
+    """Two observations of the same protein change but different codons must
+    land on their respective designed rows, not pool into one."""
+    gatk_list = [
+        ["5", "0", "0.1", "1", "x", "1", "10:CAA>AAA", "M:G>A", "G10A"],
+        ["3", "0", "0.1", "1", "x", "1", "10:CAA>GGT", "M:G>A", "G10A"],
+    ]
+    variants_df, rejected_list, *_ = process_variants_file(
+        gatk_list,
+        two_codon_designed_df,
+        ref_aa_sequence,
+        max_deletion_length=3,
+        noprocess=False,
+    )
+    # Both rows survive, keyed by codon.
+    aaa = variants_df.loc[variants_df["codon"] == "AAA", "count"].iloc[0]
+    ggt = variants_df.loc[variants_df["codon"] == "GGT", "count"].iloc[0]
+    assert aaa == 5
+    assert ggt == 3
+    assert len(rejected_list) == 0
+
+
+def test_process_variants_file_rejects_unmatched_codon(
+    two_codon_designed_df, ref_aa_sequence
+):
+    """A G10A observed via a codon the library never designed (CCC) must be
+    rejected, even though the protein-level name G10A is present. Because the
+    residue change IS designed, it counts as a 'wrong codon', not a 'wrong
+    variant'."""
+    gatk_list = [["4", "0", "0.1", "1", "x", "1", "10:CAA>CCC", "M:G>A", "G10A"]]
+    variants_df, rejected_list, rejected_stats, *_ = process_variants_file(
+        gatk_list,
+        two_codon_designed_df,
+        ref_aa_sequence,
+        max_deletion_length=3,
+        noprocess=False,
+    )
+    assert len(rejected_list) == 1
+    assert rejected_stats["wrong_codon_counts"] == 4
+    assert rejected_stats["wrong_variant_counts"] == 0
+    # Neither designed row received counts.
+    assert (variants_df["count"] == 0).all()
+
+
+def test_process_variants_file_splits_codon_and_variant_rejections(
+    two_codon_designed_df, ref_aa_sequence
+):
+    """Rejections split into two buckets: a designed residue via an undesigned
+    codon (G10A/CCC) is a wrong-codon count; an entirely undesigned residue
+    change (W20Y, not in the library) is a wrong-variant count."""
+    gatk_list = [
+        ["4", "0", "0.1", "1", "x", "1", "10:CAA>CCC", "M:G>A", "G10A"],
+        ["6", "0", "0.1", "1", "x", "1", "20:TGG>TAT", "M:W>Y", "W20Y"],
+    ]
+    _, rejected_list, rejected_stats, *_ = process_variants_file(
+        gatk_list,
+        two_codon_designed_df,
+        ref_aa_sequence,
+        max_deletion_length=3,
+        noprocess=False,
+    )
+    assert len(rejected_list) == 2
+    assert rejected_stats["wrong_codon_counts"] == 4  # G10A, undesigned codon
+    assert rejected_stats["wrong_variant_counts"] == 6  # W20Y, undesigned residue
+
+
+def test_process_variants_file_buckets_insdel_and_multi_rejections(
+    designed_variants_df, ref_aa_sequence
+):
+    """Insdel and multi-site rejections land in their dedicated stat buckets,
+    not lumped into wrong_variant_counts. Both increments were dropped in
+    28dbec2 and restored alongside the codon filter."""
+    gatk_list = [
+        # Multi-site variant: ";" in the GATK mutation field.
+        ["20", "0", "0", "2", "x", "1", "10:GGT>GCT, 11:AAA>CGT", "M", "G10A;K11R"],
+        # Genuine (unrecoverable) insdel: start/end/inserted residues all differ.
+        ["15", "0", "0", "2", "x", "2", "37:GGT>TCA", "Zstuff", "G37_I38insdelS"],
+    ]
+    _, rejected_list, rejected_stats, *_ = process_variants_file(
+        gatk_list,
+        designed_variants_df,
+        ref_aa_sequence,
+        max_deletion_length=3,
+        noprocess=False,
+    )
+    assert len(rejected_list) == 2
+    assert rejected_stats["multi_variant_counts"] == 20
+    assert rejected_stats["insdel_variant_counts"] == 15
+    # Not misfiled into the generic bucket.
+    assert rejected_stats["wrong_variant_counts"] == 0
+
+
+def test_process_variants_file_deletion_matches_empty_codon(
+    designed_variants_df, ref_aa_sequence
+):
+    """Codon-less variants (deletions) match on (name, ""); the codon key must
+    not break the existing deletion path."""
+    gatk_list = [["6", "0", "0", "3", "x", "1", "12:CCG>---", "D:P>-", "P12del"]]
+    variants_df, rejected_list, *_ = process_variants_file(
+        gatk_list,
+        designed_variants_df,
+        ref_aa_sequence,
+        max_deletion_length=3,
+        noprocess=False,
+    )
+    assert len(rejected_list) == 0
+    assert variants_df.loc[variants_df["name"] == "P12del", "count"].iloc[0] == 6
+
+
+def test_real_benchmark_library_rejects_undesigned_codon(fixtures_dir):
+    """Regression against a real user designed-variants file. S2T is designed
+    with codons ACG and ACT; an observation via the undesigned codon ACC must
+    be rejected as a wrong codon, not pooled into S2T."""
+    designed = pd.read_csv(
+        fixtures_dir / "benchmark_variants.csv", encoding="utf-8-sig"
+    )
+    designed["codon"] = designed["codon"].fillna("")
+    assert set(designed.loc[designed["name"] == "S2T", "codon"]) == {"ACG", "ACT"}
+
+    gatk_list = [["7", "0", "0", "1", "x", "1", "2:AGC>ACC", "M:S>T", "S2T"]]
+    _, rejected_list, rejected_stats, *_ = process_variants_file(
+        gatk_list, designed, "M" * 300, max_deletion_length=3, noprocess=False
+    )
+    assert len(rejected_list) == 1
+    assert rejected_stats["wrong_codon_counts"] == 7
+    assert rejected_stats["wrong_variant_counts"] == 0
+
+
+def test_write_enrich_df_collapses_codons_to_protein_level(tmp_path):
+    """write_enrich_df is the seam where codon-level counts collapse back to
+    protein-level for scoring: two codon rows of the same hgvs sum into one
+    row in the Enrich2 TSV (issue #23, 'scores merged' scope)."""
+    variant_df = pd.DataFrame(
+        {
+            "hgvs": ["p.(G10A)", "p.(G10A)", "p.(R11R)"],
+            "count": [5, 3, 2],
+            "mutation_type": ["M", "M", "S"],
+            "codon": ["AAA", "GGT", "CGT"],
+        }
+    )
+    out = tmp_path / "sample.tsv"
+    write_enrich_df(out, variant_df, noprocess=True)
+
+    result = pd.read_csv(out, sep="\t")
+    # One row per protein-level hgvs.
+    assert result["hgvs"].tolist().count("p.(G10A)") == 1
+    assert result.loc[result["hgvs"] == "p.(G10A)", "count"].iloc[0] == 8  # 5 + 3
+    assert result.loc[result["hgvs"] == "p.(R11R)", "count"].iloc[0] == 2
+
+
+def test_real_benchmark_library_collapses_to_protein_level(fixtures_dir, tmp_path):
+    """End-to-end on the real file: S2T observed via both designed codons (ACG,
+    ACT) lands on separate rows, then collapses to one summed p.(S2T) row in
+    the Enrich2 TSV that scoring consumes."""
+    designed = pd.read_csv(
+        fixtures_dir / "benchmark_variants.csv", encoding="utf-8-sig"
+    )
+    designed["codon"] = designed["codon"].fillna("")
+
+    gatk_list = [
+        ["100", "0", "0", "1", "x", "1", "2:AGC>ACG", "M:S>T", "S2T"],
+        ["40", "0", "0", "1", "x", "1", "2:AGC>ACT", "M:S>T", "S2T"],
+    ]
+    variants_df, *_ = process_variants_file(
+        gatk_list, designed, "M" * 300, max_deletion_length=3, noprocess=False
+    )
+    s2t = variants_df[variants_df["name"] == "S2T"].set_index("codon")["count"]
+    assert s2t["ACG"] == 100
+    assert s2t["ACT"] == 40
+
+    out = tmp_path / "benchmark_sample.tsv"
+    write_enrich_df(out, variants_df, noprocess=False)
+    enrich = pd.read_csv(out, sep="\t")
+    s2t_rows = enrich[enrich["hgvs"] == "p.(S2T)"]
+    assert len(s2t_rows) == 1
+    assert s2t_rows["count"].iloc[0] == 140  # 100 + 40

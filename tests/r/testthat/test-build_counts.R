@@ -124,3 +124,32 @@ test_that("empty df_subset returns empty tibble gracefully", {
   expect_equal(nrow(result), 0)
   expect_true("hgvs" %in% names(result))
 })
+
+# =============================================================================
+# Test 5: Missing per-sample count file surfaces a sample-named error before
+# read_tsv. Regression guard for the silent "cannot open file" R traceback
+# users hit when upstream GATK / process_counts dropped a sample.
+# =============================================================================
+
+test_that("missing per-sample count file produces a named error before read_tsv", {
+  tmp_dir <- withr::local_tempdir()
+  withr::local_dir(tmp_dir)
+
+  # Set up exp5 with one sample on disk, then reference a *different* sample
+  # in df_subset that has no TSV — that is the upstream-failure shape.
+  setup_enrich_files("exp5", list(
+    sample_present = tibble::tibble(hgvs = c("A1V"), count = c(10L))
+  ))
+
+  df_subset <- tibble::tibble(
+    sample    = "sample_missing",
+    condition = "cond_A",
+    replicate = 1L,
+    time      = 0L
+  )
+
+  expect_error(
+    build_counts_for_replicate(df_subset, "exp5"),
+    "Expected per-sample count file is missing.*sample_missing"
+  )
+})
