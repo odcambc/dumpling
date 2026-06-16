@@ -109,17 +109,20 @@ oligo_file: "config/oligos/example_oligos.csv"
 #                      Defaults to 3.
 # -----------------------------------------------------------------------------
 orf: "141-1568"
+
 scoring_backend: rosace
 enrich2: true
 keep_enrich_h5: false
 deposit_to_mavedb: true
+
 run_cosmos: false
-remove_zeros: true
+remove_zeros: false
 regenerate_variants: false
 noprocess: false
+
 run_qc: true
 baseline_condition: baseline
-max_deletion_length: 3
+max_deletion_length: 0
 
 # -----------------------------------------------------------------------------
 # Other parameters:
@@ -172,11 +175,14 @@ sam: "1.3"
 mem: 16
 min_q: 30
 
+aligner: minimap2
+#bbtools_compression: pigz
+
 samtools_local: false
 rosace_local: false
 lilace_local: false
 rosace_aa_local: false
-bbtools_compression: pigz
+
 
 # -----------------------------------------------------------------------------
 # Other resources:

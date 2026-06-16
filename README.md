@@ -1,79 +1,85 @@
-# GATK-based Snakemake pipeline for deep mutational scanning experiments
+# A Snakemake pipeline for deep mutational scanning experiments
 
-This repository contains the Snakemake-based workflow for implementing
+This repository contains Dumpling, the Snakemake-based workflow for implementing
 deep mutational scanning experiments used in the [Fraser](https://fraserlab.com/)
 and [Coyote-Maestas](https://www.wcoyotelab.com/) labs.
 
-Briefly, this conducts initial QC and read processing with BBTools (adapter
-trimming, contaminant filtering, and BBMerge error correction) and maps the
-processed reads to the reference using either BBMap (default) or minimap2
-(opt-in, configurable). The aligned reads are passed through GATK's
-AnalyzeSaturationMutagenesis module to call variants in each replicate. After
-variant calling, the list of observed variants in each read is filtered
-based on the list of designed variants, and the resulting counts are used to
-infer the fitness of each variant using [Rosace](https://github.com/pimentellab/rosace),
-[Rosace-AA](https://github.com/pimentellab/rosace-aa),
-[Lilace](https://github.com/pimentellab/lilace),
-and (optionally) [Enrich2](https://github.com/FowlerLab/Enrich2).
+## What is dumpling
 
-The pipeline is designed to be flexible and modular and should be amenable to use
-with a variety of experimental designs. Please note several current [limitations](#limitations), however.
+Dumpling is an end-to-end pipeline for analyzing and scoring deep mutational scanning experiments.
 
-- [GATK-based Snakemake pipeline for deep mutational scanning experiments](#gatk-based-snakemake-pipeline-for-deep-mutational-scanning-experiments)
-  - [Quick start](#quick-start)
-    - [Using the prebuilt container (recommended)](#using-the-prebuilt-container-recommended)
-    - [Testing the pipeline with example data](#testing-the-pipeline-with-example-data)
-  - [Installation](#installation)
-    - [Install via GitHub](#install-via-github)
-    - [Installing Rosace, Lilace, and Rosace-AA](#installing-rosace-lilace-and-rosace-aa)
-      - [Issues installing Rosace, Lilace, or Rosace-AA on OSX](#issues-installing-rosace-lilace-or-rosace-aa-on-osx)
-    - [Dependencies](#dependencies)
-      - [Via conda (recommended)](#via-conda-recommended)
-      - [Manually](#manually)
-  - [Configuration](#configuration)
-    - [Configuration files](#configuration-files)
-    - [Aligner choice](#aligner-choice)
-    - [Working directory structure](#working-directory-structure)
-  - [Usage](#usage)
-    - [Running the pipeline](#running-the-pipeline)
-    - [Output files](#output-files)
-    - [Analyzing results](#analyzing-results)
-      - [QC metrics](#qc-metrics)
-      - [Data analysis](#data-analysis)
-  - [Limitations](#limitations)
-  - [Citations](#citations)
-  - [License](#license)
-  - [Contributing](#contributing)
-  - [Getting help](#getting-help)
+Dumpling will perform sequence QC, variant calling, filtering, and scoring. We made Dumpling to complement [DIMPLE](https://github.com/coywil26/DIMPLE), our library generation platform, but it should be more generally useful for other types of DMS libraries. DIMPLE allows insertion and deletion variants in addition to substitutions, which dumpling was explicitly created to support.
+
+Because DIMPLE libraries generate libraries of specifically-designed variants, dumpling by default filters identified variants based on an expected set of inputs: this can be easily disabled to support random mutagenesis.
+
+Dumpling supports the following sequencing strategies:
+
+* Tagmentation
+* Tiled amplicons
+
+Dumpling supports a number of experimental designs:
+
+* Pooled growth and competitions
+* FACS screens
+* Binding and competition
+
+We are interested and happy to discuss accommodating new capabilities - drop us a line if you're interested!
+
+Dumpling does _not_ currently support barcoded or UMI libraries and has limited support for
+combinatorial or multi-mutation libraries. It also does not currently support insertion scanning libraries or fusion libraries. These are planned for future releases.
+
+Dumpling was also designed to complement the scoring tools we developed in the lab, and so provides end-to-end scoring for
+[Rosace](https://github.com/pimentellab/rosace),
+[Rosace-AA](https://github.com/pimentellab/rosace-aa), and
+[Lilace](https://github.com/pimentellab/lilace). [Enrich2](https://github.com/FowlerLab/Enrich2) scores are also included.
+
+Dumpling also supports [Cosmos](https://github.com/pimentellab/cosmos) for multi-phenotype causal modelling after individual experiment scoring.
+
+A [configuration generation tool](https://dumpling.odcambc.com) is available too!
 
 ## Quick start
 
-### Using the prebuilt container (recommended)
-
-A prebuilt container image is published to [GitHub Container Registry](https://github.com/odcambc/dumpling/pkgs/container/dumpling) bundling Snakemake plus the full dumpling toolchain — BBTools, GATK, minimap2, samtools, FastQC, MultiQC, R 4.5 with the Rosace/Lilace/Rosace-AA stack, **CmdStan pre-compiled**, and Enrich2. This is the fastest path to a working pipeline because it skips conda environment setup and the multi-hour CmdStan compile that otherwise bites first-time users.
+A prebuilt container image is published to [GitHub Container Registry](https://github.com/odcambc/dumpling/pkgs/container/dumpling) which bundles Snakemake and the full dumpling toolchain — BBTools, GATK, minimap2, samtools, FastQC, MultiQC, R 4.5 with the Rosace/Lilace/Rosace-AA scorers, **CmdStan pre-compiled**, and Enrich2. This is the fastest path to a working pipeline because it skips conda environment setup and tool installation, which are most likely to hit user environment issues.
 
 The same image works for both Docker (local dev, CI) and Apptainer/Singularity (HPC), since Apptainer transparently pulls and converts OCI images.
 
-**With Docker:**
+### 1. Clone and write your configuration
 
-```bash
+​```bash
 git clone https://github.com/odcambc/dumpling
 cd dumpling
-docker run --rm -v "$(pwd):/workdir" ghcr.io/odcambc/dumpling:latest \
-    snakemake -s workflow/Snakefile --cores 16
-```
+​```
 
-**With Apptainer/Singularity (HPC):**
+dumpling needs three inputs, all referenced from your config YAML (see
+[config/README.md](config/README.md) for the full reference):
 
-```bash
-git clone https://github.com/odcambc/dumpling
-cd dumpling
-snakemake -s workflow/Snakefile --use-singularity --cores 16
-```
+* a **config file** — copy `config/example.yaml` to `config/my_experiment.yaml` and edit, or use the [configuration generator](https://dumpling.odcambc.com)
+* an **experiment CSV** — maps samples/replicates/timepoints to FASTQ files
+* a **reference FASTA** under `references/`
 
-The `containerized:` directive in `workflow/Snakefile` already points at the GHCR image, so `--use-singularity` picks it up automatically. You do **not** need `--use-conda` — the container bundles every tool in a single environment.
+Set `data_dir: data` in your config — that's where your reads get mounted below.
 
-Available tags: `:latest` (most recent release), `:vX.Y.Z` (pinned release), `:dev` (rolling build of the `dev` branch).
+### 2. Run it with Docker
+
+Your FASTQs usually live outside the repo. Mount the repo at `/workdir` (the
+container's working directory) and your reads at `/workdir/data` (matching
+`data_dir`).
+
+​```bash
+docker run --rm \
+  --user "$(id -u):$(id -g)" \
+  -v "$(pwd):/workdir" \
+  -v "/path/to/your/fastqs:/workdir/data" \
+  ghcr.io/odcambc/dumpling:latest \
+  snakemake --configfile config/my_experiment.yaml --cores 16
+​```
+
+Outputs (`results/`, `stats/`, `logs/`) land back in the repo via the `$(pwd)`
+mount; `--user` keeps them owned by you rather than root.
+
+## Installation
+
+### With Conda (locally)
 
 If you'd rather manage dependencies yourself, the conda-based install is below.
 
@@ -84,10 +90,175 @@ conda env create --file dumpling_env.yaml
 conda activate dumpling_env
 ```
 
-Note that, on ARM-based Macs, the conda environment may fail to install due to required packages not being available for that platform.
-Assuming that [Rosetta](https://support.apple.com/en-us/102527) is installed, the environment can be installed using emulation with the following command:
+See [Troubleshooting](#troubleshooting) for issues running dumpling on ARM Macs or installing Rosace.
 
-Installation for ARM-based Macs:
+### Dependencies
+
+The following are the dependencies required to run the pipeline:
+
+* [Snakemake](https://snakemake.readthedocs.io/en/stable/)
+* [GATK](https://software.broadinstitute.org/gatk/)
+* [BBTools](https://jgi.doe.gov/data-and-tools/bbtools/)
+* [minimap2](https://github.com/lh3/minimap2) (optional, opt-in alternative aligner — see [Aligner choice](#aligner-choice))
+* [Samtools](http://www.htslib.org/)
+* [pysam](https://github.com/pysam-developers/pysam)
+* [FastQC](https://www.bioinformatics.babraham.ac.uk/projects/fastqc/)
+* [MultiQC](http://multiqc.info/)
+* [Enrich2](https://enrich2.readthedocs.io/en/latest/)
+* [Rosace](https://github.com/pimentellab/rosace)
+* [Rosace-AA](https://github.com/pimentellab/rosace-aa)
+* [Lilace](https://github.com/pimentellab/lilace)
+
+## Configuration
+
+Try the online [configuration generation tool](https://dumpling.odcambc.com)!
+
+### Input files
+
+dumpling requires three things: a configuration file, an experiment/sample definition file, and a reference sequence fasta.
+
+To use variant filtering, it also needs a list of designed variants. This can be generated automatically from
+a DIMPLE-generated list of oligos, which can also be provided.
+
+Full details of configuration files are in the [configuration README](config/README.md).
+The `config/example.yaml` file is populated with reasonable defaults if you just want to get going.
+
+### Aligner choice
+
+The pipeline supports two alternative aligners for mapping reads to the
+reference, selected via the `aligner` key in the config:
+
+```yaml
+aligner: bbmap      # default — current behavior
+# aligner: minimap2 # opt-in
+```
+
+minimap2 is significantly faster (up to an order of magnitude) in our experience but bbmap returns slightly more detailed QC metrics and is preserved as default. In testing the results are > 0.997 identical, which likely is simply non-determinism of multi-threaded mapping.
+
+## Usage
+
+We normally use one instance of the pipeline for each experiment.
+This allows for simpler tracking and reproducibility of individual experiments: for
+a new dataset, fork the repo, edit the configuration files, and run the pipeline. This way,
+a record of the exact configuration and environment can be saved. It is possible to run multiple
+experiments in the same folder, but this is more difficult to reproduce.
+
+### Running the pipeline
+
+Once the dependencies have been installed (whether via conda or otherwise) the pipeline can be run with the following command:
+
+```bash
+snakemake --configfile config/my_experiment.yaml --software-deployment-method conda --cores 8
+```
+
+The maximum number of cores can be specified with the `--cores` flag. The `--software-deployment-method conda` flag
+tells Snakemake to use conda to create the environment specified within each rule.
+
+For a local run that also respects per-rule memory budgets, use the bundled local profile:
+
+```bash
+snakemake --profile workflow/profiles/default --configfile config/my_experiment.yaml --cores 16
+```
+
+### With Apptainer/Singularity (HPC)
+
+​```bash
+snakemake --use-singularity --configfile config/my_experiment.yaml --cores 16
+​```
+
+Apptainer auto-binds your working directory, so keep `data_dir` reachable from
+there (under the repo, or add `--singularity-args "--bind /path/to/fastqs:/workdir/data"`).
+The `containerized:` directive in `workflow/Snakefile` points at the GHCR image,
+so `--use-singularity` picks it up automatically. You do **not** need `--use-conda` —
+the container bundles every tool in a single environment.
+
+Available tags: `:latest` (most recent release), `:vX.Y.Z` (pinned release).
+
+### Running on a cluster
+
+Note: the following is a work in progress and may not work for your cluster or environment.
+
+dumpling ships a SLURM profile (`workflow/profiles/slurm`). Snakemake runs on the
+login node and submits one `sbatch` job per rule instance; each job executes
+inside the prebuilt container on the compute nodes. Every heavy rule declares `threads` and `resources: mem_mb` (tunable via the `mem_*` config knobs), which Snakemake translates into `--cpus-per-task` / `--mem` / `--time`.
+
+1. On the login node, create the thin submitting environment (Snakemake + the
+   SLURM executor plugin only):
+
+   ```bash
+   conda env create -f cluster_env.yaml
+   conda activate dumpling_cluster
+   ```
+
+2. Set your site's SLURM account and partition by uncommenting `slurm_account`
+   / `slurm_partition` under `default-resources` in `workflow/profiles/slurm/config.yaml`
+   (these are the only values that can't be defaulted). Adjust `mem_*` budgets in
+   your config if the defaults don't fit your data — read `benchmarks/{experiment}/`
+   `max_rss` from a real run to size them.
+
+3. Launch:
+
+   ```bash
+   snakemake --profile workflow/profiles/slurm --configfile config/my_experiment.yaml --software-deployment-method apptainer
+   ```
+
+To validate the profile without submitting anything (e.g. to check resources and
+account settings resolve), add `--dry-run`.
+
+### Output files
+
+The pipeline generates a variety of output files. These are organized into the following directories:
+
+* `benchmarks`: details of the runtime and process usage for each rule
+* `logs`: log files from each rule
+* `results`: outputs from each rule (Note: many of these are intermediate files and are deleted by default).
+* `stats`: various processing statistics from each rule
+* `ref`: normalized reference, sequence dictionary, and aligner indexes. Reference-derived
+  artifacts here persist across pipeline runs — keyed on a content hash of the reference, so
+  unchanged references skip the index rebuild on repeat runs.
+
+These are ignored by git by default.
+
+Sample-derived intermediates (trimmed/cleaned FASTQs under `results/{experiment}/` and the
+mapped BAMs) are marked `temp()` and deleted as soon as their downstream consumers finish.
+To retain them for debugging — e.g. inspecting a `bbduk`-trimmed FASTQ or running
+`samtools view` on a mapped BAM — pass `--notemp` (alias: `--no-temp`, `--nt`) to the
+snakemake invocation:
+
+```bash
+snakemake --configfile config/my_experiment.yaml --cores 16 --notemp
+```
+
+`--notemp` is a Snakemake built-in; no config knob needed.
+
+### Analyzing results
+
+#### QC metrics
+
+A variety of stats from tool outputs are provided in the `stats` directory. These are
+aggregated using MultiQC. The aggregated reports contain:
+
+* FastQC reports for raw reads (read counts, base quality, adapter content, etc.)
+* BBTools reports
+  * BBDuk reports for adapter trimming and contamination removal
+  * BBMerge reports for merging paired-end reads
+  * BBMap reports for mapping reads to the reference _(when `aligner: bbmap`)_
+* samtools stats and flagstat reports _(when `aligner: minimap2`)_
+* GATK AnalyzeSaturationMutagenesis reports for variant calling
+* Reports for variant filtering
+
+If a baseline condition is defined, a separate baseline report is also generated.
+
+The files are saved as `stats/{experiment_name}_multiqc_report.html` and
+`stats/{experiment_name}_baseline_multiqc_report.html` by default.
+
+## Troubleshooting
+
+### Using Conda on ARM Macs
+
+Note that, on ARM-based Macs, the conda environment may fail to install due to required packages not being available for that platform. Compatibility is a moving target however, and this may not be accurate.
+
+Assuming that [Rosetta](https://support.apple.com/en-us/102527) is installed, the environment can be installed using emulation with the following command:
 
 ```bash
 CONDA_SUBDIR=osx-64 conda env create --file dumpling_env.yaml
@@ -99,25 +270,7 @@ conda env create --platform osx-64 --name enrich2_arm64
 You will also need to set the "samtools_local" variable in the config yaml to "true" to tell the pipeline to use this local version.
 
 If the environment installed and activated properly,
-edit the configuration files in the `config` directory as needed. Then run the pipeline with:
-
-```bash
-snakemake -s workflow/Snakefile --software-deployment-method conda --cores 16
-```
-
-### Testing the pipeline with example data
-
-To test the pipeline with example data and examine the output, you can
-use the file provided in the [dumpling-example](https://github.com/odcambc/dumpling-example) repository. This repository contains a small dataset and configuration files that can be used to test the pipeline. To use it,
-clone the repository and move the data directory into the dumpling directory, then create the environment and run the pipeline as above. The repository also
-includes output files from running the pipeline on the example data that can
-be used to compare results.
-
-## Installation
-
-### Install via GitHub
-
-Download or fork this repository and edit the configuration files as needed.
+edit the configuration files in the `config` directory as needed, then run the pipeline.
 
 ### Installing Rosace, Lilace, and Rosace-AA
 
@@ -158,99 +311,9 @@ R, by default, requires these to be installed in `/opt/gfortran`. User installs 
 may not work. If you encounter an error compiling packages for the scoring backends, you may need to install
 the gfortran compiler from R.
 
-See https://cran.r-project.org/bin/macosx/tools/ for more details.
+See <https://cran.r-project.org/bin/macosx/tools/> for more details.
 
-### Dependencies
-
-#### Via conda (recommended)
-
-The simplest way to handle dependencies is with [Conda](https://conda.io/docs/) and the provided environment file.
-
-```bash
-conda env create --file dumpling_env.yaml
-```
-
-This will create a new environment named `dumpling` with all the dependencies installed. Then simply activate the environment and you're ready to go.
-
-```bash
-conda activate dumpling_env
-```
-
-#### Manually
-
-The following are the dependencies required to run the pipeline:
-
-- [Snakemake](https://snakemake.readthedocs.io/en/stable/)
-- [GATK](https://software.broadinstitute.org/gatk/)
-- [BBTools](https://jgi.doe.gov/data-and-tools/bbtools/)
-- [minimap2](https://github.com/lh3/minimap2) (optional, opt-in alternative aligner — see [Aligner choice](#aligner-choice))
-- [Samtools](http://www.htslib.org/)
-- [pysam](https://github.com/pysam-developers/pysam)
-- [FastQC](https://www.bioinformatics.babraham.ac.uk/projects/fastqc/)
-- [MultiQC](http://multiqc.info/)
-- [Enrich2](https://enrich2.readthedocs.io/en/latest/)
-- [Rosace](https://github.com/pimentellab/rosace)
-- [Rosace-AA](https://github.com/pimentellab/rosace-aa)
-- [Lilace](https://github.com/pimentellab/lilace)
-
-BBTools compressed IO defaults to `pigz` (parallelized across each rule's threads —
-typically saves 30-40 s/sample on 8 GB+ inputs vs single-threaded bgzip). Override via
-`bbtools_compression: bgzip | pigz | none` in the config. `none` falls back to gzip and
-is the right knob if your environment hangs in `bbduk.sh`, `bbmerge.sh`, or `bbmap.sh`.
-The legacy `bbtools_use_bgzip: true|false` knob still works (with a deprecation warning)
-and translates to `bgzip`/`none`.
-
-## Configuration
-
-### Configuration files
-
-The details of an experiment need to be specified in a configuration file that defines
-parameters and an associated experiment file that details the experimental setup.
-
-The configuration file is a YAML file: full details are included in the example file
-`config/example.yaml` and in the schema file `workflow/schemas/config.schema.yaml`.
-
-The experiment file is a CSV file that relates experimental conditions,
-replicates, and time points to sequencing files: full details are included
-in the config file and in the schema file `workflow/schemas/experiments.schema.yaml`.
-
-Additionally, a reference fasta file is required for mapping. This should be
-placed in the `references` directory, and the path to the file should be specified in the config file.
-
-This pipeline also employs a processing step to standardize variant nomenclature
-and remove any variants that are not designed or are likely errors. This
-requires a CSV file containing the set of designed variants, including their
-specific codon changes. This should be placed in the `config/designed_variants` directory,
-and the path to the file should be specified in the config file. An example file
-is included in `config/designed_variants/example_variants.csv`. This pipeline can generate
-the variants CSV from the output set of oligos produced by the [DIMPLE](https://github.com/coywil26/DIMPLE)
-library generation protocol: this can be enabled by including the path to the oligo CSV file in the config
-file and setting `regenerate_variants` to `True` in the config.
-
-### Aligner choice
-
-The pipeline supports two alternative aligners for mapping reads to the
-reference, selected via the `aligner` key in the config:
-
-```yaml
-aligner: bbmap      # default — current behavior
-# aligner: minimap2 # opt-in
-```
-
-| Aligner           | Wall (example fixture) | Peak RSS | Mapping-stage QC artifacts                                                                                                            |
-| ----------------- | ---------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| `bbmap` (default) | ~37 s/sample           | ~8.5 GB  | BBMap-format histograms (`_map.covstats`, `_map.basecov`, `_map.ehist`, `_map.indelhist`, `_map.mhist`, `_map.idhist`, `_map.bincov`) |
-| `minimap2`        | ~5 s/sample            | ~450 MB  | samtools-format outputs (`_samtools_stats`, `_samtools_flagstat`)                                                                     |
-
-Both produce biologically equivalent variant counts (Rosace score Pearson
-r > 0.997 between the two on the example fixture). At production scale
-(multi-GB FASTQs) the wall advantage of minimap2 shrinks to ~2-3× as BBMap's
-fixed index-loading overhead amortizes; the RSS advantage holds.
-
-Per-position coverage stats are not currently produced under `minimap2`
-(`samtools coverage` is too expensive on deeply-covered DMS data); a
-mosdepth-based replacement is planned. All other MultiQC sections work
-identically under both aligners.
+## Reference
 
 ### Working directory structure
 
@@ -259,8 +322,8 @@ The pipeline has the following directory structure:
 ```
 ├── workflow
 │   ├── rules
+│   │   └── scripts
 │   ├── envs
-│   ├── scripts
 │   ├── schemas
 │   │   ├── config.schema.yaml
 │   │   └── experiments.schema.yaml
@@ -288,143 +351,62 @@ The pipeline has the following directory structure:
 
 ```
 
-## Usage
+### Mapping tuning
 
-We normally use one instance of the pipeline for each experiment.
-This allows for simpler tracking and reproducibility of individual experiments: for
-a new dataset, fork the repo, edit the configuration files, and run the pipeline. This way,
-a record of the exact configuration and environment can be saved. It is possible to run multiple
-experiments in the same folder, but this is more difficult to reproduce.
-
-### Running the pipeline
-
-Once the dependencies have been installed (whether via conda or otherwise) the pipeline can be run with the following command:
-
-```bash
-snakemake -s workflow/Snakefile --software-deployment-method conda --cores 8
-```
-
-The maximum number of cores can be specified with the `--cores` flag. The `--software-deployment-method conda` flag
-tells Snakemake to use conda to create the environment specified within each rule.
-
-For a local run that also respects per-rule memory budgets, use the bundled local profile:
-
-```bash
-snakemake --profile workflow/profiles/default --cores 16
-```
-
-### Running on a cluster
-
-dumpling ships a SLURM profile (`workflow/profiles/slurm`). Snakemake runs on the
-login node and submits one `sbatch` job per rule instance; each job executes
-inside the [prebuilt container](#using-the-prebuilt-container-recommended) on the
-compute nodes. Every heavy rule declares `threads` and `resources: mem_mb`
-(tunable via the `mem_*` config knobs), which Snakemake translates into
-`--cpus-per-task` / `--mem` / `--time`.
-
-1. On the login node, create the thin submitting environment (Snakemake + the
-   SLURM executor plugin only):
-
-   ```bash
-   conda env create -f cluster_env.yaml
-   conda activate dumpling_cluster
-   ```
-
-2. Set your site's SLURM account and partition by uncommenting `slurm_account`
-   / `slurm_partition` under `default-resources` in `workflow/profiles/slurm/config.yaml`
-   (these are the only values that can't be defaulted). Adjust `mem_*` budgets in
-   your config if the defaults don't fit your data — read `benchmarks/{experiment}/`
-   `max_rss` from a real run to size them.
-
-3. Launch:
-
-   ```bash
-   snakemake --profile workflow/profiles/slurm --software-deployment-method apptainer
-   ```
-
-To validate the profile without submitting anything (e.g. to check resources and
-account settings resolve), add `--dry-run`.
-
-### Output files
-
-The pipeline generates a variety of output files. These are organized into the following directories:
-
-- `benchmarks`: details of the runtime and process usage for each rule
-- `logs`: log files from each rule
-- `results`: outputs from each rule (Note: many of these are intermediate files and are deleted by default).
-- `stats`: various processing statistics from each rule
-- `ref`: normalized reference, sequence dictionary, and aligner indexes. Reference-derived
-  artifacts here persist across pipeline runs — keyed on a content hash of the reference, so
-  unchanged references skip the index rebuild on repeat runs.
-
-These are ignored by git by default.
-
-Sample-derived intermediates (trimmed/cleaned FASTQs under `results/{experiment}/` and the
-mapped BAMs) are marked `temp()` and deleted as soon as their downstream consumers finish.
-To retain them for debugging — e.g. inspecting a `bbduk`-trimmed FASTQ or running
-`samtools view` on a mapped BAM — pass `--notemp` (alias: `--no-temp`, `--nt`) to the
-snakemake invocation:
-
-```bash
-snakemake -s workflow/Snakefile --configfile config/my_experiment.yaml --cores 16 --notemp
-```
-
-`--notemp` is a Snakemake built-in; no config knob needed.
-
-### Analyzing results
-
-#### QC metrics
-
-A variety of stats from tool outputs are provided in the `stats` directory. These are
-aggregated using MultiQC. The aggregated reports contain:
-- FastQC reports for raw reads (read counts, base quality, adapter content, etc.)
-- BBTools reports
-  - BBDuk reports for adapter trimming and contamination removal
-  - BBMerge reports for merging paired-end reads
-  - BBMap reports for mapping reads to the reference *(when `aligner: bbmap`)*
-- samtools stats and flagstat reports *(when `aligner: minimap2`)*
-- GATK AnalyzeSaturationMutagenesis reports for variant calling
-- Reports for variant filtering
-
-If a baseline condition is defined, a separate baseline report is also generated.
-
-The files are saved as `stats/{experiment_name}_multiqc_report.html` and
-`stats/{experiment_name}_baseline_multiqc_report.html` by default.
-
-#### Data analysis
-
-A starting analysis and plotting workflow is available in an associated
-repository: <https://github.com/odcambc/dms_analysis_stub>
+BBTools compressed IO defaults to `pigz` (parallelized across each rule's threads —
+typically saves 30-40 s/sample on 8 GB+ inputs vs single-threaded bgzip). Override via
+`bbtools_compression: bgzip | pigz | none` in the config. `none` falls back to gzip and
+is the right knob if your environment hangs in `bbduk.sh`, `bbmerge.sh`, or `bbmap.sh`.
+The legacy `bbtools_use_bgzip: true|false` knob still works (with a deprecation warning)
+and translates to `bgzip`/`none`.
 
 ## Limitations
 
 We aim to regularly update this pipeline and continually expand
 its functionality. However, there are currently several known limitations.
 
-- The pipeline is currently designed for short-read sequencing. It does not support long-read PacBio or Nanopore sequencing.
-- The pipeline is currently designed for direct sequencing. It does not support barcoded sequencing.
-- The pipeline is currently designed for single-site variants (including varying-length indels, however). It largely does not support combinatorial variants.
-- The designed variant generation step is currently optimized for DIMPLE libraries. Other protocols may require the user to generate the designed variants CSV themself.
-- This pipeline may not work properly if the data is in a cloud server (i.e., a Box drive) or other non-standard file system.
-- This pipeline currently only accepts fastq.gz files. It does not accept fastq files.
+* The pipeline is currently designed for short-read sequencing. It does not support long-read PacBio or Nanopore sequencing.
+* The pipeline is currently designed for direct sequencing. It does not support barcoded sequencing.
+* The pipeline is currently designed for single-site variants (including varying-length indels, however). It largely does not support combinatorial variants.
+* The designed variant generation step is currently optimized for DIMPLE libraries. Other protocols may require the user to generate the designed variants CSV themself.
+* This pipeline may not work properly if the data is in a cloud server (i.e., a Box drive) or other non-standard file system.
+* This pipeline currently only accepts fastq.gz files. It does not accept fastq files.
 
 ## Citations
 
 This workflow, along with Rosace, is described in the following publication:
 
-- Preprint: [Rao et al., 2023](https://www.biorxiv.org/content/10.1101/2023.10.24.562292v1)
-- Published: [Rao et al., 2024](https://doi.org/10.1186/s13059-024-03279-7)
+* Preprint: [Rao et al., 2023](https://www.biorxiv.org/content/10.1101/2023.10.24.562292v1)
+* Published: [Rao et al., 2024](https://doi.org/10.1186/s13059-024-03279-7)
 
 The Rosace-AA extension to Rosace is described in:
 
-- Preprint: [Rao et al., 2025](https://www.biorxiv.org/content/10.1101/2025.01.09.632281v1)
-- Published: [Rao et al., 2025](https://doi.org/10.1093/bioadv/vbaf218)
-
-- [Freudenberg et al., 2026](https://doi.org/10.1186/s13059-026-03934-1)
+* Preprint: [Rao et al., 2025](https://www.biorxiv.org/content/10.1101/2025.01.09.632281v1)
+* Published: [Rao et al., 2025](https://doi.org/10.1093/bioadv/vbaf218)
 
 The Lilace FACS-based model is described in:
 
-- [Freudenberg et al., 2026](https://doi.org/10.1186/s13059-026-03934-1)
+* Preprint: [Freudenberg et al., 2025](https://www.biorxiv.org/content/10.1101/2025.06.24.661380v1)
+* Published: [Freudenberg et al., 2026](https://doi.org/10.1186/s13059-026-03934-1)
+
+The Cosmos causal model is described in:
+
+* Preprint: [Rao et al., 2025](https://www.biorxiv.org/content/10.1101/2025.08.01.667517v2)
+
+The Enrich 2 model and tool is described in:
+
+* Preprint: [Rubin et al., 2016](https://www.biorxiv.org/content/10.1101/075150v1.abstract)
+* Published: [Rubin et al., 2017](https://doi.org/10.1186/s13059-017-1272-5)
+
+## Other comparable tools
+
+* [Enrich2](https://github.com/fowlerlab/enrich2)
+* [DiMSum](https://github.com/lehner-lab/DiMSum)
+* [gyōza](https://github.com/durr1602/gyoza)
+* [mutscan](https://github.com/fmicompbio/mutscan)
+* [ACIDES](https://github.com/nemoto-lab/ACIDES)
+
+See [Çubuk et al., 2025](https://doi.org/10.1038/s44320-025-00137-x) for a good review of these and other DMS scoring approaches.
 
 ## License
 
@@ -437,4 +419,4 @@ Contributions and feedback are welcome. Please submit an issue or pull request.
 ## Getting help
 
 For any issues, please open an issue on the GitHub repository. For
-questions or feedback, [email Chris](https://www.wcoyotelab.com/members/).
+questions or feedback, [email Chris](https://www.waymentsteelelab.org).

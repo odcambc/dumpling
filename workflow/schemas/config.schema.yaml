@@ -214,7 +214,7 @@ properties:
       no-op because RunRosace doesn't accept a seed argument.
   enrich2:
     type: boolean
-    default: false
+    default: true
     description: Flag for whether to run Enrich2 in addition to the chosen scoring backend.
   keep_enrich_h5:
     type: boolean
@@ -259,7 +259,7 @@ properties:
     description: Name of condition containing baseline samples. Scores will not be generated for this condition.
   max_deletion_length:
     type: integer
-    default: 3
+    default: 0
     description: >-
       Maximum length (in codons) of a designed deletion in the library. Insdels
       that resolve to an in-frame deletion longer than this are rejected. Set to
