@@ -15,6 +15,7 @@ from script_utils import (  # noqa: E402
     load_experiments,
     resolve_fastq_pair,
     translate_legacy_bbtools_compression,
+    validate_barcode_config,
     validate_experiment_time_or_bin,
     validate_scoring_backend_mode,
 )
@@ -237,8 +238,11 @@ def validate_config(config):
         if not Path(contaminant).exists():
             raise FileNotFoundError(f"Contaminants file {contaminant} does not exist")
 
-    # Check for mode with variant filtering
-    if not noprocess:
+    # Check for mode with variant filtering. In barcode mode the barcode->variant
+    # map is the variant source of truth (validated separately by
+    # validate_barcode_config), so the designed-variants/oligo files are not
+    # required — skip these checks entirely.
+    if not noprocess and not config["barcoded"]:
         # If we are regenerating the variants, then the variants file should not exist
         if config["regenerate_variants"]:
             if Path(variants_file).exists():
@@ -272,6 +276,14 @@ config.setdefault("deposit_to_mavedb", True)
 config.setdefault("keep_enrich_h5", False)
 config.setdefault("aligner", "bbmap")
 
+# Barcode-counting mode (opt-in). Only the always-meaningful knobs get a
+# default; barcode_map / barcode_pattern / barcode_start / barcode_length are
+# left unset unless the user opts in, and validate_barcode_config requires the
+# right combination when barcoded=true.
+config.setdefault("barcoded", False)
+config.setdefault("barcode_mismatches", 0)
+config.setdefault("min_barcode_count", 0)
+
 # Per-tool memory allocations (MB), matching the unit of the existing
 # mem_fastqc / mem_rosace / mem_lilace knobs. Each becomes a rule's
 # `resources: mem_mb`, which a cluster scheduler turns into `sbatch --mem`.
@@ -296,6 +308,7 @@ if config["aligner"] not in ("bbmap", "minimap2"):
     )
 validate(config, "../schemas/config.schema.yaml")
 validate_scoring_backend_mode(config)
+validate_barcode_config(config)
 
 experiments = load_experiments(config["experiment_file"])
 

@@ -309,3 +309,195 @@ def get_cosmos_phenotype_conditions(experiments, baseline_condition):
         )
 
     return [c for c, _ in sorted(slot_by_condition.items(), key=lambda kv: kv[1])]
+
+
+def resolve_barcode_conflicts(barcode, variant_counts):
+    """Decide which variant (if any) a single barcode maps to.
+
+    Called once per distinct barcode by ``load_barcode_map``. ``variant_counts``
+    is a ``pd.Series`` mapping every DISTINCT variant the map associates with
+    this ``barcode`` to the number of map rows asserting it, sorted descending
+    by count (so ``variant_counts.index[0]`` is the most-supported variant).
+
+    - Exactly one distinct variant (the overwhelming common case): unambiguous,
+      keep it.
+    - More than one distinct variant: a genuine conflict — the same tag was
+      written to multiple clones (clonal impurity) or the map has an error.
+
+    Return the chosen variant string to KEEP the barcode, or ``None`` to DROP it
+    (dropped tags are collected into the conflict report by the caller, never
+    silently discarded).
+
+    Policy (see docs/barcoding_design.md "Decisions to pin"): **drop-all**. A
+    tag that names more than one distinct variant is ambiguous — clonal
+    impurity or a map-build error — and we never risk miscounting reads against
+    the wrong variant, so it is dropped and routed to the duplicates report. A
+    tag with exactly one distinct variant (the common case) is kept.
+    """
+    if len(variant_counts) == 1:
+        return variant_counts.index[0]
+
+    # >1 distinct variant for one tag: ambiguous. Drop it; the caller records
+    # it in the duplicates report (duped_barcodes.csv).
+    return None
+
+
+def load_barcode_map(barcode_map_file, variant_column="variant", conflict_report_path=None):
+    """Load and validate a user-provided barcode->variant map (barcode mode).
+
+    In barcode mode this map is the variant source of truth — it *replaces* the
+    designed-variants table. The selection experiment sequences only the short
+    tag; count_barcodes tallies each read's tag into the variant it names here,
+    converging on the same ``(hgvs, count)`` enrich-format TSV every scoring
+    backend already consumes.
+
+    Required columns: ``barcode`` and a variant column (``variant`` by default,
+    holding an HGVS string). Read with the same ``utf-8-sig`` / blank-row-drop
+    semantics as ``load_experiments`` so a BOM-prefixed CSV exported from Excel
+    loads identically. Barcodes are uppercased and whitespace-stripped so they
+    match extracted reads regardless of how the map file was cased.
+
+    A barcode listed multiple times with the *same* variant collapses silently
+    (a duplicate row, not a conflict). A barcode mapping to multiple *distinct*
+    variants is routed to ``resolve_barcode_conflicts``, which drops it (see that
+    function for the policy).
+
+    Dropped ambiguous tags are never discarded silently: when
+    ``conflict_report_path`` is given and any conflicts were found, the offending
+    tags are written there as a "duplicates" CSV (parent dirs created as needed),
+    mirroring the designed-variant ``duped_variants.csv`` report.
+
+    Returns ``(barcode_to_variant, conflicts)``:
+      - ``barcode_to_variant``: ``dict[str, str]`` kept tag -> variant.
+      - ``conflicts``: ``pd.DataFrame`` (columns ``barcode``, ``variants``), one
+        row per dropped ambiguous tag, for the duplicates report.
+    """
+    df = pd.read_csv(barcode_map_file, header=0, encoding="utf-8-sig").dropna(how="all")
+
+    missing = {"barcode", variant_column} - set(df.columns)
+    if missing:
+        raise ValueError(
+            f"Barcode map {barcode_map_file} is missing required column(s): "
+            f"{sorted(missing)}. Found columns: {list(df.columns)}."
+        )
+
+    # Drop rows missing either field structurally (NaN), then normalize. We
+    # dropna before stringifying because the `.str` accessor is NaN-preserving:
+    # `astype(str).str.strip()` re-coerces a missing cell back to NaN rather
+    # than to the literal "nan", so a string filter would silently miss it.
+    df = df.dropna(subset=["barcode", variant_column]).copy()
+    df["barcode"] = df["barcode"].astype(str).str.strip().str.upper()
+    df[variant_column] = df[variant_column].astype(str).str.strip()
+    # Drop rows that were whitespace-only (now empty strings after strip).
+    df = df[(df["barcode"] != "") & (df[variant_column] != "")]
+
+    if df.empty:
+        raise ValueError(
+            f"Barcode map {barcode_map_file} has no usable rows "
+            f"(no non-empty 'barcode'/{variant_column!r} pairs)."
+        )
+
+    barcode_to_variant = {}
+    conflict_rows = []
+    for barcode, group in df.groupby("barcode"):
+        variant_counts = group[variant_column].value_counts()
+        resolved = resolve_barcode_conflicts(barcode, variant_counts)
+        if resolved is None:
+            conflict_rows.append(
+                {"barcode": barcode, "variants": ";".join(sorted(variant_counts.index))}
+            )
+        else:
+            barcode_to_variant[barcode] = resolved
+
+    conflicts = pd.DataFrame(conflict_rows, columns=["barcode", "variants"])
+
+    if conflict_report_path is not None and not conflicts.empty:
+        report = Path(conflict_report_path)
+        report.parent.mkdir(parents=True, exist_ok=True)
+        conflicts.to_csv(report, index=False)
+        logging.warning(
+            "Dropped %d ambiguous barcode(s) mapping to multiple variants; "
+            "offending tags written to %s.",
+            len(conflicts),
+            report,
+        )
+
+    return barcode_to_variant, conflicts
+
+
+def validate_barcode_config(config, variant_column="variant"):
+    """Validate barcode-counting-mode config knobs; no-op unless ``barcoded``.
+
+    Fails loud at parse time (so a misconfigured barcode run dies on
+    ``--dry-run``, not three rules deep) on:
+      - ``barcode_map`` missing or the file absent;
+      - the map lacking a ``barcode`` or variant column (header checked cheaply
+        with ``nrows=0`` — no need to load a multi-million-row map to validate);
+      - the extraction spec not being *exactly one* of ``barcode_pattern`` (a
+        regex with one capture group) XOR fixed-position
+        ``barcode_start``+``barcode_length``;
+      - a ``barcode_pattern`` that won't compile or doesn't have exactly one
+        capture group;
+      - a negative ``barcode_start`` or non-positive ``barcode_length``.
+
+    Mirrors ``validate_scoring_backend_mode``: a pure, unit-testable guard
+    invoked from common.smk after schema validation. The variant column is the
+    same one ``load_barcode_map`` reads (default ``variant``).
+    """
+    if not config.get("barcoded"):
+        return
+
+    barcode_map = config.get("barcode_map")
+    if not barcode_map:
+        raise ValueError(
+            "barcoded=true requires 'barcode_map' (path to the barcode->variant "
+            "CSV; it is the variant source of truth in barcode mode)."
+        )
+    if not Path(barcode_map).exists():
+        raise FileNotFoundError(f"Barcode map {barcode_map} does not exist")
+
+    header = pd.read_csv(barcode_map, nrows=0, encoding="utf-8-sig").columns
+    missing = {"barcode", variant_column} - set(header)
+    if missing:
+        raise ValueError(
+            f"Barcode map {barcode_map} is missing required column(s): "
+            f"{sorted(missing)}. Found columns: {list(header)}."
+        )
+
+    has_pattern = bool(config.get("barcode_pattern"))
+    has_fixed = (
+        config.get("barcode_start") is not None
+        and config.get("barcode_length") is not None
+    )
+    if has_pattern == has_fixed:
+        raise ValueError(
+            "barcode mode needs exactly one extraction spec: either "
+            "'barcode_pattern' (a regex with one capture group) OR both "
+            "'barcode_start' and 'barcode_length' (fixed position) — "
+            f"got {'both' if has_pattern else 'neither'}."
+        )
+
+    if has_pattern:
+        try:
+            compiled = re.compile(config["barcode_pattern"])
+        except re.error as exc:
+            raise ValueError(
+                f"barcode_pattern {config['barcode_pattern']!r} is not a valid "
+                f"regex: {exc}"
+            ) from exc
+        if compiled.groups != 1:
+            raise ValueError(
+                f"barcode_pattern {config['barcode_pattern']!r} must contain "
+                f"exactly one capture group (found {compiled.groups}); the "
+                "captured text is the barcode."
+            )
+    else:
+        if config["barcode_start"] < 0:
+            raise ValueError(
+                f"barcode_start must be a non-negative 0-based offset; "
+                f"got {config['barcode_start']}."
+            )
+        if config["barcode_length"] <= 0:
+            raise ValueError(
+                f"barcode_length must be positive; got {config['barcode_length']}."
+            )

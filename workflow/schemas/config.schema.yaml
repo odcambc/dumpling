@@ -264,6 +264,56 @@ properties:
       Maximum length (in codons) of a designed deletion in the library. Insdels
       that resolve to an in-frame deletion longer than this are rejected. Set to
       0 (or any non-positive value) to disable the length cap.
+  barcoded:
+    type: boolean
+    default: false
+    description: |
+      Master switch for barcode-counting mode. When true, the pipeline skips
+      the align->GATK variant-calling path and instead extracts a short tag from
+      each read, matches it against the whitelist in `barcode_map`, and tallies
+      it directly into the per-sample (hgvs, count) enrich-format TSV that every
+      scoring backend already consumes. The map is the variant source of truth,
+      so `variants_file`/`oligo_file` are not required in this mode. Off by
+      default (opt-in). See docs/barcoding_design.md.
+  barcode_map:
+    type: string
+    description: |
+      Path to the barcode->variant CSV (required when barcoded=true). Columns:
+      `barcode` and `variant` (an HGVS string). A barcode mapping to multiple
+      distinct variants is dropped and reported to
+      results/<experiment>/duped_barcodes.csv; same-variant duplicate rows
+      collapse silently.
+  barcode_pattern:
+    type: string
+    description: |
+      Regex with exactly one capture group locating the barcode within a read
+      (e.g. "^(.{18})" for the leading 18 nt, or an anchor on flanking constant
+      sequence). Mutually exclusive with barcode_start/barcode_length — supply
+      exactly one extraction spec when barcoded=true.
+  barcode_start:
+    type: integer
+    description: |
+      0-based offset of the barcode within the read (fixed-position extraction).
+      Use together with barcode_length; mutually exclusive with barcode_pattern.
+  barcode_length:
+    type: integer
+    description: |
+      Length in nucleotides of the fixed-position barcode. Use together with
+      barcode_start.
+  barcode_mismatches:
+    type: integer
+    default: 0
+    description: |
+      Whitelist-anchored error-correction tolerance. 0 (default) = exact match
+      only; 1 = assign a read's tag to a known barcode within Hamming distance 1
+      via a precomputed neighbor lookup. Hamming-1 correction lands in a later
+      phase; 0 is the MVP behavior.
+  min_barcode_count:
+    type: integer
+    default: 0
+    description: |
+      Optional singleton floor: tags observed fewer than this many times across
+      a sample are dropped before scoring. 0 (default) keeps every observed tag.
 
 required:
   - data_dir

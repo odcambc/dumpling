@@ -125,6 +125,30 @@ baseline_condition: baseline
 max_deletion_length: 0
 
 # -----------------------------------------------------------------------------
+# Barcode-counting mode (opt-in; off by default). See docs/barcoding_design.md.
+#
+# When `barcoded: true`, the pipeline skips the align->GATK variant-calling path
+# and instead extracts a short tag from each read, matches it against the
+# whitelist in `barcode_map`, and tallies it directly into the per-sample
+# (hgvs, count) output every scoring backend consumes. The map is the variant
+# source of truth, so variants_file/oligo_file are not required in this mode.
+#
+# barcode_map: CSV with `barcode` and `variant` (HGVS) columns. A barcode naming
+#              multiple distinct variants is dropped and reported to
+#              results/<experiment>/duped_barcodes.csv.
+# Extraction spec (supply exactly ONE):
+#   barcode_pattern: regex with one capture group, e.g. "^(.{18})" (leading 18 nt)
+#   barcode_start / barcode_length: fixed 0-based offset + length
+# barcode_mismatches: 0 = exact match (MVP); 1 = whitelist Hamming-1 correction.
+# min_barcode_count: drop tags observed fewer than this many times (0 = keep all).
+# -----------------------------------------------------------------------------
+barcoded: false
+# barcode_map: "config/barcodes/example_bc_map.csv"
+# barcode_pattern: "^(.{18})"
+# barcode_mismatches: 0
+# min_barcode_count: 0
+
+# -----------------------------------------------------------------------------
 # Other parameters:
 #
 #
