@@ -563,3 +563,129 @@ class TestConditionalRules:
         assert "{scoring_backend}/{scoring_backend}_installed.txt" in common_smk, (
             "get_input no longer interpolates scoring_backend into the install marker"
         )
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+@pytest.mark.skipif(not snakemake_available(), reason="Snakemake not installed")
+class TestBarcodeMode:
+    """Barcode-counting mode (config['barcoded']) must reroute the per-sample
+    counts producer from process_sample (align -> GATK) to count_barcodes, and
+    must not pull the bypassed GATK/align stages into the DAG."""
+
+    def _barcode_config(self, fixtures_dir, repo_root, data_dir, barcode_map, **overrides):
+        resources_dir = repo_root / "resources"
+        cfg = {
+            "experiment": "test_experiment",
+            "data_dir": str(data_dir),
+            "ref_dir": str(fixtures_dir),
+            "experiment_file": str(fixtures_dir / "mock_experiment.csv"),
+            "reference": "mock_reference.fasta",
+            # Unused in barcode mode (the map is the variant source of truth),
+            # but the schema default / common.smk read still expect the key.
+            "variants_file": str(fixtures_dir / "mock_variants.csv"),
+            "oligo_file": str(fixtures_dir / "mock_oligos.csv"),
+            "orf": "1-300",
+            "barcoded": True,
+            "barcode_map": str(barcode_map),
+            "barcode_pattern": "^(.{8})",
+            "enrich2": False,
+            "noprocess": False,
+            "run_qc": False,
+            "baseline_condition": "baseline",
+            "remove_zeros": False,
+            "regenerate_variants": False,
+            "kmers": 15,
+            "sam": "1.3",
+            "mem": 4,
+            "mem_fastqc": 1024,
+            "min_q": 30,
+            "min_variant_obs": 3,
+            "max_deletion_length": 3,
+            "samtools_local": False,
+            "rosace_local": False,
+            "adapters": str(resources_dir / "adapters.fa"),
+            "contaminants": [str(resources_dir / "sequencing_artifacts.fa.gz")],
+        }
+        cfg.update(overrides)
+        return yaml.safe_dump(cfg)
+
+    def _setup(self, fixtures_dir, repo_root, tmp_path, **overrides):
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        (data_dir / "mock_reads_R1.fastq.gz").touch()
+        (data_dir / "mock_reads_R2.fastq.gz").touch()
+
+        barcode_map = tmp_path / "bc_map.csv"
+        barcode_map.write_text("barcode,variant\nAAAACCCC,p.(G10A)\nGGGGTTTT,p.(R11K)\n")
+
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text(
+            self._barcode_config(fixtures_dir, repo_root, data_dir, barcode_map, **overrides)
+        )
+        return config_file
+
+    def _dry_run(self, repo_root, config_file, target):
+        return subprocess.run(
+            [
+                "snakemake",
+                "-s",
+                str(repo_root / "workflow" / "Snakefile"),
+                "--configfile",
+                str(config_file),
+                "--dry-run",
+                "-p",
+                "--cores",
+                "1",
+                target,
+            ],
+            capture_output=True,
+            text=True,
+            cwd=str(repo_root),
+        )
+
+    def test_count_barcodes_replaces_process_sample(self, repo_root, fixtures_dir, tmp_path):
+        config_file = self._setup(fixtures_dir, repo_root, tmp_path)
+        target = (
+            "results/test_experiment/processed_counts/"
+            "enrich_format/sample_A_R1_T0.tsv"
+        )
+        result = self._dry_run(repo_root, config_file, target)
+        assert result.returncode == 0, (
+            f"Barcode dry-run failed:\nSTDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
+        )
+        combined = result.stdout + result.stderr
+        assert "rule count_barcodes:" in combined, (
+            f"count_barcodes not scheduled:\n{result.stdout}"
+        )
+        # The bypassed direct-mode stages must not appear in the DAG.
+        assert "rule process_sample:" not in combined
+        assert "rule gatk_ASM:" not in combined
+        # trim_clean_correct is still upstream of count_barcodes.
+        assert "rule trim_clean_correct:" in combined
+
+    def test_qc_does_not_force_gatk(self, repo_root, fixtures_dir, tmp_path):
+        """With run_qc on, multiqc_dir must build without requiring the GATK /
+        align stages it normally depends on in direct mode."""
+        config_file = self._setup(fixtures_dir, repo_root, tmp_path, run_qc=True)
+        target = "stats/test_experiment/test_experiment_multiqc.html"
+        result = self._dry_run(repo_root, config_file, target)
+        assert result.returncode == 0, (
+            f"Barcode QC dry-run failed:\nSTDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
+        )
+        combined = result.stdout + result.stderr
+        assert "rule multiqc_dir:" in combined
+        assert "rule count_barcodes:" in combined
+        assert "rule gatk_ASM:" not in combined
+        assert "rule map_to_reference" not in combined
+
+    def test_duplicates_report_in_default_targets(self, repo_root, fixtures_dir, tmp_path):
+        """rule all should request the map-level duplicates report in barcode mode."""
+        config_file = self._setup(fixtures_dir, repo_root, tmp_path)
+        result = self._dry_run(
+            repo_root, config_file, "results/test_experiment/duped_barcodes.csv"
+        )
+        assert result.returncode == 0, (
+            f"duped_barcodes dry-run failed:\nSTDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
+        )
+        assert "rule barcode_map_report:" in (result.stdout + result.stderr)

@@ -120,6 +120,16 @@ def get_input(wildcards):
 
     input_list = []
 
+    if config["barcoded"]:
+        # The map-level duplicates report (ambiguous tags dropped by the
+        # drop-all policy). One file per experiment, produced once.
+        input_list.extend(
+            expand(
+                "results/{experiment_name}/duped_barcodes.csv",
+                experiment_name=config["experiment"],
+            )
+        )
+
     if experiment_samples:
         input_list.extend(
             expand(

@@ -58,9 +58,16 @@ rule generate_baseline_file_list:
             f"stats/{{experiment}}/fastqc/{fastqc_names[f]['R2']}_fastqc.html"
             for f in baseline_files
         ],
-        expand(
-            "results/{{experiment}}/gatk/{sample_prefix}.variantCounts",
-            sample_prefix=baseline_samples,
+        # GATK variantCounts only exist in direct mode; barcode mode bypasses
+        # the align -> GATK stage (the file-list script likewise skips the
+        # map/GATK paths when barcoded).
+        (
+            expand(
+                "results/{{experiment}}/gatk/{sample_prefix}.variantCounts",
+                sample_prefix=baseline_samples,
+            )
+            if not config["barcoded"]
+            else []
         ),
     output:
         temp("stats/{experiment}/baseline_file_list.txt"),

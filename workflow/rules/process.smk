@@ -15,32 +15,38 @@ rule generate_variants:
         "scripts/generate_variants.py"
 
 
-rule process_sample:
-    """Process one sample's GATK variantCounts into the per-sample Enrich2 tsv,
-    processed CSV, and total-processing stats. Runs once per sample (parallel-
-    safe; sibling invocations write to disjoint output paths)."""
-    input:
-        *([config["variants_file"]] if not config["noprocess"] else []),
-        gatk="results/{experiment}/gatk/{sample_prefix}.variantCounts",
-        # The designed variants file is only consumed when noprocess=False
-        # (i.e. when we're filtering observed variants against the designed
-        # library). Under noprocess=True it's neither read nor required to
-        # exist, so don't declare it as an input then.
-    output:
-        enrich="results/{experiment}/processed_counts/enrich_format/{sample_prefix}.tsv",
-        csv="results/{experiment}/processed_counts/{sample_prefix}.csv",
-        total_stats="stats/{experiment}/processing/{sample_prefix}_total_processing.tsv",
-    params:
-        regenerate_variants=config["regenerate_variants"],
-        gatk_dir="results/{experiment}/gatk/",
-    resources:
-        mem_mb=config["mem_process_sample"],
-    benchmark:
-        "benchmarks/{experiment}/{sample_prefix}.process_sample.benchmark.txt"
-    log:
-        "logs/{experiment}/scripts/{sample_prefix}.process_sample.log",
-    script:
-        "scripts/process_counts.py"
+# Direct (align -> GATK) mode producer of the per-sample enrich-format counts.
+# Gated off in barcode mode, where count_barcodes (barcode.smk) produces the
+# same enrich_format/{sample}.tsv + csv + total_stats outputs instead — only one
+# rule may declare a given output path.
+if not config["barcoded"]:
+
+    rule process_sample:
+        """Process one sample's GATK variantCounts into the per-sample Enrich2 tsv,
+        processed CSV, and total-processing stats. Runs once per sample (parallel-
+        safe; sibling invocations write to disjoint output paths)."""
+        input:
+            *([config["variants_file"]] if not config["noprocess"] else []),
+            gatk="results/{experiment}/gatk/{sample_prefix}.variantCounts",
+            # The designed variants file is only consumed when noprocess=False
+            # (i.e. when we're filtering observed variants against the designed
+            # library). Under noprocess=True it's neither read nor required to
+            # exist, so don't declare it as an input then.
+        output:
+            enrich="results/{experiment}/processed_counts/enrich_format/{sample_prefix}.tsv",
+            csv="results/{experiment}/processed_counts/{sample_prefix}.csv",
+            total_stats="stats/{experiment}/processing/{sample_prefix}_total_processing.tsv",
+        params:
+            regenerate_variants=config["regenerate_variants"],
+            gatk_dir="results/{experiment}/gatk/",
+        resources:
+            mem_mb=config["mem_process_sample"],
+        benchmark:
+            "benchmarks/{experiment}/{sample_prefix}.process_sample.benchmark.txt"
+        log:
+            "logs/{experiment}/scripts/{sample_prefix}.process_sample.log",
+        script:
+            "scripts/process_counts.py"
 
 
 rule remove_zeros:

@@ -25,6 +25,10 @@ def _run(snakemake):
     # The map_to_reference_minimap2 rule (workflow/rules/map.smk) and the
     # multiqc_dir rule (workflow/rules/qc.smk) follow the same convention.
     aligner = snakemake.config.get("aligner", "bbmap")
+    # Barcode mode bypasses the align -> GATK stage, so those per-sample stats
+    # don't exist; the file list then carries only the read-level stats
+    # (FastQC + trim/clean/correct) and the processed-counts CSV.
+    barcoded = snakemake.config.get("barcoded", False)
 
     logging.debug("Writing to file: %s", output_file)
 
@@ -51,7 +55,9 @@ def _run(snakemake):
         "_merge.ihist",
     )
 
-    if aligner == "bbmap":
+    if barcoded:
+        map_stats_exts = ()
+    elif aligner == "bbmap":
         map_stats_exts = (
             "_map.covstats",
             "_map.basecov",
@@ -91,8 +97,10 @@ def _run(snakemake):
                 f.write(f"{stats_prefix}/{sample}{ext}\n")
 
             # GATK ASM side-output stats files (live next to the .variantCounts).
-            for ext in (".coverageLengthCounts", ".readCounts", ".refCoverage"):
-                f.write(f"{results_prefix}/gatk/{sample}{ext}\n")
+            # Skipped in barcode mode, which never runs GATK.
+            if not barcoded:
+                for ext in (".coverageLengthCounts", ".readCounts", ".refCoverage"):
+                    f.write(f"{results_prefix}/gatk/{sample}{ext}\n")
 
             # Processed counts CSV. process_counts.py writes to
             # `processed_counts/{sample}.csv` — no `counts/` subdirectory.

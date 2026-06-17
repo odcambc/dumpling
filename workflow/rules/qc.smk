@@ -1,18 +1,28 @@
-# The map-stage stats file that triggers the multiqc_dir dependency on the
-# mapping rule depends on which aligner we're using. BBMap emits
-# `_map.covstats`; minimap2's rule emits `_samtools_stats.txt` (via
-# `samtools stats` on the BAM). MultiQC autodiscovers everything else in
-# the stats directory by content.
-if config["aligner"] == "bbmap":
-    _map_stats_trigger = "stats/{{experiment}}/{sample_prefix}_map.covstats"
-else:  # minimap2
-    _map_stats_trigger = "stats/{{experiment}}/{sample_prefix}_samtools_stats.txt"
+# The map/GATK-stage stats that multiqc_dir depends on only exist in direct
+# (align -> GATK) mode. Barcode mode bypasses both stages, so those triggers are
+# dropped and MultiQC aggregates only the read-level + barcode-counting stats
+# (FastQC, trim/clean/correct, total_processing). In direct mode the map-stage
+# trigger depends on the aligner: BBMap emits `_map.covstats`; minimap2 emits
+# `_samtools_stats.txt`. MultiQC autodiscovers everything else by content.
+if config["barcoded"]:
+    _stage_stats_triggers = []
+else:
+    if config["aligner"] == "bbmap":
+        _map_stats_trigger = "stats/{{experiment}}/{sample_prefix}_map.covstats"
+    else:  # minimap2
+        _map_stats_trigger = "stats/{{experiment}}/{sample_prefix}_samtools_stats.txt"
+    _stage_stats_triggers = expand(
+        _map_stats_trigger, sample_prefix=samples
+    ) + expand(
+        "results/{{experiment}}/gatk/{sample_prefix}.variantCounts",
+        sample_prefix=samples,
+    )
 
 
 rule multiqc_dir:
     """Final QC: aggregate FastQC and intermediate log files into a final report with MultiQC."""
     input:
-        expand(_map_stats_trigger, sample_prefix=samples),
+        _stage_stats_triggers,
         [
             f"stats/{{experiment}}/fastqc/{fastqc_names[f]['R1']}_fastqc.html"
             for f in files
@@ -21,10 +31,6 @@ rule multiqc_dir:
             f"stats/{{experiment}}/fastqc/{fastqc_names[f]['R2']}_fastqc.html"
             for f in files
         ],
-        expand(
-            "results/{{experiment}}/gatk/{sample_prefix}.variantCounts",
-            sample_prefix=samples,
-        ),
         expand(
             "stats/{{experiment}}/processing/{sample_prefix}_total_processing.tsv",
             sample_prefix=samples,
