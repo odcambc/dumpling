@@ -11,7 +11,12 @@ dependencies:
   - biopython
   - fastqc
   - samtools
-  - bbmap=39.13
+  # Pinned: bbmap 39.76+ regressed `bbmerge ecco` (crashes at
+  # WriterFactory.makeWriter, java.lang.AssertionError) on all arches.
+  # 39.52 is the highest version bioconda ships that still works. The
+  # test-env.yml CI guard rebuilds this on every PR; its `latest` cell
+  # flips green once upstream fixes it, signalling we can unpin.
+  - bbmap=39.52
   - minimap2
   - gatk4>=4.5.0.0
   - regex
