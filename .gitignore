@@ -19,6 +19,10 @@ example/
 *.fastq.gz
 *.dict
 *.fastq
+# ...but keep the tiny committed CI fixtures (test-env.yml bbmerge smoke).
+# The blanket *.fastq above is why the old --dry-run smoke test had no inputs
+# in a fresh checkout; this negation lets the fixture ship with the repo.
+!tests/fixtures/*.fastq
 # bwa / bwa-mem2 index sidecars generated from a .fasta reference.
 *.fasta.amb
 *.fasta.ann

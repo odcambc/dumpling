@@ -1,0 +1,116 @@
+name: test-env
+
+# Native cross-architecture guard for the conda tool stack.
+#
+# WHY THIS EXISTS: the container (build-container.yml) is amd64-only, and local
+# development happens on Apple Silicon (osx-arm64) Macs. A dependency can break
+# on one arch while passing on the other and never be noticed -- e.g. bbmap
+# 39.81 on bioconda regressed `bbmerge ecco` with a `WriterFactory.makeWriter`
+# AssertionError, which is why dumpling_env.yaml pins `bbmap=39.13`. That kind
+# of arch-specific break is invisible to local Mac testing; this workflow runs
+# the failure-prone step natively on BOTH arches so it surfaces in CI instead.
+#
+# The two matrix arches map onto the two arches we actually ship/use:
+#   ubuntu-latest -> linux-64   (container + cluster deployment target)
+#   macos-latest  -> osx-arm64  (local Apple Silicon development)
+# Both are GitHub-hosted and FREE for public repos (no macOS minutes multiplier).
+#
+# TIER 1 (this file): targeted `bbmerge ecco` smoke against a tiny committed
+# fixture -- guards the known failure mode at seconds-per-run.
+# TIER 2 (follow-up, tasks.md): build a fresh dumpling_env from the canonical
+# yaml and run `snakemake --use-conda` end-to-end on both arches. That needs a
+# self-contained CI fixture (config + placeholder FASTQs matching
+# config/example.csv + reference), which is the real prerequisite work.
+
+on:
+  push:
+    branches: [main, dev, container]
+    paths:
+      - dumpling_env.yaml
+      - workflow/rules/filter.smk
+      - tests/fixtures/bbmerge_smoke_R*.fastq
+      - .github/workflows/test-env.yml
+  pull_request:
+    branches: [main, dev]
+    paths:
+      - dumpling_env.yaml
+      - workflow/rules/filter.smk
+      - tests/fixtures/bbmerge_smoke_R*.fastq
+      - .github/workflows/test-env.yml
+  workflow_dispatch:
+
+jobs:
+  bbmerge-smoke:
+    name: bbmerge ecco (${{ matrix.os }}, bbmap=${{ matrix.bbmap }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        # pinned = the version we ship (must pass -> guards the artifact).
+        # latest = newest on bioconda (informational early-warning -> this is
+        #          what would have flagged the 39.81 regression before a bump).
+        bbmap: [pinned, latest]
+    # The `latest` cells are an early-warning probe, not a gate: upstream is
+    # free to break and we don't want that to redden a PR. Only the `pinned`
+    # cells -- "does the version we actually ship still work on this arch" -- block.
+    continue-on-error: ${{ matrix.bbmap == 'latest' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up micromamba
+        uses: mamba-org/setup-micromamba@v2
+        with:
+          micromamba-version: latest
+          init-shell: bash
+
+      - name: Resolve bbmap spec
+        id: spec
+        shell: bash -l {0}
+        run: |
+          set -euo pipefail
+          if [ "${{ matrix.bbmap }}" = "pinned" ]; then
+            # Pull the exact pin from the canonical env file so this never
+            # drifts from what we ship (e.g. "bbmap=39.13").
+            spec=$(grep -oE 'bbmap=[0-9.]+' dumpling_env.yaml | head -1)
+          else
+            spec=bbmap
+          fi
+          echo "spec=$spec" >> "$GITHUB_OUTPUT"
+          echo "Resolved bbmap spec: $spec"
+
+      - name: Create bbmap env
+        shell: bash -l {0}
+        run: |
+          set -euo pipefail
+          micromamba create -y -n smoke -c conda-forge -c bioconda \
+            "${{ steps.spec.outputs.spec }}"
+          echo "--- installed ---"
+          micromamba run -n smoke bbmerge.sh --version 2>&1 \
+            | grep -iE 'version' | head -2 || true
+
+      - name: bbmerge ecco smoke
+        shell: bash -l {0}
+        run: |
+          # Mirrors the bbmerge stage of workflow/rules/filter.smk's
+          # trim_clean_correct: `ecco mix` with out1/out2/ihist writers --
+          # the exact path bbmap 39.81 crashed in. A regression shows up as a
+          # non-zero exit (the AssertionError) or empty outputs.
+          set -euo pipefail
+          out="$(mktemp -d)"
+          micromamba run -n smoke bbmerge.sh \
+            in1=tests/fixtures/bbmerge_smoke_R1.fastq \
+            in2=tests/fixtures/bbmerge_smoke_R2.fastq \
+            out1="$out/R1.ec.fastq.gz" out2="$out/R2.ec.fastq.gz" \
+            ihist="$out/ihist.txt" \
+            ecco mix showhiststats=t overwrite=true t=2
+          # `gzip -dc` (not `zcat`) for macOS/Linux portability -- BSD zcat
+          # appends .Z and behaves differently from GNU zcat.
+          test -s "$out/R1.ec.fastq.gz"
+          test -s "$out/R2.ec.fastq.gz"
+          r1_lines=$(gzip -dc "$out/R1.ec.fastq.gz" | wc -l | tr -d ' ')
+          r2_lines=$(gzip -dc "$out/R2.ec.fastq.gz" | wc -l | tr -d ' ')
+          echo "ecco wrote R1=$r1_lines R2=$r2_lines lines"
+          # 3 fixture pairs -> 4 FASTQ lines each -> 12 expected per side.
+          [ "$r1_lines" -eq 12 ] && [ "$r2_lines" -eq 12 ]
