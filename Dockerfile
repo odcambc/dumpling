@@ -39,7 +39,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY dumpling_env.yaml /tmp/dumpling_env.yaml
 RUN mamba env create --prefix /opt/dumpling --file /tmp/dumpling_env.yaml \
     && mamba install --prefix /opt/dumpling -c conda-forge -c bioconda -y \
-        r-base=4.5 r-nloptr nlopt libxml2 'cmake<3.25' zlib compilers \
+        r-base=4.5 r-renv r-nloptr nlopt libxml2 'cmake<3.25' zlib compilers \
         scipy pytables statsmodels matplotlib \
     && /opt/dumpling/bin/pip install --no-cache-dir \
         multiqc-dumpling 'enrich2>=2.0.0' \
@@ -49,17 +49,37 @@ RUN mamba env create --prefix /opt/dumpling --file /tmp/dumpling_env.yaml \
 # Default PATH so all bundled tools resolve without explicit activation.
 ENV PATH=/opt/dumpling/bin:$PATH
 
-# Pre-compile CmdStan to /opt/cmdstan. Bootstrap cmdstanr from r-universe
-# just for this step; at runtime, install_rosace.R / install_lilace.R /
-# install_rosace_aa.R will renv::restore() the locked cmdstanr version
-# (0.9.0.9000 from a specific GitHub SHA, per renv.lock) and call
-# install_cmdstan(version="2.39.0", overwrite=FALSE). Because CMDSTAN
-# env var points at the already-built binary, those calls skip the rebuild.
-# This cures the "two weekends installing CmdStan" failure mode at image
-# build time.
+# The default Rosace backend is part of the image, rather than being compiled
+# on first use. Runtime containers are commonly launched with
+# `--user "$(id -u):$(id -g)"`; that user cannot write to the conda library
+# under /opt, and source-package configure checks are particularly fragile
+# under cross-architecture Docker emulation. Keep renv's library and cache at
+# fixed, image-owned paths so run_rosace.R resolves the prebuilt packages no
+# matter where the user's project is mounted.
+ENV RENV_PATHS_LIBRARY=/opt/dumpling/renv/library \
+    RENV_PATHS_CACHE=/opt/dumpling/renv/cache \
+    DUMPLING_PREINSTALLED_ROSACE=1
+COPY renv.lock /opt/dumpling/renv-project/renv.lock
+COPY renv/settings.json /opt/dumpling/renv-project/renv/settings.json
+RUN Rscript -e \
+    "library_path <- renv::paths\$library(project='/opt/dumpling/renv-project'); \
+     renv::restore(project='/opt/dumpling/renv-project', \
+                   lockfile='/opt/dumpling/renv-project/renv.lock', \
+                   library=library_path, \
+                   packages=c('rosace', 'purrr'), prompt=FALSE); \
+     .libPaths(c(library_path, .libPaths())); \
+     stopifnot(requireNamespace('rosace', quietly=TRUE), \
+               requireNamespace('cmdstanr', quietly=TRUE), \
+               requireNamespace('purrr', quietly=TRUE))" \
+    && chmod -R a+rX /opt/dumpling/renv
+
+# Pre-compile CmdStan to /opt/cmdstan with the locked cmdstanr version from the
+# fixed library. At runtime the scoring install scripts call
+# install_cmdstan(overwrite=FALSE); CMDSTAN points at this build, so they skip
+# rebuilding it.
 ENV CMDSTAN=/opt/cmdstan/cmdstan-2.39.0
 RUN Rscript -e \
-    "install.packages('cmdstanr', repos=c('https://stan-dev.r-universe.dev', 'https://cloud.r-project.org')); \
+    ".libPaths(c(renv::paths\$library(project='/opt/dumpling/renv-project'), .libPaths())); \
      dir.create('/opt/cmdstan', recursive=TRUE); \
      cmdstanr::install_cmdstan(version='2.39.0', dir='/opt/cmdstan', overwrite=FALSE)"
 

@@ -73,8 +73,22 @@ jobs:
         with:
           context: .
           platforms: linux/amd64
+          load: true
+          tags: dumpling:test
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # The published image is normally run with the host UID/GID so workflow
+      # outputs are not owned by root. Rosace must therefore load without
+      # writing to its image-owned renv library (#54).
+      - name: Test Rosace as an unprivileged runtime user
+        run: |
+          docker run --rm --user 12345:12345 dumpling:test Rscript -e \
+            "library_path <- renv::paths\$library(); \
+             .libPaths(c(library_path, .libPaths())); \
+             stopifnot(requireNamespace('rosace', quietly=TRUE), \
+                       requireNamespace('cmdstanr', quietly=TRUE), \
+                       file.access(library_path, 2) == -1)"
 
       # Re-build for push using the buildx cache from the build step; this
       # is fast (cache hit on every layer) and emits the metadata-action
