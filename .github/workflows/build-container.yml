@@ -88,7 +88,10 @@ jobs:
              .libPaths(c(library_path, .libPaths())); \
              stopifnot(requireNamespace('rosace', quietly=TRUE), \
                        requireNamespace('cmdstanr', quietly=TRUE), \
-                       file.access(library_path, 2) == -1)"
+                       file.access(library_path, 2) == -1, \
+                       dir.exists(Sys.getenv('CMDSTAN')), \
+                       as.character(cmdstanr::cmdstan_version()) == '2.39.0'); \
+             cmdstanr::check_cmdstan_toolchain()"
 
       # Re-build for push using the buildx cache from the build step; this
       # is fast (cache hit on every layer) and emits the metadata-action
