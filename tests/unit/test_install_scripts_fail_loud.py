@@ -54,3 +54,11 @@ def test_install_script_verifies_package_loads(script_name, pkg):
         f"of main(); without this gate, a silent renv::restore failure "
         f"would leave a 'installed' marker behind."
     )
+
+
+def test_rosace_container_uses_preinstalled_read_only_library():
+    src = (SCRIPTS_DIR / "install_rosace.R").read_text()
+
+    assert 'Sys.getenv("DUMPLING_PREINSTALLED_ROSACE")' in src
+    assert ".libPaths(c(renv::paths$library(), .libPaths()))" in src
+    assert 'if (!requireNamespace("renv", quietly = TRUE))' in src
