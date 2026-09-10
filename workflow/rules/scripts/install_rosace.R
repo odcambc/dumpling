@@ -57,12 +57,21 @@ main <- function() {
 
     # If local install is not used, install rosace into conda env through Renv
   } else {
-    # Install renv
-    install.packages("renv", repos = c("https://cloud.r-project.org"))
+    preinstalled <- identical(Sys.getenv("DUMPLING_PREINSTALLED_ROSACE"), "1")
 
-    library("renv")
-
-    renv::restore()
+    if (preinstalled) {
+      message("Using the Rosace environment preinstalled in the container image.")
+      library("renv")
+      .libPaths(c(renv::paths$library(), .libPaths()))
+    } else {
+      # Outside the prebuilt image, bootstrap renv only when it is absent.
+      # This avoids trying to overwrite a system library that may be read-only.
+      if (!requireNamespace("renv", quietly = TRUE)) {
+        install.packages("renv", repos = c("https://cloud.r-project.org"))
+      }
+      library("renv")
+      renv::restore()
+    }
 
     library("cmdstanr")
 
