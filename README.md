@@ -299,14 +299,14 @@ snakemake --configfile config/example.yaml --cores 8 \
 ```
 
 Replace `config/example.yaml` and `example_experiment` with the config path and
-`experiment` value for your run. In the published container, Rosace itself is
-already installed; its marker rule only verifies the installation and CmdStan
-toolchain.
+`experiment` value for your run. In the published container, all three scoring
+backends are already installed; their marker rules only verify the selected
+installation and CmdStan toolchain.
 
 Outside the published container, these install renv, restore the renv environment, and install the chosen
-backend with CmdStanR. The container performs those steps for Rosace while the image is built.
-For `install_rosace_aa`, an additional `renv::install("pimentellab/rosace-aa@<sha>")` step pulls Rosace-AA
-from GitHub at a pinned SHA (the upstream repo has no tagged releases yet). If any install fails, please
+backend with CmdStanR. The container performs those steps for all supported backends while the image is built.
+For `install_rosace_aa`, an additional source install pulls Rosace-AA from GitHub at a pinned SHA
+(the upstream repo has no tagged releases yet). If any install fails, please
 try installing the package manually.
 
 We recommend trying to install your chosen backend manually before running the pipeline, or at least

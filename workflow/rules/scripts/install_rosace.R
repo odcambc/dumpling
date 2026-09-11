@@ -57,7 +57,10 @@ main <- function() {
 
     # If local install is not used, install rosace into conda env through Renv
   } else {
-    preinstalled <- identical(Sys.getenv("DUMPLING_PREINSTALLED_ROSACE"), "1")
+    preinstalled_backends <- strsplit(
+      Sys.getenv("DUMPLING_PREINSTALLED_BACKENDS"), ",", fixed = TRUE
+    )[[1]]
+    preinstalled <- "rosace" %in% preinstalled_backends
 
     if (preinstalled) {
       message("Using the Rosace environment preinstalled in the container image.")
@@ -70,6 +73,7 @@ main <- function() {
         install.packages("renv", repos = c("https://cloud.r-project.org"))
       }
       library("renv")
+      Sys.setenv(RENV_CONFIG_INSTALL_REMOTES = "FALSE")
       renv::restore()
     }
 

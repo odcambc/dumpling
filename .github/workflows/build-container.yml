@@ -14,6 +14,8 @@ on:
     paths:
       - Dockerfile
       - dumpling_env.yaml
+      - renv.lock
+      - 'renv/**'
       - 'workflow/**'
       - 'config/**'
       - .github/workflows/build-container.yml
@@ -79,14 +81,16 @@ jobs:
           cache-to: type=gha,mode=max
 
       # The published image is normally run with the host UID/GID so workflow
-      # outputs are not owned by root. Rosace must therefore load without
-      # writing to its image-owned renv library (#54).
-      - name: Test Rosace as an unprivileged runtime user
+      # outputs are not owned by root. Every bundled scoring backend must
+      # therefore load without writing to its image-owned renv library (#54).
+      - name: Test scoring backends as an unprivileged runtime user
         run: |
           docker run --rm --user 12345:12345 dumpling:test Rscript -e \
             "library_path <- renv::paths\$library(); \
              .libPaths(c(library_path, .libPaths())); \
              stopifnot(requireNamespace('rosace', quietly=TRUE), \
+                       requireNamespace('lilace', quietly=TRUE), \
+                       requireNamespace('rosaceAA', quietly=TRUE), \
                        requireNamespace('cmdstanr', quietly=TRUE), \
                        file.access(library_path, 2) == -1, \
                        dir.exists(Sys.getenv('CMDSTAN')), \

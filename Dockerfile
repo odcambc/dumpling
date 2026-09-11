@@ -49,16 +49,19 @@ RUN mamba env create --prefix /opt/dumpling --file /tmp/dumpling_env.yaml \
 # Default PATH so all bundled tools resolve without explicit activation.
 ENV PATH=/opt/dumpling/bin:$PATH
 
-# The default Rosace backend is part of the image, rather than being compiled
-# on first use. Runtime containers are commonly launched with
+# The supported scoring backends are part of the image, rather than being
+# compiled on first use. Runtime containers are commonly launched with
 # `--user "$(id -u):$(id -g)"`; that user cannot write to the conda library
 # under /opt, and source-package configure checks are particularly fragile
 # under cross-architecture Docker emulation. Keep renv's library and cache at
 # fixed, image-owned paths so run_rosace.R resolves the prebuilt packages no
 # matter where the user's project is mounted.
+ARG ROSACE_AA_SHA=c0fda386d43f7bbede4211b4de171265f43305c9
 ENV RENV_PATHS_LIBRARY=/opt/dumpling/renv/library \
     RENV_PATHS_CACHE=/opt/dumpling/renv/cache \
-    DUMPLING_PREINSTALLED_ROSACE=1
+    RENV_CONFIG_INSTALL_REMOTES=FALSE \
+    DUMPLING_PREINSTALLED_BACKENDS=rosace,lilace,rosace_aa \
+    DUMPLING_ROSACE_AA_SHA=${ROSACE_AA_SHA}
 COPY renv.lock /opt/dumpling/renv-project/renv.lock
 COPY renv/settings.json /opt/dumpling/renv-project/renv/settings.json
 RUN Rscript -e \
@@ -66,9 +69,19 @@ RUN Rscript -e \
      renv::restore(project='/opt/dumpling/renv-project', \
                    lockfile='/opt/dumpling/renv-project/renv.lock', \
                    library=library_path, \
-                   packages=c('rosace', 'purrr'), prompt=FALSE); \
+                   packages=c('rosace', 'lilace', 'purrr'), prompt=FALSE); \
      .libPaths(c(library_path, .libPaths())); \
+     install.packages(sprintf('https://github.com/pimentellab/rosace-aa/archive/%s.tar.gz', \
+                              Sys.getenv('DUMPLING_ROSACE_AA_SHA')), \
+                      repos=NULL, type='source', lib=library_path); \
+     lock <- jsonlite::read_json('/opt/dumpling/renv-project/renv.lock')\$Packages; \
+     installed <- installed.packages(lib.loc=library_path)[, 'Version']; \
+     pinned <- intersect(names(installed), names(lock)); \
+     mismatched <- pinned[installed[pinned] != vapply(lock[pinned], function(x) x\$Version, character(1))]; \
+     if (length(mismatched)) stop('renv lock mismatch: ', paste(mismatched, collapse=', ')); \
      stopifnot(requireNamespace('rosace', quietly=TRUE), \
+               requireNamespace('lilace', quietly=TRUE), \
+               requireNamespace('rosaceAA', quietly=TRUE), \
                requireNamespace('cmdstanr', quietly=TRUE), \
                requireNamespace('purrr', quietly=TRUE))" \
     && chmod -R a+rX /opt/dumpling/renv

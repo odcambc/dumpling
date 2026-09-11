@@ -56,9 +56,19 @@ def test_install_script_verifies_package_loads(script_name, pkg):
     )
 
 
-def test_rosace_container_uses_preinstalled_read_only_library():
-    src = (SCRIPTS_DIR / "install_rosace.R").read_text()
+@pytest.mark.parametrize(
+    "script_name,backend",
+    [
+        ("install_rosace.R", "rosace"),
+        ("install_lilace.R", "lilace"),
+        ("install_rosace_aa.R", "rosace_aa"),
+    ],
+)
+def test_container_uses_preinstalled_read_only_library(script_name, backend):
+    src = (SCRIPTS_DIR / script_name).read_text()
 
-    assert 'Sys.getenv("DUMPLING_PREINSTALLED_ROSACE")' in src
+    assert 'Sys.getenv("DUMPLING_PREINSTALLED_BACKENDS")' in src
+    assert f'"{backend}" %in% preinstalled_backends' in src
     assert ".libPaths(c(renv::paths$library(), .libPaths()))" in src
     assert 'if (!requireNamespace("renv", quietly = TRUE))' in src
+    assert 'Sys.setenv(RENV_CONFIG_INSTALL_REMOTES = "FALSE")' in src
