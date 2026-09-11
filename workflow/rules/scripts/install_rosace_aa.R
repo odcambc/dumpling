@@ -4,7 +4,7 @@
 # the conda-controlled renv project library.
 #
 # Mirrors install_rosace.R's shape — same renv::restore() bootstrap for
-# the base R dependency set — but additionally calls renv::install() to
+# the base R dependency set — but additionally installs a pinned source archive to
 # pull rosace-aa from GitHub at a pinned SHA. The SHA pin keeps repeat
 # installs bit-reproducible without requiring rosace-aa to live in
 # renv.lock (the upstream repo has no tagged releases, so we pin the
@@ -60,13 +60,27 @@ main <- function() {
       stop("rosaceAA not available in local R environment. Please check installation.")
     }
   } else {
-    install.packages("renv", repos = c("https://cloud.r-project.org"))
-    library("renv")
+    preinstalled_backends <- strsplit(
+      Sys.getenv("DUMPLING_PREINSTALLED_BACKENDS"), ",", fixed = TRUE
+    )[[1]]
+    preinstalled <- "rosace_aa" %in% preinstalled_backends
 
-    # Restore base R deps from the repo-level lockfile (cmdstanr, impute,
-    # the common-to-both-backends pieces). rosace-aa itself isn't in the
-    # lockfile yet — install it explicitly below at the pinned SHA.
-    renv::restore()
+    if (preinstalled) {
+      message("Using the rosace-aa environment preinstalled in the container image.")
+      library("renv")
+      .libPaths(c(renv::paths$library(), .libPaths()))
+    } else {
+      if (!requireNamespace("renv", quietly = TRUE)) {
+        install.packages("renv", repos = c("https://cloud.r-project.org"))
+      }
+      library("renv")
+
+      # Restore base R deps from the repo-level lockfile (cmdstanr, impute,
+      # the common-to-both-backends pieces). rosace-aa itself isn't in the
+      # lockfile yet — install it explicitly below at the pinned SHA.
+      Sys.setenv(RENV_CONFIG_INSTALL_REMOTES = "FALSE")
+      renv::restore()
+    }
 
     library("cmdstanr")
 
@@ -88,14 +102,21 @@ main <- function() {
       }
     )
 
-    # Pin to a specific SHA so repeat installs of this conda env reproduce
-    # bit-for-bit. The Bioconductor `impute` dep is already in renv.lock
-    # so it gets pulled in by renv::restore() above.
-    message(sprintf("Installing rosace-aa pinned at SHA %s", ROSACE_AA_SHA))
-    renv::install(
-      sprintf("pimentellab/rosace-aa@%s", ROSACE_AA_SHA),
-      prompt = FALSE
-    )
+    if (!preinstalled) {
+      # Pin to a specific SHA so repeat installs of this conda env reproduce
+      # bit-for-bit. The Bioconductor `impute` dep is already in renv.lock
+      # so it gets pulled in by renv::restore() above.
+      message(sprintf("Installing rosace-aa pinned at SHA %s", ROSACE_AA_SHA))
+      install.packages(
+        sprintf(
+          "https://github.com/pimentellab/rosace-aa/archive/%s.tar.gz",
+          ROSACE_AA_SHA
+        ),
+        repos = NULL,
+        type = "source",
+        lib = renv::paths$library()
+      )
+    }
 
     # Sanity-check: package must be loadable as `rosaceAA` (camelCase, per
     # the DESCRIPTION's Package: field on the upstream repo).
